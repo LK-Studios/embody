@@ -714,13 +714,12 @@ def keep_tiers(s):
     `outside_reach` and is left for its own build to place."""
     w = s.world
     root = s.summary()["root"]
-    names = {e["name"]: e["id"] for e in w.find(type="place", limit=None)}
     parent = root
-    for name, tier, description in TIERS:
-        if name not in names:
-            names[name] = s.spawn("place", parent, name, state={"tier": tier, "description": description})["id"]
-        parent = names[name]
-    reach = names["The Reach"]
+    for name, tier, description in TIERS:  # found by its tier under its parent, so a live rename never makes a twin
+        have = next((c["id"] for c in w.children(parent) if c["type"] == "place" and c["state"].get("tier") == tier
+                     and (tier != "region" or c["name"] == name)), None)
+        parent = have or s.spawn("place", parent, name, state={"tier": tier, "description": description})["id"]
+    reach = parent
     if not w.get(reach)["state"].get("frame"):
         s.layout(placements=[{"entity": reach, "frame": dict(w.get(root)["state"].get("frame") or FRAME)}])
     for e in w.children(root):

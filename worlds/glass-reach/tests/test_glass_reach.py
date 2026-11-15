@@ -566,6 +566,9 @@ def test_the_world_grows_its_tiers_once_and_the_reach_keeps_every_spot():
     n = len(gm.history(kinds=["regrouped"], limit=100))
     load_world(gm, "glass-reach", upgrade=True, hosted=True)
     assert len(gm.history(kinds=["regrouped"], limit=100)) == n  # once
+    gm.rename("Morrow", "Somewhere Else")  # a live rename: the next boot finds the planet by its tier, not its name
+    load_world(gm, "glass-reach", upgrade=True, hosted=True)
+    assert len([e for e in w.find(type="place", limit=None) if e["state"].get("tier")]) == 5
 
 def varrick_men(gm):
     st = story(gm)
