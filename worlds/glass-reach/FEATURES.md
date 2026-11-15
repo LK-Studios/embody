@@ -7,6 +7,13 @@ through someone who explains it. No spoilers: a mystery stays out of this list u
 Format: one `## date: title` heading per entry (date is the real-world day it went live), then two or three
 sentences. `status: coming` under a heading means it is built or being built and not live yet.
 
+## 2026-11-15: The siege lifts by water, and the brake growls first
+
+The siege at Scar Gate is decided by water now. Each dawn the Hold's water is counted, and two wet dawns in a row
+sent Dreyer's riders home to the Dry Camp. A skin can be poured into the Hold's jars, cask or cistern, so every seep
+run counts. In the Thornbrake at night the pack growls before it springs: you get a moment to back out of their
+ground, and only whoever stays is set on. Beasts also let a grudge go now, and a wild one that is badly hurt breaks off.
+
 ## 2026-11-14: Belt wards from the House
 
 The dawn crawler after the moon brought a long black oak case to the Hold under House Varrick's seal: six belt wards
