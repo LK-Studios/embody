@@ -551,6 +551,7 @@ def populate(s):
     keep_corins_file_kit(s, names_of(s))  # after the nine are made
     keep_faction_stores(s, names_of(s))  # last, so everyone made above learns the word
     lay_out(s)
+    keep_tiers(s)
     s.clock(run=False, turn=3)
     return s.summary()
 
@@ -621,6 +622,7 @@ def upgrade(s):
     keep_corins_file_kit(s, names_of(s))  # after the nine are made
     keep_faction_stores(s, names_of(s))  # last, so everyone made above learns the word
     lay_out(s)
+    keep_tiers(s)
 
 
 # Where the Reach lies, from the canon: metres, north up, the Hold in the gap of the Scar at x = y = 0. The Salt Road
@@ -693,6 +695,37 @@ ROUTES = [
     {"a": "The Salt Road", "b": "Weeping Rock", "route": [[60, 1150], [-30, 1150]]},
     {"a": "The Dry Camp", "b": "The Riders' Hollow", "route": [[2520, -3400], [2620, -4000], [2700, -4600, -3]]},
 ]
+
+
+# The world's tiers, grown to full depth once (Nate 2026-11-15): the root is everything, and under it the empire's
+# stars, the system, the planet, the continent and the Reach, so a later chapter only adds nodes to the right tier.
+# The Reach takes the root's frame unchanged, so every spot in it stays where it was. Names are defaults.
+TIERS = [("The Crown's stars", "galaxy", "The stars the Crown holds under its charter, and the dark between them."),
+         ("The Fulgar system", "system", "The sun the Reach burns under, and its moon."),
+         ("Fulgar", "planet", "A Crown world, held under the emperor's charter."),
+         ("The northern continent", "continent", "The land the Scar runs down."),
+         ("The Reach", "region", "The desert east of the Scar: black glass and sand under a hard sun, the Keth's old "
+                                 "country, held for the Crown from the Hold in the gap.")]
+
+
+def keep_tiers(s):
+    """Grow the tiers under the root once, then regroup every place still directly under the root into the Reach,
+    quietly: each keeps its spot and nobody hears a thing move. A place that belongs to another tier says so with
+    `outside_reach` and is left for its own build to place."""
+    w = s.world
+    root = s.summary()["root"]
+    names = {e["name"]: e["id"] for e in w.find(type="place", limit=None)}
+    parent = root
+    for name, tier, description in TIERS:
+        if name not in names:
+            names[name] = s.spawn("place", parent, name, state={"tier": tier, "description": description})["id"]
+        parent = names[name]
+    reach = names["The Reach"]
+    if not w.get(reach)["state"].get("frame"):
+        s.layout(placements=[{"entity": reach, "frame": dict(w.get(root)["state"].get("frame") or FRAME)}])
+    for e in w.children(root):
+        if e["type"] == "place" and not e["state"].get("tier") and not e["state"].get("outside_reach"):
+            s.move(e["id"], reach, quiet=True)
 
 
 def lay_out(s):

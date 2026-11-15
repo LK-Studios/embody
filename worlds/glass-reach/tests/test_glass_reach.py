@@ -532,7 +532,7 @@ def test_the_reach_is_laid_out_from_the_canon_once_and_a_live_edit_survives_the_
     eng = Engine(workspace=REPO)
     gm = eng.session("gm", capabilities=[AUTHOR])
     load_world(gm, "glass-reach", hosted=True)
-    m = gm.map(depth=2)
+    m = gm.map(under="The Reach", depth=2)  # the Reach is a region under the world's tiers, in the root's old frame
     rows = {e["name"]: e for e in m["entities"]}
     places = [e for e in m["entities"] if e["type"] == "place"]
     assert len(places) == 21 and all(e["own"] for e in places)  # thirteen, the Guild Yard, its two rooms,
@@ -546,6 +546,26 @@ def test_the_reach_is_laid_out_from_the_canon_once_and_a_live_edit_survives_the_
     load_world(gm, "glass-reach", upgrade=True, hosted=True)
     assert gm.measure("The Carriers' Landing")["a"]["at"] == [320, 3600, 0]
 
+
+
+def test_the_world_grows_its_tiers_once_and_the_reach_keeps_every_spot():
+    eng, gm = hosted()
+    w = gm.world
+    chain, node = [], w.root_id
+    while True:
+        kids = [c for c in w.children(node) if c["type"] == "place" and c["state"].get("tier")]
+        if not kids:
+            break
+        node = kids[0]["id"]
+        chain.append((kids[0]["name"], kids[0]["state"]["tier"]))
+    assert [t for _, t in chain] == ["galaxy", "system", "planet", "continent", "region"]
+    assert [c["name"] for c in w.children(w.root_id) if c["type"] == "place"] == ["The Crown's stars"]
+    assert gm.inspect("Scar Gate, the Hold")["parent"] == gm.inspect("The Reach")["id"]
+    assert gm.measure("Scar Gate, the Hold", "The Gate Yard")["ground"] == 35.0  # the root's frame, unchanged
+    assert not gm.history(kinds=["moved", "left"], touching=gm.inspect("Scar Gate, the Hold")["id"])  # nobody heard
+    n = len(gm.history(kinds=["regrouped"], limit=100))
+    load_world(gm, "glass-reach", upgrade=True, hosted=True)
+    assert len(gm.history(kinds=["regrouped"], limit=100)) == n  # once
 
 def varrick_men(gm):
     st = story(gm)
