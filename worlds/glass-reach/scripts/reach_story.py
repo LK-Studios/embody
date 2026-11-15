@@ -116,7 +116,7 @@ def on(ctx, event):
         scene(ctx, st.flats, "The glare comes up off the glass until there is no ground, only light.")
     elif k == "dusk":
         ctx.patch(ctx.root(), {"ambient": {"time_of_day": "dusk", "weather": "the heat going out of the air fast", "light": "red, long shadows"}})
-        scene(ctx, st.hold, "The sun drops behind Red Ridge and the Hold's walls start to tick as they cool.")
+        scene(ctx, st.hold, "The sun drops behind the Scar and the Hold's walls start to tick as they cool.")
     elif k == "night":
         ctx.patch(ctx.root(), {"ambient": {"time_of_day": "night", "weather": "cold, the glass giving back the day's heat", "light": "starlight, the dunes pale"}})
         scene(ctx, st.flats, "Night comes down on the Flats all at once. The glass ticks as it cools, and somewhere under the dunes something answers the ticking.")
