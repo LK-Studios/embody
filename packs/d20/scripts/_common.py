@@ -344,8 +344,8 @@ def strike(ctx, me, t, slow):
     weapon = melee(me)
     wname = weapon.name if weapon else "bare hands"
     ward = held(t, "ward")
-    if not t.state.yielded and t.state.attacked_by != me.id:
-        ctx.patch(t, {"attacked_by": me.id})
+    if not t.state.yielded:
+        ctx.patch(t, {"attacked_by": me.id, "attacked_at": ctx.t})  # the grudge, and when it was last fed
     if t.state.yielded == me.id:
         ctx.emit("dishonor", target=me, reach=-1, against=t.id)
     cx = (weapon.state.cooldown_x if weapon else None) or 1  # a maul's 2: the engine holds the striker off longer
@@ -471,8 +471,8 @@ def shot(ctx, me, t, weapon):
     wname = weapon.name
     if weapon.state.loaded is not None:
         ctx.patch(weapon, {"loaded": False})
-    if not t.state.yielded and t.state.attacked_by != me.id:
-        ctx.patch(t, {"attacked_by": me.id})
+    if not t.state.yielded:
+        ctx.patch(t, {"attacked_by": me.id, "attacked_at": ctx.t})  # the grudge, and when it was last fed
     if t.state.yielded == me.id:
         ctx.emit("dishonor", target=me, reach=-1, against=t.id)
     extra = int(ammo.state.damage or 0) if ammo is not None else 0
@@ -515,6 +515,11 @@ def shot(ctx, me, t, weapon):
     ctx.log(("hit for " + str(dmg) if hit else "miss") + " (" + str(attack) + " vs " + str(defence) + ")")
     return {"hit": hit, "dmg": dmg, "attack": attack, "defence": defence, "far": far,
             "cooldown_x": weapon.state.cooldown_x or 1}
+
+def grudge_for(ctx):
+    # how long a fighter keeps a grudge with no blow from its foe: root `grudge_for`, world seconds (default an hour)
+    g = ctx.root().state.grudge_for
+    return 3600 if g is None else float(g)
 
 def faction_of(ctx, who):
     name = who.state.faction

@@ -89,11 +89,13 @@ an old pair is no longer a grown pair, and kids are fair game, so a herd can sti
 Events: `beast_grew`, `beast_hungry`, `beast_tamed`, `beast_trust`, `beast_bit`, `beast_shied`, `beast_feral`,
 `beast_carrying`, `beast_born`, `beast_died` {why: hunger, age}, `beast_yielded`, `beast_stays`, `beast_comes`,
 `beast_released`, `growled`, `fed`, `beast_hunts`, `beast_fled`, `beast_hunt_failed`, `killed` {by, why: hunt},
-`beast_wandered_in`, `butchered`. Walks arrive `quiet`.
+`beast_wandered_in`, `butchered`, `beast_broke_off` {beast, by, to, hp}. Walks arrive `quiet`.
 
 What a world does not need: no ticks of its own for hunger or growth (the day does it), no follow code (village `go`
 moves whoever `follows` the walker), and no fight code (beasts run d20's `fighter_tick`, so a struck beast or a kept
-guard whose owner is struck fights back).
+guard whose owner is struck fights back). A wild beast a person hurts to half its hp breaks off: it drops its grudge and
+walks one way out, home first, else a place with no people in it, else any open way (`beast_broke_off`); with no way
+open it fights on. A blow from another beast (a hunt) never makes it break off.
 """
 
 PACK = {"name": "beasts", "description": "Animals that grow up, eat what the land gives, can be tamed and kept, and breed as far as the land carries."}
@@ -105,6 +107,11 @@ RULES = [
      "now": "Beasts have hp and max_hp like everyone, in every species stage.",
      "retired": ["vigor", "max_vigor"], "recheck": ["notes on beasts' strength", "scripts that read a beast's vigor"],
      "guide": ["player", "mind"]},
+    {"id": "beasts-break-off", "date": "2026-11-15",
+     "was": "A wild beast fought until it or you went down.",
+     "now": "A wild beast a person hurts to half its hp breaks off and runs one way out (home first, else a place with "
+            "nobody in it), and its grudge goes with it (beast_broke_off). Cornered, it fights on.",
+     "recheck": ["hunting plans that count on a beast standing to the end"], "guide": ["player", "mind"]},
 ]
 
 BEAST_STATE = {"beast": True, "species": None, "sex": None, "age": 0, "stage": None, "fed": 3, "hungry": False,

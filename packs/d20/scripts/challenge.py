@@ -7,6 +7,8 @@ def check(ctx):
         return "challenge someone else"
     if ctx.target.parent.id != ctx.actor.parent.id:
         return "they are not here"
+    if ctx.target.state.beast:
+        return ctx.target.name + " is a beast: it keeps no ring and takes no terms. Fight it, or walk away (leaving ends it)"
     if ctx.actor.state.down or ctx.target.state.down or ctx.target.state.dead:
         return "a duel needs two on their feet"
     if in_duel(ctx, ctx.actor) or in_duel(ctx, ctx.target):

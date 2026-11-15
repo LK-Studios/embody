@@ -36,6 +36,10 @@ The numbers, so a narrator can explain a roll:
   from common, after `in_sight`, `can_fire` and `ring_blocks`. Blows use the first weapon held that does not fire.
 - A fighter (a body with the `fighter_tick` behavior) with a bow that will fire shoots its foes one way over as
   well as here: whoever struck it last, and anyone its faction has outlawed. So wardens cover a road.
+- A grudge ends. A blow or a shot makes the striker its target's foe (`attacked_by`, and `attacked_at` the world t).
+  A fighter keeps that foe only while they stand where it can reach them (here, or in its bow's sight), have not
+  yielded to it, and struck it within the root's `grudge_for` (world seconds, default 3600). Walk away and it is
+  over: coming back starts nothing. A challenge to a beast is refused (a beast keeps no ring).
 - Strikes take their time. `attack`, `shoot` and `kill` are strikes (`strikes: true`): after one, the striker
   waits the engine's cooldown before striking that foe again, and half of it before anyone (docs/SCRIPTING.md,
   Strikes; a minute of real time when a player or a mind holds either side, 15 s when neither does, nothing on a
@@ -153,6 +157,12 @@ RULES = [
      "now": "Thirst kills, slowly: a body thirst put down that stays dry gets fading each world day and dies (died, "
             "why: thirst) after 1, 2 or 3 days by its body. Water or a tend clears the count.",
      "recheck": ["water plans", "watch filters: wake on fading"], "guide": ["player", "mind"]},
+    {"id": "grudges-end", "date": "2026-11-15",
+     "was": "A fighter or a beast you struck kept you as its foe for good, and you could challenge a beast to a duel.",
+     "now": "A grudge ends: when you walk out of its reach, when you yield to it, or a world hour after your last blow "
+            "(root grudge_for). Coming back starts nothing unless you strike again. A beast cannot be challenged: "
+            "fight it, or walk away.",
+     "recheck": ["plans that avoid a place for fear of an old fight", "duels with beasts"], "guide": ["player", "mind"]},
 ]
 
 COMBATANT_STATE = {"body": 1, "wits": 1, "will": 1, "skills": {}, "hp": 6, "max_hp": 6, "water": 10, "max_water": 10,

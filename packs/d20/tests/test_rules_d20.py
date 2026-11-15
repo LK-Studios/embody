@@ -373,6 +373,44 @@ def test_loud_steps_and_digging_wake_the_thresher_the_broken_step_does_not():
     gm.clock(step=10)
     assert gm.inspect("The Thresher")["parent"] == gm.inspect("The Deep")["id"]
 
+def test_a_grudge_holds_while_the_foe_stands_here_and_ends_when_they_walk_away_yield_or_go_quiet():
+    eng, gm, you = reach()
+    you.act("go", "The Gate Yard")
+    gm.act_as("Reeve Ansel Varrick", "toggle", "Belt ward")
+    gm.spawn("fighter", "The Gate Yard", "Brawler", state={"hp": 40, "max_hp": 40})
+    gm.patch("Reeve Ansel Varrick", {"hp": 40, "max_hp": 40})
+    strong(gm, "Reeve Ansel Varrick")
+    me = gm.inspect("Reeve Ansel Varrick")["id"]
+    brawler = gm.inspect("Brawler")["id"]
+
+    def blows():
+        return len([e for e in gm.world.events(0, kinds=["hit", "missed"], limit=5000) if e["payload"]["by"] == brawler])
+
+    you.act("attack", "Brawler")
+    assert state(gm, "Brawler")["attacked_by"] == me and state(gm, "Brawler")["attacked_at"] is not None
+    gm.clock(step=6)
+    assert blows() == 1  # he strikes back
+    # walk away: the grudge is over at his next tick, and coming back starts nothing
+    you.act("go", "Scar Gate, the Hold")
+    gm.clock(step=6)
+    assert state(gm, "Brawler").get("attacked_by") is None
+    you.act("go", "The Gate Yard")
+    gm.clock(step=60)
+    gm.clock(step=60)
+    assert blows() == 1
+    # a yield ends it
+    you.act("attack", "Brawler")
+    you.act("yield", "Brawler")
+    gm.clock(step=60)
+    assert state(gm, "Brawler").get("attacked_by") is None and blows() == 1
+    # and so does a world hour with no blow from the foe (root grudge_for)
+    gm.patch("Reeve Ansel Varrick", {"yielded": None})
+    you.act("attack", "Brawler")
+    gm.patch("Brawler", {"attacked_at": gm.summary()["t"] - 3601})
+    gm.clock(step=60)
+    assert state(gm, "Brawler").get("attacked_by") is None and blows() == 1
+
+
 def test_a_fighter_on_his_own_keeps_out_of_a_ring_he_is_not_in():
     # Ruhl is a Varrick fighter; Dram struck the reeve, so Varrick outlawed him. Inside the reeve's duel Ruhl waits.
     eng, gm, you = reach()

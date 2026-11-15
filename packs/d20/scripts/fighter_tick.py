@@ -1,8 +1,8 @@
 use("common")
 def tick(ctx):
-    # a fighter without a mind: in a duel, strike the other; then whoever struck me last; then anyone my faction has
-    # outlawed. With a bow that will fire, it also shoots them one way over, so wardens can cover a road. Every deed
-    # waits out its cooldown on that foe (blow).
+    # a fighter without a mind: in a duel, strike the other; then whoever struck me last, while that grudge holds
+    # (grudge_holds); then anyone my faction has outlawed. With a bow that will fire, it also shoots them one way
+    # over, so wardens can cover a road. Every deed waits out its cooldown on that foe (blow).
     me = ctx.self
     st = me.state
     if st.down or st.dead or st.asleep or me.parent is None:
@@ -19,8 +19,10 @@ def tick(ctx):
         bow = None
     # outside a duel the ring is law: never strike someone who is in a duel I am not part of
     foe = ctx.get(st.attacked_by) if st.attacked_by else None
-    if foe is not None and standing_foe(foe) and foe.state.yielded != me.id and not in_a_ring(ctx, foe) and (
-            foe.parent.id == me.parent.id or (bow is not None and in_sight(ctx, me, foe))):
+    if st.attacked_by and not grudge_holds(ctx, me, foe, bow):
+        ctx.patch(me, {"attacked_by": None, "attacked_at": None})
+        foe = None
+    if foe is not None and standing_foe(foe) and not in_a_ring(ctx, foe):
         blow(ctx, me, foe, bow)
         return
     f = faction_of(ctx, me)
@@ -41,6 +43,18 @@ def tick(ctx):
             if hostile.get(p.id) and standing_foe(p) and not in_a_ring(ctx, p) and in_sight(ctx, me, p):
                 blow(ctx, me, p, bow)
                 return
+
+def grudge_holds(ctx, me, foe, bow):
+    # whoever struck me last stays my foe while they are here (or in my bow's sight), have not yielded to me, and
+    # struck me within the world's grudge_for (default a world hour). Walking away ends it, and so does peace.
+    if foe is None or foe.parent is None or foe.state.dead or foe.state.yielded == me.id:
+        return False
+    if foe.parent.id != me.parent.id and not (bow is not None and in_sight(ctx, me, foe)):
+        return False
+    if me.state.attacked_at is None:
+        ctx.patch(me, {"attacked_at": ctx.t})  # a grudge from before grudges had a clock: it starts now
+        return True
+    return ctx.t - float(me.state.attacked_at) < grudge_for(ctx)
 
 def standing_foe(p):
     return p.parent is not None and not p.state.down and not p.state.dead

@@ -3,7 +3,8 @@ use("beasts")
 # (dawn) is a day: forage regrows, beasts age and grow, go hungry or eat, keep or lose their loyalty, give birth,
 # conceive and give what they give. The kinds named as the night (root `beast_night`) are when predators hunt; with
 # none they hunt at the start of the day. `arrived`: a kept guard growls at a stranger. `hit`, `missed`: a kept guard
-# takes up its owner's fight, and an owner's blow costs loyalty. `killed`: a beast killed leaves a carcass.
+# takes up its owner's fight, and an owner's blow costs loyalty; a wild beast a person hurts to half breaks off and
+# runs (break_off). `killed`: a beast killed leaves a carcass.
 
 def on(ctx, event):
     k = event.kind
@@ -38,6 +39,7 @@ def growl(ctx, event):
         return
 
 def blows(ctx, event):
+    k = event.kind
     t = ctx.get(event.target) if event.target else None
     by = ctx.get(event.payload.get("by")) if event.payload.get("by") else None
     if t is None or by is None or t.parent is None:
@@ -46,11 +48,42 @@ def blows(ctx, event):
         ctx.patch(t, {"loyalty": max(0, int(t.state.loyalty or 0) - 1)})
         ctx.emit("beast_loyalty", target=t, reach=0, loyalty=max(0, int(t.state.loyalty or 0) - 1), why="struck")
         return
+    if k == "hit" and t.state.beast and t.state.owner is None and not by.state.beast:
+        break_off(ctx, t, by, event.payload.get("hp"))
     for b in ctx.children(t.parent, "beast"):
         if b.state.owner != t.id or b.id == by.id or not able(b) or b.state.down:
             continue
         if sv(b, species_of(ctx, b), "guards", False) and b.state.attacked_by != by.id:
             ctx.patch(b, {"attacked_by": by.id, "asleep": False})  # its fighter tick takes up the fight
+
+def break_off(ctx, b, by, hp):
+    # a wild beast a person has hurt to half its hp (and not down) stops fighting and runs: one way out, home first,
+    # else a place with no people in it, else any open way. Cornered, with no way open, it fights on.
+    hp = int(b.state.hp or 0) if hp is None else int(hp)
+    mx = int(b.state.max_hp or 0)
+    if b.parent is None or b.state.dead or hp <= 0 or mx <= 0 or hp * 2 > mx:
+        return
+    home = ref(ctx, b.state.home)
+    ways = []
+    for e in ctx.edges(b.parent, "connects_to", "out"):
+        q = ctx.get(e["target"])
+        if q is not None and open_way(ctx, b, b.parent, q):
+            ways.append(q)
+    if len(ways) == 0:
+        return
+    to = None
+    for q in ways:
+        if home is not None and q.id == home.id:
+            to = q
+    if to is None:
+        for q in ways:
+            if to is None and len([c for c in ctx.children(q, "creature") if not c.state.beast]) == 0:
+                to = q
+    to = to or ways[0]
+    ctx.patch(b, {"attacked_by": None, "attacked_at": None})
+    ctx.emit("beast_broke_off", target=b.parent, reach=1, beast=b.id, species=b.state.species, by=by.id, to=to.id,
+             hp=hp)
+    walk_to(ctx, b, to, "broke off")
 
 def day(ctx):
     ended = today(ctx)

@@ -386,3 +386,21 @@ def test_young_on_the_way_count_against_the_land(wild):
 
 def where(gm, name):
     return gm.world.get(gm.world.get(gm.inspect(name)["id"])["parent_id"])["name"]
+
+
+def test_a_wild_beast_a_person_hurts_to_half_breaks_off_and_takes_no_ring(wild):
+    eng, gm = wild
+    boar = beast(gm, "Brake", "Thornback boar", sex="m", home="Brake")
+    gm.spawn("person", "Yard", "Dov")
+    gm.move("Ada", "Brake")
+    gm.patch("Ada", {"body": 25})  # d20 + 25 beats any defence
+    with pytest.raises(Rejected, match="is a beast"):
+        gm.act_as("Ada", "challenge", boar)
+    gm.act_as("Ada", "attack", boar)  # 6 to 5: above half, it stands and keeps its grudge
+    assert gm.inspect(boar)["parent"] == gm.inspect("Brake")["id"] and st(gm, boar)["attacked_by"] == gm.inspect("Ada")["id"]
+    gm.patch(boar, {"hp": 4})
+    r = gm.act_as("Ada", "attack", boar)  # 4 to 3: half, and it runs, away from Dov in the Yard, into the Den
+    assert gm.inspect(boar)["parent"] == gm.inspect("Den")["id"]
+    assert st(gm, boar).get("attacked_by") is None and st(gm, boar)["hp"] == 3 and not st(gm, boar)["down"]
+    off = [e["payload"] for e in gm.world.events(0, kinds=["beast_broke_off"], limit=50)]
+    assert off and off[0]["by"] == gm.inspect("Ada")["id"] and off[0]["to"] == gm.inspect("Den")["id"]
