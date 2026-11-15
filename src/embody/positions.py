@@ -9,6 +9,11 @@ One rule, the same in map, measure, verify and the viewer:
 Every place (but the root), and anything directly in a place, needs 1 or 2: a place's centre is not a spot in it. What
 lies in no place at all (a story's hidden facts, a species) is off the map and needs none.
 
+Tiers: a place whose state names a `tier` (universe, galaxy, system, planet, continent, region) is a container that
+needs no spot of its own. One that also carries a `frame` ({units, bounds}) starts a frame: everything under it is
+placed in that frame, not the root's (a region in metres, a planet in km, a system in AU). A spot is never inherited
+across a frame's edge, and nothing is measured across one. A tier with no frame of its own shares its parent's.
+
 Landmarks are named spots on a place's layout (`landmarks: {"the cistern": {"at": [x, y, z], "radius": 3}}`), so an
 author or a script places by name (`at="the cistern"`) and perceive says where someone stands ("by the cistern").
 A thing that changes hands or walks in keeps a true spot: dropped, it lies where the dropper stands; walked in, it
@@ -38,6 +43,51 @@ def is_place(w: "World", e: dict[str, Any]) -> bool:
     return bool(e) and w.is_a(e["type"], "place")
 
 
+def is_tier(w: "World", e: dict[str, Any] | None) -> bool:
+    """A tier of the world (a galaxy, a planet, a region): a place that holds places and needs no spot of its own."""
+    return bool(e) and bool(e["state"].get("tier")) and is_place(w, e)
+
+
+def starts_frame(w: "World", e: dict[str, Any] | None) -> bool:
+    """The root, or a tier with a `frame` of its own: what is under it is placed in that frame."""
+    return bool(e) and (e["id"] == w.root_id or (is_tier(w, e) and isinstance(e["state"].get("frame"), dict)))
+
+
+def frame_of(w: "World", eid: str) -> str:
+    """The id whose frame an entity's own spot is in: the nearest frame-starting place above it, else the root. A tier's
+    own spot (a planet in its system) is in its parent's frame, like anything else's."""
+    e, hops = w.get(eid), 0
+    cur = w.get(e["parent_id"]) if e and e["parent_id"] else None
+    while cur is not None and hops < _MAX_DEPTH:
+        if starts_frame(w, cur):
+            return cur["id"]
+        cur, hops = (w.get(cur["parent_id"]) if cur["parent_id"] else None), hops + 1
+    return w.root_id
+
+
+def inner_frame(w: "World", eid: str) -> str:
+    """The frame what is inside an entity is placed in: its own when it starts one, else the one it is in."""
+    e = w.get(eid)
+    return eid if starts_frame(w, e) else frame_of(w, eid)
+
+
+def frame_def(w: "World", fid: str) -> dict[str, Any]:
+    """A frame's definition ({units, bounds, geo}): the frame-starting place's `frame`, {} when it has none yet."""
+    e = w.get(fid)
+    f = e["state"].get("frame") if e else None
+    return f if isinstance(f, dict) else {}
+
+
+def same_frame(w: "World", a: str, b: str) -> bool:
+    return frame_of(w, a) == frame_of(w, b)
+
+
+def _room(w: "World", parent: str | None) -> dict[str, Any]:
+    """A container's extent as its contents see it: its layout, unless it starts a frame (its own spot and shape are
+    in the frame above, not the one its contents are in)."""
+    return {} if starts_frame(w, w.get(parent) if parent else None) else _layout(w, parent)
+
+
 def resolve(w: "World", eid: str) -> dict[str, Any]:
     """Where an entity is: {at, how: own | grid | inherited | none, from: the id it rides on (inherited) or whose space
     it is in (grid)}."""
@@ -52,6 +102,8 @@ def resolve(w: "World", eid: str) -> dict[str, Any]:
         parent = e["parent_id"]
         if not parent:
             break
+        if starts_frame(w, w.get(parent)):
+            break  # a spot is never inherited across a frame's edge (a planet's spot is not a spot on the planet)
         sp = w.space_of(parent) or {}
         if e["pos"] is not None and sp.get("frame_origin") is not None:
             o = list(sp["frame_origin"]) + [0.0] * (3 - len(sp["frame_origin"]))
@@ -77,8 +129,8 @@ def on_map(w: "World", e: dict[str, Any]) -> bool:
 
 
 def needs_own(w: "World", e: dict[str, Any]) -> bool:
-    """Every place but the root, and whatever stands directly in a place, needs a spot of its own."""
-    if e["id"] == w.root_id or not on_map(w, e):
+    """Every place but the root and the tiers, and whatever stands directly in a place, needs a spot of its own."""
+    if e["id"] == w.root_id or is_tier(w, e) or not on_map(w, e):
         return False
     parent = w.get(e["parent_id"]) if e["parent_id"] else None
     return is_place(w, e) or (parent is not None and is_place(w, parent))
@@ -147,7 +199,7 @@ def find_spot(w: "World", parent: str, near: list[float], within: float | None =
               skip: str | None = None, reserved: dict[str, list[list[float]]] | None = None) -> list[float]:
     """A free spot near a point: inside the container's extent, out of every solid thing there, half a metre or more
     from anyone else's own spot. A deterministic spiral out from `near`, `within` metres at most."""
-    pl = _layout(w, parent)
+    pl = _room(w, parent)
     taken = list((reserved or {}).get(parent, []))  # spots already handed out in this pass (verify's suggestions)
     for c in w.children(parent):
         if c["id"] != skip:
@@ -228,7 +280,7 @@ def arrival(w: "World", e: dict[str, Any], old: str | None, new: str) -> list[fl
     np_ = w.get(new)
     if np_ is None or not is_place(w, np_) or is_place(w, e) or not old:
         return None
-    nl = _layout(w, new)
+    nl = _room(w, new)
     src = resolve(w, old)
     if src["how"] in ("own", "grid") and src["at"] and not is_place(w, w.get(old) or {}) and \
             (not nl.get("at") or geo.contains(nl, src["at"]) is not False):
@@ -251,20 +303,21 @@ def problems(w: "World", e: dict[str, Any], reserved: dict[str, list[list[float]
     parent = w.get(e["parent_id"]) if e["parent_id"] else None
     pname = parent["name"] if parent else "?"
     lms = landmark_names(w, parent["id"]) if parent else []
-    pl = _layout(w, parent["id"]) if parent else {}
+    pl = _room(w, parent["id"]) if parent else {}
+    framed = parent is not None and starts_frame(w, parent)  # directly in the root or a framed tier: its own frame
     if needs_own(w, e) and r["how"] not in ("own", "grid"):
-        if parent and not resolve(w, parent["id"])["at"] and parent["id"] != w.root_id:
+        if parent and not framed and not is_tier(w, parent) and not resolve(w, parent["id"])["at"]:
             out.append({"problem": "no position", "why": f"{pname}, the place it is in, is not laid out either",
                         "fix": f"lay out {pname} first (layout placements at, radius or size)"})
         else:
-            centre = (resolve(w, parent["id"])["at"] if parent else None) or [0.0, 0.0, 0.0]
+            centre = (None if framed else resolve(w, parent["id"])["at"] if parent else None) or [0.0, 0.0, 0.0]
             spot = find_spot(w, parent["id"], centre, skip=e["id"], reserved=reserved) if parent else centre
             out.append({"problem": "no position",
                         "why": (f"it is directly in {pname} and only inherits its centre" if parent and
-                                parent["id"] != w.root_id else "a place needs its own spot in the frame"),
+                                not framed and not is_tier(w, parent) else "a place needs its own spot in the frame"),
                         "fix": {"at": spot, "or": lms[:8]} if lms else {"at": spot}})
         return out
-    if r["how"] == "own" and parent and parent["id"] != w.root_id:
+    if r["how"] == "own" and parent and not framed:
         at = r["at"]
         if pl.get("at") and geo.contains(pl, at) is False:
             spot = find_spot(w, parent["id"], resolve(w, parent["id"])["at"] or at, skip=e["id"], reserved=reserved)

@@ -804,7 +804,7 @@ function worldAt(id, g = 0) {   // [x, y, own]: its own place in the frame, a gr
         r = [o[0] + px * Math.cos(h) + py * Math.sin(h), o[1] - px * Math.sin(h) + py * Math.cos(h), true];
       }
     }
-    if (!r && e.parent) { const p = worldAt(e.parent, g + 1); if (p) r = [p[0], p[1], false]; }
+    if (!r && e.parent && !startsFrame(ent(e.parent))) { const p = worldAt(e.parent, g + 1); if (p) r = [p[0], p[1], false]; }   // never across a frame's edge
   }
   atMemo.set(id, r); return r;
 }
@@ -820,17 +820,23 @@ function outline(e) {
 }
 function bboxOf(pts) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return { x0, y0, x1, y1 }; }
 function zLevel(e) { const lay = ((e && e.state) || {}).layout || {}; return Number((lay.at && lay.at[2]) ?? lay.floor ?? 0) || 0; }
-let mapTrays = [], mapStacks = [];
+// tiers: a place with a `tier` and a `frame` of its own (a region in metres, a planet in km) starts a frame; the map
+// draws one frame at a time, the one the focus's contents are placed in (positions.py says the same)
+function startsFrame(e) { return !!e && (e.id === W.info.root || !!(e.state && e.state.tier && e.state.frame && typeof e.state.frame === "object")); }
+function frameOf(id) { const e = ent(id); let p = e && e.parent ? ent(e.parent) : null, g = 0; while (p && g++ < 64) { if (startsFrame(p)) return p.id; p = p.parent ? ent(p.parent) : null; } return W.info.root; }
+function innerFrame(id) { return startsFrame(ent(id)) ? id : frameOf(id); }
+let mapTrays = [], mapStacks = [], mapFrame = null;
 function drawMap() {
   atMemo.clear();
   const { list, closed, top } = visible();
   const c = cam(), k = c.k || 1, searching = !!V.hits;
   const items = [], unplaced = new Map(), pts = [];
-  const topE = ent(top), topLine = topE && outline(topE);
+  const topE = ent(top), topLine = topE && !startsFrame(topE) && outline(topE);
+  mapFrame = innerFrame(top);
   for (const [id, lvl] of list) {
     if (lvl === 0) continue;
     const e = ent(id), at = worldAt(id);
-    if (at && at[2]) {
+    if (at && at[2] && frameOf(id) === mapFrame) {
       const ol = outline(e);
       items.push({ id, e, lvl, at, ol });
       if (ol) pts.push(...ol); else pts.push([at[0], at[1]]);
@@ -846,7 +852,7 @@ function drawMap() {
   mapTrays = []; mapStacks = [];
   if (!pts.length) {
     box = null;
-    $("note").textContent = "Nothing under " + nameOf(top) + " has a place in the world frame yet. What is here is listed on the tray.";
+    $("note").textContent = "Nothing under " + nameOf(top) + " has a place in this frame yet. What is here is listed on the tray.";
     for (const [host, ids] of unplaced) mapTrays.push({ host, ids, anchor: null });
     $("tally").textContent = list.length - 1 + " in view · none placed";
     return "";
@@ -963,7 +969,7 @@ function placeOverlays() {
   ov.querySelectorAll("[data-focus]").forEach(b => b.onclick = () => focusOn(b.dataset.focus));
   ov.querySelectorAll("[data-tray]").forEach(b => b.onclick = () => { V.tray = b.dataset.tray; placeOverlays(); });
   // a scale bar and north
-  const units = ((ent(W.info.root) || {}).state || {}).frame?.units || "m";
+  const units = ((ent(mapFrame || W.info.root) || {}).state || {}).frame?.units || "m";
   const target = 110 / c.k, p10 = Math.pow(10, Math.floor(Math.log10(target))), step = [1, 2, 5, 10].map(m => m * p10).find(v => v >= target * 0.6) || p10;
   $("scale").innerHTML = box ? `<span class="north">N<br>&uarr;</span><span><div class="bar" style="width:${(step * c.k).toFixed(0)}px"></div>${fmt(step)} ${esc(units)}</span>` : "";
 }

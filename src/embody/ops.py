@@ -1064,8 +1064,12 @@ class Session:
         once, for a day) and the paste: the link with a line for the friend. Without a public URL the paste is the page."""
         if slots is not None and (not isinstance(slots, int) or slots < 0):
             raise Rejected("slots is a whole number, 0 or more", hint="slots=1")
-        return self._mint(role, entity=entity, template=template, label=label, expires=expires, principal=principal,
-                          scope=scope, brief=brief, limits=limits, slots=slots)
+        out = self._mint(role, entity=entity, template=template, label=label, expires=expires, principal=principal,
+                         scope=scope, brief=brief, limits=limits, slots=slots)
+        if expires:
+            out["hints"] = [f"{label or role}: this grant stops working in {float(expires):g} hours, wherever the guest "
+                            "is then. Leave expires off unless an end is wanted." + _TAIL]
+        return out
 
     def _mint(self, role: str, entity: str | None = None, template: str | None = None, label: str = "",
               expires: float | None = None, principal: str | None = None, scope: list[str] | None = None,
@@ -1287,7 +1291,10 @@ class Session:
 
     # ---- layout: one frame over the tree (DESIGN.md section 8, Layout; geometry in layout.py) --------------------------
 
-    def _frame(self) -> dict[str, Any] | None:
+    def _frame(self, eid: str | None = None) -> dict[str, Any] | None:
+        """The root's frame, or with eid the frame that entity's own spot is in (a framed tier's: positions.py)."""
+        if eid is not None:
+            return posn.frame_def(self.world, posn.frame_of(self.world, eid)) or None
         root = self.world.get(self.world.root_id)
         return (root["state"].get("frame") if root else None) or None
 
@@ -1314,7 +1321,7 @@ class Session:
         in a world that is laid out (its root has a frame)."""
         w = self.world
         e = w.get(eid)
-        if e is None or not self._frame() or not posn.needs_own(w, e) or posn.resolve(w, eid)["how"] in ("own", "grid"):
+        if e is None or not self._frame(eid) or not posn.needs_own(w, e) or posn.resolve(w, eid)["how"] in ("own", "grid"):
             return None
         parent = w.get(e["parent_id"]) or {}
         lms = posn.landmark_names(w, e["parent_id"])
@@ -1346,6 +1353,8 @@ class Session:
                     continue
                 seen.add((a, b))
                 pa, pb = self._world_at(a), self._world_at(b)
+                if not posn.same_frame(w, a, b):
+                    pa = pb = None  # two frames (a region and the next): a way, but no line on one map
                 route = e["data"].get("route")
                 if not route and pa and pb:
                     route = [pa, pb]
@@ -1364,17 +1373,17 @@ class Session:
         the places it joins or whose stated length is shorter than the straight line, an extent outside the frame."""
         w = self.world
         out = []
-        frame = self._frame() or {}
-        bounds = frame.get("bounds")
         for eid in ids:
             e = w.get(eid)
             if e is None:
                 continue
+            frame = self._frame(eid) or {}
+            bounds = frame.get("bounds")
             lay = self._own_layout(eid)
             at = lay.get("at")
             parent = e["parent_id"]
             if at and parent and not w.is_a(e["type"], "place"):
-                pl = self._own_layout(parent)
+                pl = posn._room(w, parent)
                 if pl.get("at") and geo.contains(pl, at) is False:
                     out.append(f"{e['name']} stands outside {w.get(parent)['name']}, the place it is in "
                                f"({geo.edge_distance(pl, at):.0f} {frame.get('units', 'm')} beyond its edge)")
@@ -1383,6 +1392,8 @@ class Session:
             if w.is_a(e["type"], "place"):
                 for ed in w.edges(eid, "connects_to", "out"):
                     other, route = ed["target"], ed["data"].get("route")
+                    if not posn.same_frame(w, eid, other):
+                        continue
                     ol = self._own_layout(other)
                     if route and lay.get("at") and ol.get("at"):
                         gap_a = geo.edge_distance(lay, route[0]) if lay.get("radius") or lay.get("size") or lay.get("footprint") else geo.ground(lay["at"], route[0])
@@ -1402,14 +1413,14 @@ class Session:
         mine = self._world_at(me)
         here = w.need(me)["parent_id"]
         hl = self._own_layout(here) if here else {}
-        out: dict[str, Any] = {"frame": self._frame() or dict(geo.DEFAULT_FRAME), "you": mine,
+        out: dict[str, Any] = {"frame": self._frame(me) or dict(geo.DEFAULT_FRAME), "you": mine,
                                "here": {k: v for k, v in hl.items() if k != "note"} or None}
         if mine is None:
             out["note"] = "nothing here is laid out yet"
             return out
 
         def rel(eid: str) -> dict[str, Any] | None:
-            at = self._world_at(eid)
+            at = self._world_at(eid) if posn.same_frame(w, me, eid) else None
             if at is None:
                 return None
             b = geo.bearing(mine, at)
@@ -1451,7 +1462,17 @@ class Session:
             if not isinstance(p, dict) or not p.get("entity"):
                 raise Rejected("each placement names its entity", hint='{"entity": "The Hold", "at": [0, 0, 0], "radius": 40}')
             eid = self._resolve(p["entity"])
-            new = {k: v for k, v in p.items() if k != "entity"}
+            new = {k: v for k, v in p.items() if k not in ("entity", "frame")}
+            if "frame" in p:
+                if not posn.is_tier(w, w.need(eid)):
+                    raise Rejected(f"{w.need(eid)['name']} is not a tier, so it cannot carry a frame",
+                                   hint="a frame goes on a place whose state names its tier (region, planet, system...), "
+                                        "or on the root with layout(frame=...)")
+                w.patch(eid, {"frame": None if p["frame"] is None else geo.check_frame(p["frame"])},
+                        actor=self._actor_or_none())
+                touched.append(eid)
+                if not new:
+                    continue
             if isinstance(new.get("at"), str):  # a landmark's name, or beside something in the same container
                 new["at"] = posn.resolve_at(w, w.need(eid)["parent_id"], new["at"], skip=eid)[0]
             checked[eid] = (geo.merge(checked[eid], new) if eid in checked
@@ -1525,16 +1546,21 @@ class Session:
                 unplaced.append(c["name"])
             elif row["how"] not in ("own", "grid") and posn.needs_own(w, c):
                 no_spot.append(c["name"])
-        places = {r["id"] for r in items if w.is_a(r["type"], "place")}
-        tl = self._own_layout(top)
-        out: dict[str, Any] = {"frame": self._frame(), "under": {"id": top, "name": w.need(top)["name"],
+        fid = posn.inner_frame(w, top)
+        for r in items:
+            f = posn.frame_of(w, r["id"])
+            if f != fid:  # placed in a framed tier below: its spot is in that frame, not on this map
+                r["frame"] = (w.get(f) or {}).get("name", f)
+        places = {r["id"] for r in items if w.is_a(r["type"], "place") and not r.get("frame")}
+        tl = {} if posn.starts_frame(w, w.get(top)) else self._own_layout(top)
+        out: dict[str, Any] = {"frame": posn.frame_def(w, fid) or None, "under": {"id": top, "name": w.need(top)["name"],
                                "layout": tl or None}, "entities": items, "paths": self._path_rows(places),
                                "not_laid_out": unplaced, "warnings": self._layout_warnings([r["id"] for r in items])}
         if no_spot:
             out["no_spot"] = {"count": len(no_spot), "names": no_spot[:40],
                               "hint": "directly in a place with no spot of their own: verify(under=...) gives each a fix"}
         if sketch:
-            drawn = [{"name": r["name"], "at": r["at"], "layout": r.get("layout")} for r in items if r["own"]]
+            drawn = [{"name": r["name"], "at": r["at"], "layout": r.get("layout")} for r in items if r["own"] and not r.get("frame")]
             if tl.get("at"):
                 drawn.insert(0, {"name": w.need(top)["name"], "at": tl["at"], "layout": tl})
             out["sketch"] = geo.sketch(drawn, [p for p in out["paths"] if p.get("route")], width=max(24, min(int(width), 120)))
@@ -1611,6 +1637,11 @@ class Session:
             return out
         if b is not None:
             eb = self._resolve(b)
+            if not posn.same_frame(w, ea, eb):
+                fa, fb = posn.frame_of(w, ea), posn.frame_of(w, eb)
+                raise Rejected(f"{w.need(ea)['name']} and {w.need(eb)['name']} are in different frames "
+                               f"({w.need(fa)['name']}, {w.need(fb)['name']}), so no ruler spans them",
+                               hint="measure within one tier; the ways between them are on their exits")
             lb = self._own_layout(eb)
             pb = self._world_at(eb)
             if pb is None:
@@ -1634,12 +1665,15 @@ class Session:
         return out
 
     def _ambient(self, here: dict[str, Any] | None) -> dict[str, Any]:
-        """Facts every perceive carries: the root's `ambient` dict (time of day, weather, light) with the
-        place's own `ambient` laid over it. Worlds patch these; the engine only shows them."""
+        """Facts every perceive carries: the root's `ambient` dict (time of day, weather, light) with each place's
+        above this one (a planet's sky, a region's heat) and then this place's own laid over it. Worlds patch these;
+        the engine only shows them."""
         w = self.world
         root = w.get(w.root_id)
         out = dict((root["state"].get("ambient") or {}) if root else {})
         if here:
+            for a in [x for x in reversed(w.ancestors(here["id"])) if x != w.root_id]:
+                out.update((w.get(a) or {}).get("state", {}).get("ambient") or {})  # a region's heat, a planet's sky
             out.update(here["state"].get("ambient") or {})
         return out
 
@@ -2870,6 +2904,8 @@ class Session:
         out = self._card(self.world.need(eid), full=True)
         if (n := self._position_notice(eid)):
             out["position_notice"] = n
+        if (h := self._author_hints([eid], fresh=True)):
+            out["hints"] = h
         return out
 
     def introduce(self, type: str, parent: str, name: str, how: str, known_by: dict[str, str],
@@ -2930,7 +2966,10 @@ class Session:
         eid = self._resolve(entity)
         self._record("patch", entity=entity, changes=changes, replace=replace or None)
         self.world.patch(eid, changes, actor=self._actor_or_none(), replace=replace)
-        return self._card(self.world.need(eid), full=True)
+        out = self._card(self.world.need(eid), full=True)
+        if (h := self._author_hints([eid])):
+            out["hints"] = h
+        return out
 
     def rename(self, entity: str, name: str) -> dict[str, Any]:
         """A new name for anyone or anything (a guest who joined under a handle picks a character name). Refused
@@ -3149,21 +3188,80 @@ class Session:
         acc = self.world.set_access(eid, owner=who, group=group, actor=self._actor_or_none())
         return {"ok": True, "entity": eid, "access": acc}
 
-    def move(self, entity: str, parent: str, pos: list[float] | None = None, at: Any = None) -> dict[str, Any]:
-        """at: its spot in the new container, [x, y, z] or a landmark's name there ("the gate")."""
+    def move(self, entity: str, parent: str, pos: list[float] | None = None, at: Any = None,
+             quiet: bool = False) -> dict[str, Any]:
+        """at: its spot in the new container, [x, y, z] or a landmark's name there ("the gate"). quiet: regroup the
+        world (a place into its region): it keeps its spot, nobody hears it, one `regrouped` event for the hosts."""
         self._need(AUTHOR)
         eid = self._resolve(entity)
         to = self._resolve(parent)
+        if quiet and (at is not None or pos is not None):
+            raise Rejected("a quiet move keeps the spot it has", hint="move quietly, then lay it out with layout(placements=...)")
         if at is not None:
             posn.resolve_at(self.world, to, at, skip=eid)  # a bad name refuses before anything moves
-        self._record("move", entity=entity, parent=parent, pos=pos, at=at)
-        self.world.move(eid, to, pos=pos, actor=self._actor_or_none())
+        self._record("move", entity=entity, parent=parent, pos=pos, at=at, quiet=quiet or None)
+        self.world.move(eid, to, pos=pos, actor=self._actor_or_none(), quiet=quiet)
         if at is not None:
             self._place_at(eid, at)
         out = self._card(self.world.need(eid), full=True)
         if (n := self._position_notice(eid)):
             out["position_notice"] = n
+        if (h := self._author_hints([eid])):
+            out["hints"] = h
         return out
+
+    def _author_hints(self, ids: list[str], seen_from: dict[str, str] | None = None, fresh: bool = False) -> list[str]:
+        """What players will hit after an author's write, one line each, only when it applies. General on purpose: a
+        builder on a team can pass it on, a builder alone can fix it, and either may ignore it. seen_from: {hidden id:
+        the place it was joined to} for a link or a connect. fresh: just spawned, so its ways are still to come."""
+        w = self.world
+        out: list[str] = []
+        tiers_under_root = None
+        for eid in ids:
+            e = w.get(eid)
+            if e is None:
+                continue
+            nm, st = e["name"] or eid, e["state"]
+            place = posn.is_place(w, e)
+            if e["parent_id"] == w.root_id and place and not posn.is_tier(w, e):
+                if tiers_under_root is None:
+                    tiers_under_root = any(posn.is_tier(w, c) for c in w.children(w.root_id))
+                if tiers_under_root:
+                    out.append(f"{nm}: it sits directly under the world, beside its tiers, so no region's frame or "
+                               "ambient reaches it. Put it in its region (move(..., quiet=true))." + _TAIL)
+            if (not fresh and place and not posn.is_tier(w, e) and e["id"] != w.root_id and not st.get("hidden")
+                    and not w.edges(eid, "connects_to", "out") and not w.edges(eid, "connects_to", "in")
+                    and any(w.edges(s["id"], "connects_to", "out") for s in w.children(e["parent_id"] or "")
+                            if s["id"] != eid and posn.is_place(w, s))):
+                out.append(f"{nm}: no way in or out yet, so only an author or a script brings anyone here; "
+                           "connect it to its neighbours." + _TAIL)
+            if w.is_a(e["type"], "lock") and st.get("locked") and not st.get("shut_why") and not self._opens(e):
+                out.append(f"{nm}: nothing a player can find opens it yet (no key that exists, no code written "
+                           "anywhere, no pick or break). If only a script opens it, give it a shut_why." + _TAIL)
+            where = (seen_from or {}).get(eid) or (e["parent_id"] if st.get("hidden") else None)
+            if st.get("hidden") and where and w.get(where):
+                n = sum(1 for c in w.children(where) if w.embodied(c["id"]))
+                if n:
+                    out.append(f"{nm}: it is hidden, and {n} {'person is' if n == 1 else 'people are'} in "
+                               f"{w.need(where)['name']}. They don't see it, but anything that names it (a way, a scene, "
+                               "a line) will." + _TAIL)
+        return out
+
+    def _opens(self, lk: dict[str, Any]) -> bool:
+        """Whether a player could open a lock: a key that exists, a code written somewhere a player reads (another
+        entity's state), a pick or a break."""
+        st = lk["state"]
+        if st.get("pick_dc") or (st.get("break_dc") and not st.get("broken")) or (not st.get("key") and not st.get("code")):
+            return True
+        w = self.world
+        key = str(st.get("key") or "").lower()
+        code = str(st.get("code") or "")
+        for e in w.find():
+            if key and (e["id"] == st.get("key") or (e["name"] or "").lower() == key):
+                return True
+            if code and e["id"] != lk["id"] and code in json.dumps(e["state"], ensure_ascii=False, default=str):
+                return True
+        return False
 
     def destroy(self, entity: str) -> dict[str, Any]:
         self._need(AUTHOR)
@@ -3175,8 +3273,12 @@ class Session:
     def link(self, source: str, target: str, relation: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         self._need(AUTHOR)
         self._record("link", source=source, target=target, relation=relation, data=data)
-        gid = self.world.link(self._resolve(source), self._resolve(target), relation, data)
-        return {"ok": True, "edge": gid}
+        src, tgt = self._resolve(source), self._resolve(target)
+        gid = self.world.link(src, tgt, relation, data)
+        out: dict[str, Any] = {"ok": True, "edge": gid}
+        if (h := self._author_hints([tgt], seen_from={tgt: src})):
+            out["hints"] = h
+        return out
 
     def connect(self, a: str, b: str, via: str | None = None, data: dict[str, Any] | None = None) -> dict[str, Any]:
         """Two-way connects_to between places, optionally through a door-like entity."""
@@ -3186,7 +3288,11 @@ class Session:
         if via:
             d["via"] = self._resolve(via)
         ea, eb = self._resolve(a), self._resolve(b)
-        return {"ok": True, "edges": [self.world.link(ea, eb, "connects_to", d), self.world.link(eb, ea, "connects_to", d)]}
+        out: dict[str, Any] = {"ok": True, "edges": [self.world.link(ea, eb, "connects_to", d),
+                                                     self.world.link(eb, ea, "connects_to", d)]}
+        if (h := self._author_hints([ea, eb], seen_from={ea: eb, eb: ea})):
+            out["hints"] = h
+        return out
 
     def unlink(self, source: str, target: str, relation: str) -> dict[str, Any]:
         self._need(AUTHOR)
@@ -3521,6 +3627,9 @@ def _guard(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
 for _op in OPS:
     setattr(Session, _op, _guard(_op, getattr(Session, _op)))
 
+
+# The end of every author hint: it may be meant, or someone else's to fix (Glass Reach, Nate 2026-11-15).
+_TAIL = " If that's meant, or not yours to fix, ignore this."
 
 # What an author's hand does to the world's shape: dropped for a viewer when a hidden thing it touches is hidden from them.
 _BUILD_KINDS = frozenset({"spawned", "linked", "unlinked", "renamed", "destroyed", "related", "unrelated"})

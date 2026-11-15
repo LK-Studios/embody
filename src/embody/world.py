@@ -1183,7 +1183,9 @@ class World:
         self.store.put("entity", e)
 
     def move(self, id: str, parent: str, pos: Any = None, actor: str | None = None,
-             caused_by: int | None = None) -> None:
+             caused_by: int | None = None, quiet: bool = False) -> None:
+        """Put an entity in a new container. quiet (an author regrouping the world, a place into its region): it keeps
+        its own spot and pos, nobody hears it, and the log keeps one `regrouped` event for the hosts."""
         e = self.need(id)
         self.need(parent)
         if parent == id or parent in self.subtree_ids(id):
@@ -1197,6 +1199,11 @@ class World:
                 st.pop("taken_from")
             elif st.get("given_by") != old and not st.get("taken_from"):
                 st["taken_from"] = old
+        if quiet:
+            e["parent_id"] = parent
+            self._touch(e)
+            self.emit("regrouped", actor=actor, target=id, reach=0, caused_by=caused_by, payload={"from": old, "to": parent})
+            return
         if old != parent:
             # it arrived: where the one who put it down stands, or where the way comes in; else somewhere in the new
             # place until someone places it (positions.py, DESIGN.md section 8, Layout)
@@ -2615,12 +2622,12 @@ def _loud(ev: dict[str, Any]) -> bool:
 
 # Events that exist for the log, not for listeners.
 _SILENT_KINDS = frozenset({"before_act", "schema_defined", "script_defined", "scheduled", "patched", "linked", "unlinked",
-                           "related", "unrelated", "spawned", "destroyed", "left", "moved", "embodied", "released",
+                           "related", "unrelated", "spawned", "destroyed", "left", "moved", "embodied", "released", "regrouped",
                            "tick", "script_error", "finished", "opinion", "remembered", "intended", "merged", "act_refused"})
 # Events only the entity they target (its mind) and authors ever see.
 _PRIVATE_KINDS = frozenset({"remembered", "intended", "act_refused"})
 # Events only the hosts (owner, author, observers) see, not even the body they are about: an act the world refused.
-_HOST_KINDS = frozenset({"act_refused"})
+_HOST_KINDS = frozenset({"act_refused", "regrouped"})
 # State keys no other body reads, whatever the entity's own `secret` list says.
 ALWAYS_SECRET = frozenset({"memory", "brief", "goals", "policy", "cooldowns", "idle_orders"})
 # A strike's cooldown in real seconds, when the meta's `strike_cooldown` does not say: `held` when a player or a mind

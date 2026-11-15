@@ -576,10 +576,12 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def move(entity: str, parent: str, pos: list[float] | None = None, at: Any = None) -> dict[str, Any]:
+    def move(entity: str, parent: str, pos: list[float] | None = None, at: Any = None,
+             quiet: bool = False) -> dict[str, Any]:
         """(author) Reparent an entity (teleport, hand over, put inside). at: its spot in the new container, [x, y, z]
-        or a landmark's name there ("the gate"); without it, a thing put down lies where its holder stands."""
-        return s.move(entity, parent, pos=pos, at=at)
+        or a landmark's name there ("the gate"); without it, a thing put down lies where its holder stands.
+        quiet=true regroups the world (a place into its region tier): it keeps its spot and nobody hears it."""
+        return s.move(entity, parent, pos=pos, at=at, quiet=quiet)
 
     @tool()
     @_wrap
@@ -652,7 +654,9 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         [[x, y], ...], floor, ceiling, mesh (a reference for clients), note, solid (false: others may stand in its
         extent), landmarks {name: {at, radius}} (a place's named spots; None deletes one)}]; at may be a landmark's
         name or the name of something beside it in the same container. paths: [{a, b, route: [[x, y, z], ...],
-        length}] on the connects_to edge between two places. frame: {units, bounds, geo: {lat, lon}} on the root.
+        length}] on the connects_to edge between two places. frame: {units, bounds, geo: {lat, lon}} on the root; a
+        placement's `frame` puts one on a tier (a place whose state names its `tier`: region, planet, system), and
+        everything under that tier is then placed in it.
         Keys merge (None deletes one); replace=true sets each layout whole. Answers with warnings, not refusals,
         for what only looks wrong. Read it back with map(); measure() is the ruler."""
         return s.layout(placements=placements, paths=paths, frame=frame, replace=replace)

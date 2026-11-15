@@ -189,3 +189,12 @@ def test_a_lock_no_hand_opens_refuses_every_hand_with_its_own_line(guild):
     assert not any(a["verb"] == "unlock" and a.get("ok") for a in ada.perceive()["affordances"] if a["target_name"] == "Box lock")
     gm.patch("Box lock", {"locked": False})  # what a script does when the seal opens
     assert bel.act("take", "Emberglass")["ok"]
+
+
+def test_a_lock_nothing_opens_gets_a_hint_and_one_with_a_way_or_a_why_does_not(guild):
+    eng, gm, ada, bel = guild
+    out = gm.patch("Door lock", {"key": "Silver key"})
+    assert any(h.startswith("Door lock: nothing a player can find opens it") for h in out["hints"])
+    assert "hints" not in gm.patch("Door lock", {"key": "Iron key"})
+    assert "hints" not in gm.patch("Box lock", {"key": "Glass key"})  # it can still be picked or broken
+    assert "hints" not in gm.patch("Door lock", {"key": "Silver key", "shut_why": "The bolt is on the far side."})
