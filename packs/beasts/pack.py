@@ -82,8 +82,9 @@ guards against an empty map: a prey species keeps its last `refuge` (default 2) 
 grown male and female, out of reach; and a hunter species with `wanders_in` {"at": place, "prey": n, "count": [a, b]}
 comes back from beyond the map once none of it is left and its prey number n. A hunter breeds only with `prey_per`
 (default 3) prey within reach for each of its kind there, one more (`room`: "prey"; grazers have "forage"). A pack of
-three jackals and four goats on a ridge regrowing 5 keep both alive for ninety days in the pack's test, the herd
-between 3 and 8.
+three jackals and four goats on a ridge regrowing 5 hunt for ninety days in the pack's test, the herd swinging with
+them; whether both last the ninety is the dice's (in about half of worlds they do). The guards stop teeth, not age:
+an old pair is no longer a grown pair, and kids are fair game, so a herd can still age out.
 
 Events: `beast_grew`, `beast_hungry`, `beast_tamed`, `beast_trust`, `beast_bit`, `beast_shied`, `beast_feral`,
 `beast_carrying`, `beast_born`, `beast_died` {why: hunger, age}, `beast_yielded`, `beast_stays`, `beast_comes`,

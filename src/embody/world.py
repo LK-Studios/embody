@@ -1907,6 +1907,8 @@ class World:
                 return
             seen.add(key)
             ok, reason = self.check_action(actor_id, verb, tid)
+            if not ok and tid is not None and adef.get("listed") == "ok":
+                return  # a verb that fits few targets (pour) lists only where it would work
             tgt = self.get(tid) if tid else None
             out.append({"verb": verb, "target": tid, "target_name": tgt["name"] if tgt else None, "ok": ok,
                         "reason": reason, "doc": adef.get("doc", ""), "params": adef.get("params", {})})

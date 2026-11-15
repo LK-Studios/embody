@@ -59,8 +59,11 @@ The numbers, so a narrator can explain a roll:
   down. The days go by `body`: 1 for a body of 2 or less, 2 for 3, 3 for 4 and up. A world sets
   `thirst_death_days` on its root in the same shape (`{"0": 1, "3": 2, "4": 3}`: the days for a body of at least
   that much), or false for a thirst that never kills. `drink` from a waterskin (+4; a
-  full body refuses, so no draw is poured away), `fill` one at a source. A body nobody embodies looks after
-  itself (the `quench` behavior): thirsty, it drinks from a skin in hand, else from a source here; with nothing
+  full body refuses, so no draw is poured away), `fill` one at a source, and `pour` what one holds into a store here
+  (a thing with `water_source` and a `left`: a cask, a jar, a cistern), a skin, or someone here (their first skin with
+  room): all of it by default or `amount` draws, never past the store's `capacity` (none: no cap); the rest stays in
+  the skin, and `poured` says by, item, store, amount, left and kept. An endless source takes nothing. A body
+  nobody embodies looks after itself (the `quench` behavior): thirsty, it drinks from a skin in hand, else from a source here; with nothing
   here it walks toward the nearest water it knows the way to (up to six steps, one step a look; hidden places
   only for their own faction) and walks back to its `post` the same way. The walks arrive `quiet`. At an endless
   source (a place with `water_source`, or a source thing with no `left`) it drinks its fill (a draw a look until
@@ -174,6 +177,9 @@ COMBATANT_ACTIONS = {
     "challenge": {"script": "challenge", "doc": "Call someone out: a duel nobody else may enter", "targets": "creature", "scope": "here"},
     "drink": {"script": "drink", "doc": "Drink from a skin or a vessel within reach (+4 water)", "targets": "thing", "scope": "any", "duration": 2},
     "fill": {"script": "fill", "doc": "Fill a skin you hold at a source here", "targets": "thing", "scope": "held", "duration": 5},
+    "pour": {"script": "pour", "doc": "Pour what a skin you hold carries into a store here (a cask, a jar, a cistern), a skin, or "
+                                      "someone here (into their skin), up to what it holds", "targets": "any", "scope": "here", "listed": "ok", "duration": 5,
+             "params": {"item": "the skin you pour from (default: the first you hold with water in it)", "amount": "draws to pour (default: all)"}},
     "search": {"script": "search", "doc": "Take what you can carry off someone who is down, dead or asleep (a sleeper by stealth: "
                                           "fumble and they wake); the rest stays on them", "targets": "creature", "scope": "here", "duration": 5},
     "sleep": {"script": "sleep", "doc": "Lie down and sleep: you mend twice as fast, hear only what is loud or done to you, and are "
