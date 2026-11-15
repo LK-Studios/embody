@@ -773,6 +773,11 @@ class World:
         row = self.store.get("script", self.id, id)
         if row is None:
             raise Rejected(f"no script {id!r}", hint="define it with define_script")
+        p = (self._row["meta"].get("scripts_pending") or {}).get(id)
+        if p is not None and p.get("version") == row["version"]:
+            if p.get("prev") is None:
+                raise Rejected(f"script {id!r} waits for the owner's review", hint="the owner approves it with review_script")
+            row = {**row, "source": p["prev"], "version": f"{row['version']}-prev"}  # the reviewed one runs meanwhile
         key = (id, row["version"])
         s = self._script_cache.get(key)
         if s is None:

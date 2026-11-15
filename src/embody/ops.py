@@ -19,7 +19,7 @@ import secrets
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, OWNER, PLAYER, ROLES, ROLE_DOC,
                      active, allowed, caps_for, new_token, paste, principal_id_for, role_for, token_hash)
@@ -327,6 +327,16 @@ class Session:
         raise Rejected(f"this op needs the {cap!r} capability; you have {self.capabilities or 'none'}",
                        hint="connect with --as author to build worlds; embodied principals act through act()")
 
+    def _vouched(self) -> bool:
+        """The owner's hand, or a grant the owner vouched for (vouch): its words may carry links and its scripts run
+        without review. Read from the grant's row each time, so a vouch reaches a session already open."""
+        if self.role == OWNER:
+            return True
+        if not self.grant or not self.world_id:
+            return False
+        g = self.world.store.get("grants", self.world.id, self.grant["id"])
+        return bool(g and g.get("vouched"))
+
     def _staff(self) -> bool:
         """The owner and author roles pass every access check on the authoring ops (docs/ACCESS.md)."""
         return self.role in (OWNER, AUTHOR_ROLE)
@@ -422,6 +432,8 @@ class Session:
             raise Rejected("canon is the owner's mark", hint="only the world's owner sets or lifts canon")
         if not self._staff():
             self._access_hold(op, args)
+        if not self._vouched():
+            _no_reach_out(args, op)
         lim = self.limits
         if not lim:
             return
@@ -1053,19 +1065,22 @@ class Session:
     def invite(self, role: str, entity: str | None = None, template: str | None = None, label: str = "",
                expires: float | None = None, principal: str | None = None,
                scope: list[str] | None = None, brief: str = "", limits: dict[str, Any] | None = None,
-               slots: int | None = None) -> dict[str, Any]:
+               slots: int | None = None, vouched: bool = False) -> dict[str, Any]:
         """(owner) A grant that travels as a token. role: author, builder, narrator, player, mind or observer. entity: the
         seat kept for this invite (player) or the NPC it holds (mind; scope=[...] for more). template: the character
         it may make. expires: hours. brief: the host's word to this guest alone (their orders, their first goal); it
         rides the page and the briefing join() returns. limits (builder, narrator, author): under=<entity>, the part
         of the world it may change; types=[...], what it may spawn; scripts=<prefix>, how its scripts and schemas are
         named (default: from the principal). A builder needs under. slots: how many seats the world may hand this
-        guest (claim_seat), over the root's `seat_slots`. Returns the token once, the link whose page carries it (good
+        guest (claim_seat), over the root's `seat_slots`. vouched: the owner vouches for this hand (see vouch). Returns the token once, the link whose page carries it (good
         once, for a day) and the paste: the link with a line for the friend. Without a public URL the paste is the page."""
         if slots is not None and (not isinstance(slots, int) or slots < 0):
             raise Rejected("slots is a whole number, 0 or more", hint="slots=1")
         out = self._mint(role, entity=entity, template=template, label=label, expires=expires, principal=principal,
                          scope=scope, brief=brief, limits=limits, slots=slots)
+        if vouched:
+            self.world.store.set("grants", self.world.id, out["id"], vouched=1)
+            out["vouched"] = True
         if expires:
             out["hints"] = [f"{label or role}: this grant stops working in {float(expires):g} hours, wherever the guest "
                             "is then. Leave expires off unless an end is wanted." + _TAIL]
@@ -1178,6 +1193,20 @@ class Session:
                        | {"active": active(g, now), "in_world": p is not None, "link_unread": bool(g.get("code_hash")),
                           "embodying": p["entity_id"] if p else None})
         return out
+
+    def vouch(self, grant: str, on: bool = True) -> dict[str, Any]:
+        """(owner) Vouch for a grant's hand, or take it back. A hand the owner has not vouched for (every grant but the
+        owner's) writes no links or ways to reach anyone outside the world (a URL, a domain, an email, a phone, a
+        wallet, a payment ask, "DM me") into names, state, lines or script text, and a script it defines, or a verb it
+        programs without a frame, waits for the owner's review_script or review before it runs. Vouch for a hand
+        that is yours (your own agent's) or one you trust like your own."""
+        self._tick()
+        w = self.world
+        g = w.store.get("grants", w.id, grant)
+        if g is None:
+            raise Rejected(f"no grant {grant!r}", hint="grants() lists them")
+        w.store.set("grants", w.id, grant, vouched=1 if on else 0)
+        return {"ok": True, "grant": grant, "principal": g["principal_id"], "vouched": bool(on)}
 
     def revoke(self, id: str) -> dict[str, Any]:
         """(owner) End a grant: its token stops working and its principal leaves the world. The seats the world gave
@@ -2862,11 +2891,28 @@ class Session:
 
     def define_script(self, id: str, source: str, doc: str = "") -> dict[str, Any]:
         self._need(AUTHOR)
+        w = self.world
+        old = w.store.get("script", w.id, id)
         try:
-            row = self.world.define_script(id, self._expand_uses(id, source), doc)
+            row = w.define_script(id, self._expand_uses(id, source), doc)
         except ScriptError as e:
             raise Rejected(f"script {id!r}: {e.reason}", hint=e.hint or "fix the script source") from None
         r = {"ok": True, "script": id, "version": row["version"]}
+        held = dict(w.meta().get("scripts_pending") or {})
+        if not self._vouched():
+            was = held.get(id)
+            held[id] = {"by": self.pid, "version": row["version"], "t": self.engine.wall(),
+                        "prev": was["prev"] if was else (old["source"] if old else None),
+                        "prev_doc": was["prev_doc"] if was else (old["doc"] if old else None)}
+            w.set_meta({"scripts_pending": held})
+            r["pending"] = True
+            r["hint"] = "it waits for the owner's review (review_script) before it runs" + (
+                "; the version before yours runs until then" if held[id]["prev"] is not None else "")
+        elif id in held:  # the owner's own write settles it
+            held.pop(id)
+            w.set_meta({"scripts_pending": held or None})
+        if (lint := _lint(source)):
+            r["lint"] = lint
         if self._recording():
             p = self.engine.workspace.write_script(self.world_id, id, source)
             if p is not None:
@@ -2881,8 +2927,29 @@ class Session:
 
     def scripts(self) -> list[dict[str, Any]]:
         self._need(AUTHOR)
+        held = self.world.meta().get("scripts_pending") or {}
         return [{"id": s["id"], "doc": s["doc"], "version": s["version"], "lines": s["source"].count("\n") + 1}
+                | ({"pending": True, "by": held[s["id"]]["by"]} if s["id"] in held else {})
                 for s in self.world.scripts()]
+
+    def review_script(self, id: str, approve: bool = True) -> dict[str, Any]:
+        """(owner) Your word on a script a hand you have not vouched for defined (scripts() marks it pending, by whom;
+        script_source reads it): approve it and it runs; refuse it and the version before it comes back, or none."""
+        self._tick()
+        w = self.world
+        held = dict(w.meta().get("scripts_pending") or {})
+        if id not in held:
+            raise Rejected(f"script {id!r} is not waiting for review", hint="scripts() marks the pending ones")
+        p = held.pop(id)
+        self._record("review_script", id=id, approve=approve)
+        if not approve:
+            if p.get("prev") is not None:
+                w.define_script(id, p["prev"], p.get("prev_doc") or "")
+            else:
+                w.store.delete("script", w.id, id)
+        w.set_meta({"scripts_pending": held or None})
+        return {"ok": True, "script": id, "by": p["by"], "live": bool(approve),
+                **({} if approve else {"restored": p.get("prev") is not None})}
 
     def script_source(self, id: str) -> dict[str, Any]:
         self._need(AUTHOR)
@@ -3073,6 +3140,8 @@ class Session:
                 raise Rejected("a verb needs def apply(ctx)", hint="guide('scripting') has the language")
         except ScriptError as x:
             raise Rejected(x.reason, hint=x.hint) from None
+        if not self._vouched():
+            _no_reach_out({"source": source, "doc": doc, "params": params}, "program")
         self._record("program", thing=thing, verb=verb, source=source, doc=doc or None, params=params,
                      frame=f["id"] if f else None, targets=targets)
         w.define_script(sid, text, str(doc)[:300])
@@ -3084,9 +3153,14 @@ class Session:
             if f["state"]["maker"].get("review") and not self._staff():
                 entry["pending"] = True
             w.patch(f["id"], {"made": made + [[eid, verb]], "made_at": recent + [now]}, replace=True)
+        elif not self._vouched():
+            entry.update(pending=True, by=self.pid)
         w.patch(eid, {"programmed": {**own_verbs(e), verb: entry}}, replace=True)
-        return {"ok": True, "thing": eid, "verb": verb, "script": sid, "pending": bool(entry.get("pending")),
-                "limits": limits}
+        out = {"ok": True, "thing": eid, "verb": verb, "script": sid, "pending": bool(entry.get("pending")),
+               "limits": limits}
+        if (lint := _lint(source)):
+            out["lint"] = lint
+        return out
 
     def _drop_program(self, eid: str, verb: str) -> dict[str, Any]:
         w = self.world
@@ -3149,6 +3223,8 @@ class Session:
         entry = own_verbs(e).get(verb)
         if not isinstance(entry, dict):
             raise Rejected(f"{e['name'] or eid} has no programmed {verb}", hint="programs(thing) lists them")
+        if entry.get("pending") and not entry.get("frame") and self.role != OWNER:
+            raise Rejected(f"{verb} on {e['name'] or eid} waits for the owner's review", hint="the world's owner reviews it")
         self._record("review", thing=thing, verb=verb, approve=approve)
         if not approve:
             self._drop_program(eid, verb)
@@ -3481,6 +3557,7 @@ OPS = [
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
+    "vouch", "review_script",
 ]
 
 
@@ -3626,6 +3703,74 @@ def _guard(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
 
 for _op in OPS:
     setattr(Session, _op, _guard(_op, getattr(Session, _op)))
+
+
+# What a hand the owner has not vouched for may not write: a way to reach someone outside the world (Nate 2026-11-15).
+_REACH_OUT = (
+    ("a link", re.compile(r"\b(?:https?|ftp)://\S+|\bwww\.\S+", re.I)),
+    ("an email", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b", re.I)),
+    # lower case only, and no top-level names that are words after a missed space ("went.to", "home.me")
+    ("a domain", re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|gg|xyz|app|dev|ly|link|ai|info"
+                            r"|biz|ru|cn|tk|tv|uk|site|online|store|shop|club)\b(?:/\S*)?")),
+    # in-world speech says "follow me" and "find me on the ridge"; only a platform makes it a handle
+    ("a handle", re.compile(r"\b(?:discord\.gg|t\.me|wa\.me)/\S+|\bdms?\s+me\b|\b(?:follow|add|message|msg|text|"
+                            r"contact|find|reach)\s+me\s+(?:on|at|via)\s+(?:insta(?:gram)?|twitter|x|tiktok|discord|"
+                            r"telegram|whatsapp|snap(?:chat)?|signal|reddit|youtube|twitch|steam)\b|\bmy\s+(?:insta(?:gram)?|"
+                            r"twitter|tiktok|discord|telegram|whatsapp|snap(?:chat)?|signal|onlyfans)\b", re.I)),
+    ("a payment ask", re.compile(r"\b(?:paypal|venmo|cash\s?app|zelle|patreon|ko-?fi|buymeacoffee|gofundme|onlyfans)\b"
+                                 r"|\b(?:send|donate|tip|pay)\s+(?:me\s+)?(?:crypto|btc|eth|usdt|\$\d)", re.I)),
+    ("a wallet", re.compile(r"\b0x[a-f0-9]{40}\b|\bbc1[a-z0-9]{25,59}\b|\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b", re.I)),
+    ("a phone number", re.compile(r"(?<![\w.])\+?\(?\d{2,4}\)?(?:[\s.-]\d{2,4}){2,4}(?![\w.])")),
+)
+
+
+def _texts(x: Any) -> Iterator[str]:
+    """Every string a write carries: values and keys, all the way down; a script's string literals, not its code."""
+    if isinstance(x, str):
+        yield x
+    elif isinstance(x, dict):
+        for k, v in x.items():
+            yield from _texts(k)
+            yield from _texts(v)
+    elif isinstance(x, (list, tuple)):
+        for v in x:
+            yield from _texts(v)
+
+
+def _script_texts(src: str) -> list[str]:
+    try:
+        return [n.value for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    except SyntaxError:
+        return [src]
+
+
+def _no_reach_out(args: dict[str, Any], op: str) -> None:
+    """Refuse a write from a hand the owner has not vouched for that carries a way to reach someone outside the world."""
+    for k, v in args.items():
+        if k == "self":
+            continue
+        for t in (_script_texts(v) if k == "source" and isinstance(v, str) else _texts(v)):
+            for what, rx in _REACH_OUT:
+                m = rx.search(t)
+                if m and not (what == "a phone number" and sum(c.isdigit() for c in m.group(0)) < 9):
+                    raise Rejected(f"{op}: the {k} carries {what} ({m.group(0)!r}); words written into the world here "
+                                   "carry no way to reach anyone outside it",
+                                   hint="take it out; if it belongs, the world's owner can vouch for your hand (vouch)")
+
+
+# What a script's reply warns of, for every hand: not refused, worth a second look.
+_LINT = (
+    (re.compile(r"\.remember\s*\("), "it writes into a body's memory: what someone remembers is theirs, so write only "
+                                       "what they saw or were told"),
+    (re.compile(r"\.intend\s*\("), "it sets a body's intent: a seat's own choices are its own"),
+    (re.compile(r"""["'](?:code|key|secret|password|token|access|canon|programmed)["']"""),
+     "it reads or writes state a lock, a grant or the owner keeps (code, key, secret, token, access, canon, "
+     "programmed): check it touches only its own"),
+)
+
+
+def _lint(src: str) -> list[str]:
+    return [why for rx, why in _LINT if rx.search(src or "")]
 
 
 # The end of every author hint: it may be meant, or someone else's to fix (Glass Reach, Nate 2026-11-15).

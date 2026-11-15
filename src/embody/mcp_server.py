@@ -247,7 +247,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     def invite(role: str, entity: str | None = None, template: str | None = None, label: str = "",
                expires: float | None = None, scope: list[str] | None = None,
                as_principal: str | None = None, brief: str = "",
-               limits: dict[str, Any] | None = None, slots: int | None = None) -> dict[str, Any]:
+               limits: dict[str, Any] | None = None, slots: int | None = None,
+               vouched: bool = False) -> dict[str, Any]:
         """(owner) Make a grant and return the paste for the friend: a link their agent reads once, within a day, for
         the token and its brief (the agent is told to open in the world and say nothing of the setup). role: author,
         builder, narrator, player, mind or observer. entity keeps a seat (player) or names the NPC held (mind; scope=[...]
@@ -255,9 +256,11 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         orders, a first goal); it rides the page and the briefing their join() returns. limits (builder, narrator,
         author): {"under": <entity>, "types": [...], "scripts": "prefix_"}, the part of the world it may change, what
         it may spawn, how its scripts are named; a builder needs under. slots: how many seats the world may hand
-        this guest (ctx.offer_seat, claim_seat), over the root's seat_slots. The token is shown once."""
+        this guest (ctx.offer_seat, claim_seat), over the root's seat_slots. vouched: you vouch for this hand (see
+        vouch). The token is shown once."""
         return S(None).invite(role, entity=entity, template=template, label=label, expires=expires,
-                              principal=as_principal, scope=scope, brief=brief, limits=limits, slots=slots)
+                              principal=as_principal, scope=scope, brief=brief, limits=limits, slots=slots,
+                              vouched=vouched)
 
     @tool()
     @_wrap
@@ -277,6 +280,22 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     def revoke(id: str) -> dict[str, Any]:
         """(owner) End a grant: its token stops working and its principal leaves the world."""
         return S(None).revoke(id)
+
+    @tool()
+    @_wrap
+    def vouch(grant: str, on: bool = True) -> dict[str, Any]:
+        """(owner) Vouch for a grant's hand (on=False takes it back). A hand you have not vouched for writes no links
+        or ways to reach anyone outside the world (URL, domain, email, phone, wallet, payment ask, "DM me"), and its
+        scripts, and verbs it programs without a frame, wait for your review_script or review. Vouch for your own
+        agents and hands you trust like your own."""
+        return S(None).vouch(grant, on=on)
+
+    @tool()
+    @_wrap
+    def review_script(id: str, approve: bool = True) -> dict[str, Any]:
+        """(owner) Approve a script a hand you have not vouched for defined (scripts() marks it pending, with who;
+        script_source reads it), or refuse it (approve=False): the version before it comes back, or none."""
+        return S(None).review_script(id, approve=approve)
 
     @tool()
     @_wrap
@@ -556,7 +575,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def review(thing: str, verb: str, approve: bool = True) -> dict[str, Any]:
-        """(author) Approve a verb a reviewed frame made, or take it off (approve=False)."""
+        """(author) Approve a verb a reviewed frame made, or take it off (approve=False). A verb a hand the owner has
+        not vouched for programmed without a frame is the owner's to review."""
         return s.review(thing, verb, approve=approve)
 
     @tool()

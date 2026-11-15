@@ -126,7 +126,7 @@ def test_builders_own_what_they_make_and_share_it_by_mode():
     eng, w, i = engine_with_two_rooms()
     gm = owner(eng)
     a, ia = builder(eng, gm)
-    ib = gm.invite("builder", label="Tov", limits={"under": "Hall"})
+    ib = gm.invite("builder", label="Tov", limits={"under": "Hall"}, vouched=True)  # its scripts run unreviewed
     b = eng.session_for_token(ib["token"])
     a.use("two-rooms")
     b.use("two-rooms")
