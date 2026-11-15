@@ -204,16 +204,17 @@ class Engine:
         if g is None:
             return None
         if g.get("code_hash") or g.get("page"):
-            self.spend_link(g)
+            self.spend_link(g, used=True)
         return self.session(g["principal_id"], world_id=g["world_id"], name=g.get("label") or g["principal_id"],
                             role=g["role"], scope=list(g.get("scope") or []), grant=g)
 
-    def spend_link(self, g: dict[str, Any]) -> None:
-        """Forget the invite link's code and the page that carried the token: from here the engine holds the hash only."""
-        g["code_hash"] = None
-        g["code_expires"] = None
-        g["page"] = None
-        self.store.set("grants", g["world_id"], g["id"], code_hash=None, code_expires=None, page=None)
+    def spend_link(self, g: dict[str, Any], used: bool = False) -> None:
+        """Forget the invite link's code and the page that carried the token: from here the engine holds the hash only.
+        A link spent by the token's first use keeps its code's hash as `spent_hash`, so coming back to it answers
+        "already used: your token still works" rather than "no such invite"."""
+        spent = g.get("code_hash") if used else None
+        g.update(code_hash=None, code_expires=None, page=None, spent_hash=spent)
+        self.store.set("grants", g["world_id"], g["id"], code_hash=None, code_expires=None, page=None, spent_hash=spent)
 
     def url_now(self) -> str | None:
         """The MCP URL for an invite minted now: the operator's own, else the host this request came in on, else the
@@ -228,14 +229,21 @@ class Engine:
         what happened and what to do. Reading the page does not spend the link; the token's first use does."""
         rows = self.store.query("grants", "code_hash=?", (token_hash(code),), limit=1)
         g = rows[0] if rows else None
-        if g is None:
-            return 404, {"ok": False, "reason": "no such invite, or one already taken up",
-                         "hint": "a link works once and for a day; ask the host for a fresh one"}
         now = self.wall()
+        if g is None:
+            used = self.store.query("grants", "spent_hash=?", (token_hash(code),), limit=1)
+            if used and active(used[0], now):
+                return 410, {"ok": False, "reason": "this link was already used: the token it gave you still works",
+                             "hint": "reconnect with the server entry you saved from this page (the same URL and token). "
+                                     "Lost it? Ask the host to relink your grant: same seat, a fresh link"}
+            if used:
+                return 410, {"ok": False, "reason": "this invite was revoked or has expired", "hint": "ask the host for a fresh one"}
+            return 404, {"ok": False, "reason": "no such invite",
+                         "hint": "a link works once and for a day; check it was copied whole, or ask the host for a fresh one"}
         if not active(g, now):
             return 410, {"ok": False, "reason": "this invite was revoked or has expired", "hint": "ask the host for a fresh one"}
         if g.get("code_expires") is not None and float(g["code_expires"]) <= now:
-            self.spend_link(g)
+            self.spend_link(g, used=False)
             return 410, {"ok": False, "reason": "this invite link is older than a day and has gone stale",
                          "hint": "ask the host for a fresh one"}
         base = origin or (self.url_now() or "").removesuffix("/mcp")
@@ -1120,14 +1128,7 @@ class Session:
         url = self.engine.url_now() or ""
         code = new_code()
         link = link_for(url, code)
-        ck = w.clock()
-        names = [w.get(x)["name"] for x in sc if w.get(x)]
-        waits = bool(w.meta().get("run_when_occupied"))
-        tdoc = ((w.get(w.root_id)["state"].get("templates") or {}).get(template) or {}).get("doc", "") if template else ""
-        stored = page(w.name, role, f"{HOST_MARK}/mcp" if link else url, token, seat=(w.get(eid)["name"] if eid and role != MIND else None),
-                    scope_names=names, rate=ck["rate"] if ck["running"] or waits else 0.0, waits=waits,
-                    briefing=(f"From the host, for you alone: {brief}" if brief else ""), template=template,
-                    template_doc=tdoc, limits_note=note)
+        stored = self._page(role, eid, sc, brief, template, note, url, token, bool(link))
         text = stored.replace(HOST_MARK, url.removesuffix("/mcp"))
         exp = (now + float(expires) * 3600.0) if expires else None
         code_exp = min(now + LINK_HOURS * 3600.0, exp) if exp else now + LINK_HOURS * 3600.0
@@ -1143,6 +1144,60 @@ class Session:
                 "page": text,
                 "hint": ("send them the paste: the link works once and for a day" if link else
                          "no public URL, so no link: send them the paste whole") + "; grants() lists grants without the token"}
+
+    def _page(self, role: str, eid: str | None, sc: list[str], brief: str | None, template: str | None, note: str,
+              url: str, token: str, link: bool) -> str:
+        """The page an invite link serves, with the host's address left as HOST_MARK when there is a link."""
+        w = self.world
+        ck = w.clock()
+        names = [w.get(x)["name"] for x in sc if w.get(x)]
+        waits = bool(w.meta().get("run_when_occupied"))
+        tdoc = ((w.get(w.root_id)["state"].get("templates") or {}).get(template) or {}).get("doc", "") if template else ""
+        return page(w.name, role, f"{HOST_MARK}/mcp" if link else url, token,
+                    seat=(w.get(eid)["name"] if eid and w.get(eid) and role != MIND else None),
+                    scope_names=names, rate=ck["rate"] if ck["running"] or waits else 0.0, waits=waits,
+                    briefing=(f"From the host, for you alone: {brief}" if brief else ""), template=template,
+                    template_doc=tdoc, limits_note=note)
+
+    def relink(self, grant: str) -> dict[str, Any]:
+        """(owner) A guest lost their token, or their link went stale: the same grant (principal, seat, scope, brief,
+        limits, expiry) gets a fresh token and a fresh link, good once and for a day. The old token stops working at
+        once. Returns the paste, as invite does."""
+        self._tick()
+        w = self.world
+        g = w.store.get("grants", w.id, str(grant))
+        if g is None:
+            raise Rejected(f"no grant {grant!r} on this world", hint="grants() lists them")
+        if not active(g, self.engine.wall()):
+            raise Rejected(f"grant {grant!r} was revoked or has expired", hint="invite(...) makes a new one")
+        if g["role"] == OWNER:
+            raise Rejected("the owner's grant is the host's own", hint="relink a guest's grant")
+        token, code, now = new_token(), new_code(), self.engine.wall()
+        url = self.engine.url_now() or ""
+        link = link_for(url, code)
+        lim = g.get("limits")
+        stored = self._page(g["role"], g.get("entity_id"), list(g.get("scope") or []), g.get("brief"), g.get("template"),
+                            self._limits_note(lim) if lim else "", url, token, bool(link))
+        text = stored.replace(HOST_MARK, url.removesuffix("/mcp"))
+        exp = g.get("expires")
+        code_exp = min(now + LINK_HOURS * 3600.0, float(exp)) if exp else now + LINK_HOURS * 3600.0
+        w.store.set("grants", w.id, g["id"], token_hash=token_hash(token), spent_hash=None,
+                    code_hash=token_hash(code) if link else None, code_expires=code_exp if link else None,
+                    page=stored if link else None)
+        label = g.get("label") or ""
+        return {"ok": True, "id": g["id"], "principal": g["principal_id"], "role": g["role"], "entity": g.get("entity_id"),
+                "token": token, "url": url or None, "link": link, "link_expires": code_exp if link else None,
+                "paste": paste(w.name, g["role"], link, text, label=label), "page": text,
+                "hint": "the old token no longer works; send them the paste: the link works once and for a day"}
+
+    def _limits_note(self, lim: dict[str, Any]) -> str:
+        """The line on an invite's page that says a limited grant's reach."""
+        w = self.world
+        where = w.need(lim["under"])["name"] if lim.get("under") and w.get(lim["under"]) else "the whole world"
+        return (f"   Your hand reaches {('under ' + where) if lim.get('under') else where} and what it holds; the rest you "
+                f"may read. You may spawn {', '.join(lim['types']) if lim.get('types') is not None else 'any type'}"
+                f" and the schemas you define. Your scripts, schemas and event kinds start with {lim.get('scripts')}, and "
+                f"they keep your limits when they run. What the owner marked canon stays as it is.")
 
     def _limits_for(self, role: str, limits: dict[str, Any] | None, pid: str) -> tuple[dict[str, Any] | None, str]:
         """Check an invite's limits and say them in a line for its page."""
@@ -1171,12 +1226,7 @@ class Session:
             if other and active(g, self.engine.wall()) and (other.startswith(pre) or pre.startswith(other)):
                 raise Rejected(f"the prefix {pre!r} overlaps {other!r}, grant {g['id']}'s", hint="another scripts= prefix")
         lim["scripts"] = pre
-        where = w.need(lim["under"])["name"] if lim.get("under") else "the whole world"
-        note = (f"   Your hand reaches {('under ' + where) if lim.get('under') else where} and what it holds; the rest you "
-                f"may read. You may spawn {', '.join(lim['types']) if lim.get('types') is not None else 'any type'}"
-                f" and the schemas you define. Your scripts, schemas and event kinds start with {pre}, and they keep "
-                f"your limits when they run. What the owner marked canon stays as it is.")
-        return lim, note
+        return lim, self._limits_note(lim)
 
     def requests(self, limit: int = 50) -> list[dict[str, Any]]:
         """(owner) Seat requests left on the world's page (/seat-request), newest first: who, how to reach them, which
@@ -1247,7 +1297,7 @@ class Session:
         out = []
         for g in w.store.query("grants", "world_id=?", (w.id,), order="created"):
             p = w.principal(g["principal_id"])
-            out.append({k: v for k, v in g.items() if k not in ("token_hash", "world_id", "code_hash", "page")}
+            out.append({k: v for k, v in g.items() if k not in ("token_hash", "world_id", "code_hash", "page", "spent_hash")}
                        | {"active": active(g, now), "in_world": p is not None, "link_unread": bool(g.get("code_hash")),
                           "embodying": p["entity_id"] if p else None})
         return out
@@ -3616,7 +3666,7 @@ OPS = [
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
-    "vouch", "review_script", "report_flaw", "flaws",
+    "vouch", "review_script", "report_flaw", "flaws", "relink",
 ]
 
 

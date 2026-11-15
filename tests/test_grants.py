@@ -580,7 +580,7 @@ def test_an_invite_is_a_link_whose_page_hands_the_agent_its_token_once():
         status, _, body = _get(f"http://127.0.0.1:{port}/watch/state.json", token=inv["token"])
         assert status == 403  # a player may not watch, but the token was used
         status, _, body = _get_ua(inv["link"], "Claude-User/1.0")
-        assert status == 404 and "taken up" in json.loads(body)["reason"]
+        assert status == 410 and "already used" in json.loads(body)["reason"]  # not "no such invite": the seat stands
         g = [x for x in gm.grants() if x["id"] == inv["id"]][0]
         assert not g["link_unread"]
         assert eng.store.get("grants", w.id, inv["id"])["page"] is None
@@ -708,6 +708,39 @@ def test_a_players_page_says_how_to_wait_in_a_running_world():
     assert "curl -s -X POST https://r.example/op/wait" in p and "grep -q '\"fired\": true'" in p
     assert "op/wait -H" not in page("The Reach", "observer", "https://r.example/mcp", "TOK", rate=4.0)
     assert "op/wait -H" not in page("The Reach", "player", "https://r.example/mcp", "TOK", rate=0.0)
+
+
+def test_a_used_link_says_so_and_relink_gives_the_same_grant_a_fresh_token_and_link():
+    eng, w, i = engine_with_two_rooms()
+    eng.public_url = "https://reach.example/mcp"
+    gm = owner(eng)
+    gm.patch("Prisoner", {"playable": True})
+    inv = gm.invite("player", entity="Prisoner", label="Sable", brief="Find Bram.")
+    code = inv["link"].rsplit("/", 1)[1]
+    assert "Save the entry" in inv["page"] and "opens once" in inv["page"]
+    assert eng.invite_page(code)[0] == 200
+    sable = eng.session_for_token(inv["token"])  # the first use spends the link
+    status, body = eng.invite_page(code)
+    assert status == 410 and "already used" in body["reason"] and "still works" in body["reason"]
+    assert "relink" in body["hint"] and "saved" in body["hint"]
+    assert eng.invite_page("never-was")[0] == 404
+    assert "spent_hash" not in [g for g in gm.grants() if g["id"] == inv["id"]][0]
+    # relink: same grant, principal and seat; a fresh token and link; the old token and both old links are done
+    out = gm.relink(inv["id"])
+    assert out["id"] == inv["id"] and out["principal"] == inv["principal"] == sable.pid and out["entity"] == inv["entity"]
+    assert out["token"] != inv["token"] and out["link"] != inv["link"] and "Find Bram" in out["page"]
+    assert out["link"] in out["paste"] and out["token"] not in out["paste"]
+    assert eng.session_for_token(inv["token"]) is None
+    assert eng.invite_page(code)[0] == 404
+    new = eng.session_for_token(out["token"])
+    assert new.pid == sable.pid and new.grant["id"] == inv["id"]
+    with pytest.raises(Rejected):
+        gm.relink("g-nope")
+    gm.revoke(inv["id"])
+    with pytest.raises(Rejected) as why:
+        gm.relink(inv["id"])
+    assert "revoked" in why.value.reason
+    assert "not allowed" in str(call(new, "relink", grant=inv["id"])) or call(new, "relink", grant=inv["id"])["ok"] is False
 
 
 def test_invite_pages_name_the_host_the_request_came_in_on():

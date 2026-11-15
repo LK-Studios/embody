@@ -278,6 +278,13 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def relink(grant: str) -> dict[str, Any]:
+        """(owner) A guest lost their token or their link: the same grant (seat, scope, brief, limits) gets a fresh token
+        and a fresh one-day link; the old token stops working. Send them the paste it returns."""
+        return S(None).relink(grant)
+
+    @tool()
+    @_wrap
     def flaws(limit: int = 50) -> list[dict[str, Any]]:
         """(owner) Holes reported with report_flaw, newest first: who, which body, what, how, severity."""
         return S(None).flaws(limit)

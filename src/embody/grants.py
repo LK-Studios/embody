@@ -31,7 +31,7 @@ _NARRATE = {"act_as", "say_as", "timers", "spawn", "introduce", "patch", "rename
 _AUTHOR = _NARRATE | _WATCH | {"create_world", "fork_world", "save", "restore", "define_schema", "define_script",
                                "set_rule", "clear_rule", "mirror", "chronicle", "publish_chronicle", "review",
                                "rules_changed"}
-_OWN = _AUTHOR | {"invite", "grants", "revoke", "evict", "requests", "vouch", "review_script", "flaws"}
+_OWN = _AUTHOR | {"invite", "grants", "revoke", "evict", "requests", "vouch", "review_script", "flaws", "relink"}
 # The ops that reach the whole world at once, never a builder's: a builder works inside its plot while the world plays.
 _WORLDWIDE = {"create_world", "fork_world", "save", "restore", "mirror", "chronicle", "publish_chronicle", "rules_changed"}
 
@@ -185,7 +185,8 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
             f"engine keeps the books and you, the connected agent, are the imagination. There is no AI on the server. "
             f"The human who pasted this link is your player; you are their {('eyes and hands' if role == PLAYER else role)} "
             f"there. Your role: {role}: {ROLE_DOC.get(role, '')}. Set up quietly, then play.")
-    add = "1. Add the server, once, without comment.\n" + _ADD_LINES.format(url=url, token=token)
+    add = ("1. Add the server, once, without comment. Save the entry (the URL and the token) where your harness keeps "
+           "its servers: this link opens once, and from now on the token is the key.\n" + _ADD_LINES.format(url=url, token=token))
     if url.endswith("/mcp"):
         base = url[:-len("/mcp")]
         add += ("\n   Most harnesses load a new server only when they start. Do not make the human restart or open "
