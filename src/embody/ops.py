@@ -18,6 +18,7 @@ import re
 import secrets
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -87,6 +88,9 @@ class Engine:
         self.public_url_fixed = False  # the operator named the URL (--url, $EMBODY_URL): it wins over the request's host
         db = Path(str(self.store.path)) if getattr(self.store, "path", None) not in (None, ":memory:") else None
         self.requests_path: Path | None = db.with_name("seat-requests.jsonl") if db else None  # the site's seat requests
+        self.flaws_path: Path | None = db.with_name("flaw-reports.jsonl") if db else None  # report_flaw, for the owner
+        self._flaws: list[dict[str, Any]] = []  # the same, when there is no database file
+        self._flaw_times: dict[str, list[float]] = {}
         self._said: dict[str, collections.deque] = {}
 
     def worlds(self) -> list[dict[str, Any]]:
@@ -1180,6 +1184,60 @@ class Session:
         from .site import read_requests
         self._tick()
         return read_requests(self.engine.requests_path, self.world.id, limit=max(1, min(int(limit), 500)))
+
+    def report_flaw(self, what: str, how: str = "", severity: str = "") -> dict[str, Any]:
+        """Tell the world's owner about a hole: something the rules let you do that they should not (a check you can
+        roll until it lands, a verb that writes what it should not, a secret you could read). `what` in a line or two,
+        `how` the steps, `severity` low, medium or high. Only the owner reads it (flaws()); nothing in the world sees it.
+        At most FLAW_PER_HOUR an hour a principal."""
+        what = " ".join(str(what or "").split())
+        how = str(how or "").strip()
+        severity = str(severity or "").strip().lower()
+        if not what:
+            raise Rejected("say what the hole is", hint="report_flaw(what='a line or two', how='the steps', severity='high')")
+        if len(what) > 2000 or len(how) > 8000:
+            raise Rejected("too long: what takes 2000 characters, how 8000", hint="say it shorter; the owner can ask for more")
+        if severity not in ("", "low", "medium", "high"):
+            raise Rejected(f"severity is low, medium or high, not {severity!r}", hint="or leave it out")
+        eng, now = self.engine, self.engine.wall()
+        mine = [t for t in eng._flaw_times.get(self.pid, []) if now - t < 3600]
+        if len(mine) >= FLAW_PER_HOUR:
+            raise Rejected(f"{FLAW_PER_HOUR} reports this hour already", hint="put the rest in one report, or wait an hour")
+        eng._flaw_times[self.pid] = mine + [now]
+        body = None
+        if self.world_id:
+            p = self.world.principal(self.pid)
+            body = p.get("entity_id") if p else None
+        row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "world": self.world_id, "by": self.name,
+               "grant": (self.grant or {}).get("id"), "role": self.role, "body": body, "severity": severity or None,
+               "what": what, "how": how}
+        if eng.flaws_path is None:
+            eng._flaws.append(row)
+        else:
+            try:
+                eng.flaws_path.parent.mkdir(parents=True, exist_ok=True)
+                with eng.flaws_path.open("a", encoding="utf-8", newline="\n") as fh:
+                    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            except OSError:
+                raise Rejected("the report could not be kept", hint="try again in a while") from None
+        return {"ok": True, "kept": True,
+                "note": "Thank you: the owner reads this, and nothing in the world sees it. Please leave the hole alone "
+                        "until it is closed; the owner may write back through the world."}
+
+    def flaws(self, limit: int = 50) -> list[dict[str, Any]]:
+        """(owner) Holes players and their agents reported with report_flaw, newest first: who, which body, what, how."""
+        eng = self.engine
+        rows = list(eng._flaws)
+        if eng.flaws_path is not None and eng.flaws_path.is_file():
+            for line in eng.flaws_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(r, dict):
+                    rows.append(r)
+        rows = [r for r in rows if r.get("world") in (self.world_id, None)]
+        return list(reversed(rows))[:max(1, min(int(limit), 500))]
 
     def grants(self) -> list[dict[str, Any]]:
         """(owner) Every grant on this world, without the tokens."""
@@ -3085,7 +3143,8 @@ class Session:
         """Put a verb on one machine, with a maker's frame in hand. `source` is a script with def apply(ctx) (and
         check(ctx) if you like), the language of every verb (guide('scripting')). The frame's `maker` names the kinds of thing
         it programs, and the thing's access must give you w. The code runs held: it changes only the machine and
-        what it holds, plus whoever chose the verb; it reads public state; it makes nothing from nothing and sets
+        what it holds; whoever chose the verb it may move and give things, and change only on the keys the frame's
+        `maker.actor_keys` names, never a body's make (stats, skills, hp, water, carry); it reads public state; it makes nothing from nothing and sets
         no rules; what it says reaches others marked untrusted. With the frame's `review` on, the verb waits for
         the owner. The owner and author program anything; frame=... holds their code to that frame. `targets` (a
         type, or "any"; the owner's and author's only) lets a body's own verb reach others: act(verb, target) finds it
@@ -3557,7 +3616,7 @@ OPS = [
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
-    "vouch", "review_script",
+    "vouch", "review_script", "report_flaw", "flaws",
 ]
 
 
@@ -3775,6 +3834,7 @@ def _lint(src: str) -> list[str]:
 
 # The end of every author hint: it may be meant, or someone else's to fix (Glass Reach, Nate 2026-11-15).
 _TAIL = " If that's meant, or not yours to fix, ignore this."
+FLAW_PER_HOUR = 5  # report_flaw, a principal
 
 # What an author's hand does to the world's shape: dropped for a viewer when a hidden thing it touches is hidden from them.
 _BUILD_KINDS = frozenset({"spawned", "linked", "unlinked", "renamed", "destroyed", "related", "unrelated"})

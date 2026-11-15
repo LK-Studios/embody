@@ -105,6 +105,10 @@ The numbers, so a narrator can explain a roll:
 - A gift (`given`) is worth 1 with the receiver's faction only if they keep it: something they trade away on
   the spot, or something that was theirs to begin with (`given_by` on the thing names who handed it over),
   moves nothing, and a gift handed back to its giver was a loan: the 1 goes again ("lent, not given").
+- Terms (`agreed`) and gifts buy standing once a pair a world day: the same doer and the same member, ten offers or
+  ten gifts in a day, count once (the faction's secret `courted`).
+- A check is one try a skill, a place, a world hour: the same skill again in the same place before then is refused
+  with the time left (`tried` on the body; root `check_again_after` in world seconds, 0 lets a world reroll).
 - A deed to someone who keeps `faction` in their `secret` list still counts with that faction, but quietly: the
   faction keeps it in its own secret `unseen`, and the doer gets no `standing` event and no edge that names the
   side. Standing is the readable edge plus `unseen`; at -4 the faction still outlaws them, openly.
@@ -163,6 +167,13 @@ RULES = [
             "(root grudge_for). Coming back starts nothing unless you strike again. A beast cannot be challenged: "
             "fight it, or walk away.",
      "recheck": ["plans that avoid a place for fear of an old fight", "duels with beasts"], "guide": ["player", "mind"]},
+    {"id": "one-try-one-deal", "date": "2026-11-15",
+     "was": "A check could be rolled again and again in one place until it landed, and every agreement or gift to "
+            "the same member bought standing again.",
+     "now": "A check is one try a skill, a place, a world hour (root check_again_after); the refusal says when to "
+            "try again. Terms and gifts buy standing once a pair a world day; more that day moves nothing.",
+     "recheck": ["plans that roll check until it passes", "plans that farm standing with repeated parley or gifts"],
+     "guide": ["player", "mind"]},
 ]
 
 COMBATANT_STATE = {"body": 1, "wits": 1, "will": 1, "skills": {}, "hp": 6, "max_hp": 6, "water": 10, "max_water": 10,

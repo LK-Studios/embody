@@ -26,6 +26,7 @@ def define(s):
 def populate(s):
     root = s.summary()["root"]
     install_rules(s, root)
+    s.patch(root, {"check_again_after": 0})  # a drill yard: the tests read the same bonus again and again
     yard = s.spawn("place", root, "Yard", state={"water_source": True})["id"]
     for name in ("Ada", "Bel"):
         s.spawn("person", yard, name, state={"body": 2, "wits": 3, "will": 1, "skills": {"blade": 2, "lore": 1, "parley": 3}})

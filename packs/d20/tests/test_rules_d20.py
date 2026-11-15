@@ -53,9 +53,23 @@ def test_check_rolls_against_a_difficulty_and_says_so():
     assert r["result"]["untrained"] is True and "no skill 'juggling'" in r["result"]["note"]
     assert "lore" in r["result"]["note"] and [e for e in r["events"] if e["kind"] == "checked"][0]["payload"]["untrained"]
     # a skill the body has of its own is trained, whatever the pack's list says
-    gm.patch("Reeve Ansel Varrick", {"skills": {"lore": 1, "juggling": 2}})
+    gm.patch("Reeve Ansel Varrick", {"skills": {"lore": 1, "juggling": 2}, "tried": None})
     r = you.act("check", params={"skill": "juggling"})
     assert r["result"]["mod"] == 5 and "untrained" not in r["result"]
+
+
+def test_a_check_is_not_rolled_again_and_again_in_one_place():
+    # a playtest rolled check until it landed and found everything hidden at any dc: one try a skill, a place, a world hour
+    eng, gm, you = reach()
+    you.act("check", params={"skill": "search", "dc": 20})
+    with pytest.raises(Rejected) as why:
+        you.act("check", params={"skill": "search", "dc": 20})
+    assert "tried search here" in why.value.reason and "world minutes" in why.value.reason
+    you.act("check", params={"skill": "lore"})  # another skill is another try
+    tried = state(gm, "Reeve Ansel Varrick")["tried"]
+    assert len(tried) == 2 and all("|" in k for k in tried)
+    gm.patch(gm.world.root_id, {"check_again_after": 0})  # a world that wants rerolls says so on its root
+    you.act("check", params={"skill": "search", "dc": 20})
 
 
 def test_an_aid_helps_the_next_matching_check_once():
@@ -74,6 +88,7 @@ def test_an_aid_helps_the_next_matching_check_once():
     assert ev["aid"]["why"] == "the wisp points under the bench"
     left = state(gm, "Reeve Ansel Varrick")["aid"]
     assert [a["why"] for a in left] == ["elsewhere", "another skill"]  # used up, and the lapsed one fell away
+    gm.patch("Reeve Ansel Varrick", {"tried": None})
     r = you.act("check", params={"skill": "lore", "dc": 10})
     assert r["result"]["mod"] == 4 and "aid" not in r["result"]
 
@@ -544,6 +559,27 @@ def test_terms_agreed_in_the_ring_are_a_yield():
     assert gm.world.hyperedges(me, "duel") == []
     over = [e for e in r["events"] if e["kind"] == "duel_over"][0]["payload"]
     assert over["how"] == "yielded" and over["winner"] == me
+
+
+def test_terms_and_gifts_buy_standing_once_a_pair_a_world_day():
+    # a playtest parleyed the same member over and over to +29: the same deed with the same member counts once a day
+    eng, gm, you = reach()
+    for place in ["The Gate Yard", "The Salt Road", "The Carriers' Landing"]:
+        you.act("go", place)
+    me = gm.inspect("Reeve Ansel Varrick")["id"]
+    gm.patch("Reeve Ansel Varrick", {"will": 30})
+    gained = []
+    for offer in ["safe passage", "water at dusk", "a share of the glass"]:
+        r = you.act("parley", "Ossa the Carrier", {"offer": offer})
+        assert "agreed" in kinds(r)
+        gained += [e["payload"]["delta"] for e in r["events"] if e["kind"] == "standing" and e["target"] == me]
+    assert gained == [2]
+    for i in range(2):
+        gm.spawn("thing", me, f"Ribbon {i}", state={"portable": True})
+        r = you.act("give", "Ossa the Carrier", {"item": f"Ribbon {i}"})
+        gained += [e["payload"]["delta"] for e in r["events"] if e["kind"] == "standing" and e["target"] == me]
+    assert gained == [2, 1]
+    assert "courted" in gm.world.get(gm.inspect("the Carriers")["id"])["state"]["secret"]  # hidden from cards
 
 
 def test_a_trade_and_a_return_are_not_gifts():

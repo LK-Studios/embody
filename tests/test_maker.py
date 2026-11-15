@@ -33,7 +33,8 @@ def yard():
     gm.spawn("cart", "Hall", name="Cart")
     gm.spawn("creature", "Cart", name="Rider", state={"brief": "a smuggler"})
     gm.spawn("cart", "Hall", name="Old cart")
-    gm.spawn("thing", "Hall", name="Wright's frame", state={"portable": True, "maker": {"types": ["cart"], "max_scripts": 2}})
+    gm.spawn("thing", "Hall", name="Wright's frame", state={"portable": True, "maker": {"types": ["cart"], "max_scripts": 2,
+                                                                          "actor_keys": ["fare_paid", "hp"]}})
     gm.chown("Cart", owner="Guard")
     sam = eng.session("sam")
     sam.join("two-rooms", "Guard")
@@ -66,6 +67,51 @@ def test_the_frame_in_hand_programs_its_holders_own_machine_and_nothing_else():
             nate.act("hail", "Cart", {"how": how})
     assert nate.act("hail", "Cart", {"how": "peek"})["result"] == [None, 2]  # a rider's secrets stay theirs
     assert w.find(name="Rider")[0]["state"]["hp"] == 10 and w.find(name="Guard")[0]["state"]["hp"] == 10
+
+
+RIDE = """
+def apply(ctx):
+    how = ctx.params.get("how")
+    if how == "stats":
+        ctx.patch(ctx.actor, {"wits": 5, "skills": {"blade": 4}})
+    if how == "hp":
+        ctx.patch(ctx.actor, {"hp": 16, "max_hp": 16})
+    if how == "set":
+        ctx.actor.state.carry = 20
+    if how == "unnamed":
+        ctx.patch(ctx.actor, {"mood": "glad"})
+    if how == "kit":
+        ctx.patch(ctx.find(name="Rope")[0], {"damage": 9})
+    if how == "tie":
+        ctx.link(ctx.actor, ctx.self, "standing", {"value": 99})
+    if how == "fare":
+        ctx.patch(ctx.actor, {"fare_paid": True})
+    if how == "give":
+        ctx.move(ctx.find(name="Token")[0], ctx.actor)
+"""
+
+
+def test_a_frames_code_never_writes_the_make_of_whoever_rides():
+    # a playtest's hauler wrote its riders sixteen hp, wits 5 and ten skills: the caller is not the machine's to remake
+    eng, w, gm, sam, nate = yard()
+    gm.program("Cart", "ride", RIDE, frame="Wright's frame")
+    gm.spawn("thing", "Prisoner", name="Rope", state={"portable": True})
+    gm.spawn("thing", "Cart", name="Token", state={"portable": True})
+    before = dict(w.find(name="Prisoner")[0]["state"])
+    for how, says in [("stats", "wits"), ("hp", "hp"), ("set", "carry"), ("unnamed", "mood"), ("kit", "damage")]:
+        with pytest.raises(Rejected) as why:
+            nate.act("ride", "Cart", {"how": how})
+        assert f"may not change {says}" in why.value.reason or says in why.value.reason, how
+        assert "fare_paid" in why.value.hint and "hp" not in why.value.hint.split("(")[1].split(")")[0]
+    with pytest.raises(Rejected) as why:
+        nate.act("ride", "Cart", {"how": "tie"})
+    assert "ties no one" in why.value.reason
+    after = w.find(name="Prisoner")[0]["state"]
+    assert all(after.get(k) == before.get(k) for k in ("wits", "skills", "hp", "max_hp", "carry", "mood"))
+    nate.act("ride", "Cart", {"how": "fare"})  # a key the frame names
+    nate.act("ride", "Cart", {"how": "give"})  # and it still hands things over
+    prisoner = w.find(name="Prisoner")[0]
+    assert prisoner["state"]["fare_paid"] and w.find(name="Token")[0]["parent_id"] == prisoner["id"]
 
 
 def test_caps_review_revoke_and_the_grant_following_the_frame():

@@ -270,6 +270,20 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def report_flaw(what: str, how: str = "", severity: str = "", principal: str | None = None) -> dict[str, Any]:
+        """Found a hole? Something the rules let you do that they should not: a roll you can repeat until it lands, a
+        verb that writes what it should not, a secret you can read. Tell the owner here instead of using it: what in a
+        line or two, how (the steps), severity low/medium/high. Only the owner reads it; nothing in the world sees it."""
+        return S(principal).report_flaw(what, how=how, severity=severity)
+
+    @tool()
+    @_wrap
+    def flaws(limit: int = 50) -> list[dict[str, Any]]:
+        """(owner) Holes reported with report_flaw, newest first: who, which body, what, how, severity."""
+        return S(None).flaws(limit)
+
+    @tool()
+    @_wrap
     def requests(limit: int = 50) -> list[dict[str, Any]]:
         """(owner) Seat requests people left on the world's page, newest first: name, how to reach them, the side
         that draws them, why. Answer one with invite(...) and send the paste where they asked."""
@@ -555,8 +569,9 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
                 frame: str | None = None, targets: str | None = None) -> dict[str, Any]:
         """Put a verb on one machine with a maker's frame in hand: source has def apply(ctx), the language of every
         verb (guide('scripting')). The frame names the kinds of thing it programs; the thing's access must give you w. The
-        code changes only the machine, what it holds and whoever chose the verb, and what it says is marked
-        untrusted. The owner and author program anything (docs/ACCESS.md). targets (a type or "any", owner and
+        code changes only the machine and what it holds; it may move whoever chose the verb and give them things,
+        and change them only on the keys the frame's maker.actor_keys names, never their stats, skills, hp, water or
+        carry. What it says is marked untrusted. The owner and author program anything (docs/ACCESS.md). targets (a type or "any", owner and
         author only): a body's own verb that reaches others, act(verb, target) with ctx.target the one it is done to."""
         return s.program(thing, verb, source, doc=doc, params=params, frame=frame, targets=targets)
 

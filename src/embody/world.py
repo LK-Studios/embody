@@ -67,6 +67,7 @@ class StateView(ScriptObject):
         ctx = self._w._running[-1] if self._w._running else None
         if ctx is not None and ctx._limits:
             ctx._hold(self._id)
+            ctx._caller_keys(self._id, [name])
             if name == "canon":
                 raise Rejected("canon is the owner's mark", hint="only the world's owner marks or lifts canon")
             if name in (acl.KEY, acl.GROUPS):
@@ -107,6 +108,13 @@ def _sealed(world: "World", ent: dict[str, Any] | None) -> set[str]:
                                                and world.is_a(ent["type"], "creature")):
         return set()
     return set(ent["state"].get("secret") or []) | ALWAYS_SECRET
+
+
+# What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
+BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
+                       "water", "max_water", "carry", "grants", "aid", "dead", "down", "wounded", "thirsty", "faction",
+                       "secret", "memory", "brief", "intent", "playable", "programmed", "tried", "asleep", "yielded",
+                       "cowed_by", "standing", "rank", "oath"})
 
 
 class EntityView(ScriptObject):
@@ -288,7 +296,8 @@ class Ctx(ScriptObject):
 
     def _hold(self, *ids: Any, any_: bool = False, kind: str | None = None) -> None:
         """A script defined under a grant's limits writes only inside them: under its subtree, never on canon, its
-        event kinds in its own namespace. A verb's script may also touch the one who chose the verb."""
+        event kinds in its own namespace. A verb's script may also touch the one who chose the verb (a frame's, only as
+        _caller_keys allows)."""
         lim = self._limits
         if not lim:
             return
@@ -314,6 +323,32 @@ class Ctx(ScriptObject):
         if kind is not None and not str(kind).startswith(lim.get("scripts") or "\0"):
             raise Rejected(f"this script makes events in its own namespace only ({lim.get('scripts')}...), not {kind!r}",
                            hint=f"name the kind {lim.get('scripts')}{kind}")
+
+    def _caller_side(self, i: str) -> bool:
+        """Whether a frame's code is reaching the one who chose its verb, or what they carry, rather than its machine."""
+        if not (self._limits or {}).get("frame") or not self._actor or not self._w.get(i):
+            return False
+        under = self._under()
+        return self._w.within(i, self._actor) and not (under and self._w.within(i, under))
+
+    def _caller_keys(self, i: Any, keys: Any) -> None:
+        """A frame's code changes the caller and what they carry only on the keys its frame names (maker.actor_keys,
+        none by default), and never a body's own make: its stats, skills, hp, water, carry, sheet and the rest its
+        schema gives it. A playtest's hauler wrote its riders sixteen hp and wits 5."""
+        i = _ev(self._w, i)
+        if not self._caller_side(i):
+            return
+        w = self._w
+        e = w.need(i)
+        named = set((w.maker_of(self._limits["frame"]) or {}).get("actor_keys") or [])
+        body = BODY_KEYS | (set(w.schema_defaults(e["type"])) if w.is_a(e["type"], "creature") else set())
+        bad = sorted(k for k in keys if k not in named or k in body)
+        if bad:
+            ok = sorted(named - body)
+            raise Rejected(f"a frame's code may not change {', '.join(bad)} on {e['name'] or i}",
+                           hint=f"it changes the one who chose the verb, or what they carry, only on the keys its frame "
+                                f"names ({', '.join(ok) or 'none'}), and never a body's own make (stats, skills, hp, "
+                                f"water, carry). It may still move them and give them things")
 
     # -- identity
     @property
@@ -469,6 +504,7 @@ class Ctx(ScriptObject):
         ch = dict(changes or {})
         ch.update(kw)
         self._hold(id)
+        self._caller_keys(id, ch)
         if self._limits and "canon" in ch:
             raise Rejected("canon is the owner's mark", hint="only the world's owner marks or lifts canon")
         if self._limits and (acl.KEY in ch or acl.GROUPS in ch):
@@ -539,15 +575,23 @@ class Ctx(ScriptObject):
             raise Rejected("a frame's code ends no one", hint="it works the machine, not the people")
         self._w.destroy(_ev(self._w, id), actor=self._actor, caused_by=self._caused_by)
 
+    def _no_caller_ties(self, *ids: Any) -> None:
+        """A frame's code ties no one: no edge or relation on the caller or what they carry (their standing, their
+        knowledge, their bonds are not a machine's to write)."""
+        if any(self._caller_side(_ev(self._w, i)) for i in ids if i is not None):
+            raise Rejected("a frame's code ties no one to anything", hint="it works the machine and what it holds")
+
     def link(self, source: Any, target: Any, relation: str, data: dict[str, Any] | None = None, **kw: Any) -> str:
         d = dict(data or {})
         d.update(kw)
         self._hold(source, target, any_=True)
+        self._no_caller_ties(source, target)
         return self._w.link(_ev(self._w, source), _ev(self._w, target), relation, d,
                             actor=self._actor, caused_by=self._caused_by)
 
     def unlink(self, source: Any, target: Any, relation: str) -> int:
         self._hold(source, target, any_=True)
+        self._no_caller_ties(source, target)
         return self._w.unlink(_ev(self._w, source), _ev(self._w, target), relation,
                               actor=self._actor, caused_by=self._caused_by)
 
@@ -555,6 +599,7 @@ class Ctx(ScriptObject):
         d = dict(data or {})
         d.update(kw)
         self._hold(*participants)
+        self._no_caller_ties(*participants)
         return self._w.relate(relation, [_ev(self._w, p) for p in participants], d,
                               actor=self._actor, caused_by=self._caused_by)
 

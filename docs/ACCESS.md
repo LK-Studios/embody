@@ -118,8 +118,10 @@ The owner and author `program` anything without a frame, and `frame=...` holds t
 
 How the code runs: it carries `# limits: {"under": "self", "frame": ..., "scripts": ...}` on its first line.
 
-- It changes only the thing it sits on and what that holds, never a body riding in it, plus the one who chose the verb
-  (as every limited verb may).
+- It changes only the thing it sits on and what that holds, never a body riding in it. The one who chose the verb
+  it may move and give things to, but it changes them, or what they carry, only on the keys the frame's
+  `maker.actor_keys` names (none by default), and never a body's make: stats, skills, sheet, hp, water, carry,
+  faction, memory and every key the body's schema gives it. It ties them to nothing (no link or relation on them).
 - It reads secret state only of the machine and its load, never of a body.
 - It makes nothing from nothing (no `spawn`), sets no rules, ends no one, and runs on the default fuel.
 - Its events carry its prefix, and what it says or emits carries `maker`: other bodies get it as `untrusted`, and the
