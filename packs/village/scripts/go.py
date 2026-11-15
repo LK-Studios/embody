@@ -1,9 +1,6 @@
 def shut(ctx, x):
     # a door or a place a lock keeps shut, with the way to open it
-    lk = ctx.locked(x)
-    if lk is None:
-        return None
-    return x.name + " is locked: unlock " + ("it" if lk.id == x.id else lk.name) + " first, with its key or its code, or pick it"
+    return ctx.shut(x)
 
 def check(ctx):
     here = ctx.actor.parent

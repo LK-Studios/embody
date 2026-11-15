@@ -75,6 +75,7 @@ def test_a_locked_box_keeps_its_contents_and_shows_only_its_lock(guild):
         with pytest.raises(Rejected) as r:
             bel.act(verb, target)
         assert "Strongbox is locked" in r.value.reason and "Box lock" in r.value.reason  # it says what opens it
+        assert r.value.reason.endswith("first, with its key, or pick it, or break it")  # only the ways it has
     with pytest.raises(Rejected) as r:
         ada.act("put", "Strongbox", params={"item": "Coin"})
     assert "locked" in r.value.reason
@@ -104,7 +105,7 @@ def test_a_code_opens_and_a_wrong_code_spends_nothing(guild):
     eng, gm, ada, bel = guild
     with pytest.raises(Rejected) as r:
         bel.act("go", "Strongroom")
-    assert "Strongroom is locked" in r.value.reason
+    assert "Strongroom is locked" in r.value.reason and r.value.reason.endswith("first, with its code")  # no pick_dc: not picked
     assert [x for x in bel.perceive()["exits"] if x["name"] == "Strongroom"][0]["locked"] is True
     with pytest.raises(Rejected) as r:
         bel.act("unlock", "Strongroom lock")
@@ -154,7 +155,7 @@ def test_a_locked_door_refuses_the_way_through_from_either_side(guild):
     eng, gm, ada, bel = guild
     with pytest.raises(Rejected) as r:
         bel.act("go", "Hall")
-    assert "Oak door is locked" in r.value.reason and "Door lock" in r.value.reason
+    assert "Oak door is locked" in r.value.reason and r.value.reason.endswith("unlock Door lock first, with its key")
     assert [x for x in bel.perceive()["exits"] if x["name"] == "Hall"][0]["locked"] is True
     ada.act("unlock", "Door lock")
     ada.act("go", "Hall")

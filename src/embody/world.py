@@ -249,7 +249,7 @@ class Ctx(ScriptObject):
         "actor", "target", "self", "params", "event", "t", "rand", "verb",
         "get", "find", "children", "parent", "peers", "linked", "edges", "relations", "distance", "root",
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
-        "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "remember",
+        "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
     )
 
@@ -458,6 +458,11 @@ class Ctx(ScriptObject):
         """What keeps a box, a door or a place shut (its own `locked`, or a lock attached to it), or None."""
         e = self._w.locked_by(_ev(self._w, id))
         return EntityView(self._w, e["id"]) if e else None
+
+    def shut(self, id: Any) -> str | None:
+        """Why a box, a door or a place is shut and the ways that lock opens ("X is locked: unlock it first, with its
+        key, or pick it"), naming only the ways it has; None when nothing keeps it shut."""
+        return self._w.shut_line(_ev(self._w, id))
 
     # -- mutations
     def patch(self, id: Any, changes: dict[str, Any] | None = None, **kw: Any) -> None:
@@ -1309,7 +1314,8 @@ class World:
             raise Rejected("cannot destroy the world root")
         # Logged first, while the entity still has a place in the tree, so the event's path reaches its container.
         self.emit("destroyed", actor=actor, target=id, reach=1, caused_by=caused_by,
-                  payload={"entity": id, "type": e["type"], "name": e["name"], "parent": e["parent_id"]})
+                  payload={"entity": id, "type": e["type"], "name": e["name"], "parent": e["parent_id"],
+                           **({"hidden": True} if e["state"].get("hidden") else {})})
         for cid in reversed(self.subtree_ids(id)):
             self.store.execute("DELETE FROM edge WHERE world_id=? AND (source=? OR target=?)", (self.id, cid, cid))
             self.store.execute("DELETE FROM scheduled WHERE world_id=? AND entity_id=?", (self.id, cid))
@@ -1661,10 +1667,9 @@ class World:
         if (holder is not None and holder["state"].get("holds") is not None and actor["parent_id"] is not None
                 and holder["parent_id"] == actor["parent_id"] and not holder["state"].get("hidden")
                 and not target["state"].get("hidden")):
-            lk = self.locked_by(holder["id"])
-            if lk is not None:
-                return False, (f"{holder['name']} is locked: unlock "
-                               + (f"{lk['name']} " if lk["id"] != holder["id"] else "it ") + "first, with its key or its code, or pick it")
+            why = self.shut_line(holder["id"])
+            if why is not None:
+                return False, why
             return True, ""  # what lies on a rack or in an open chest here is within reach
         if actor["parent_id"]:
             for e in self.edges(actor["parent_id"], "connects_to", "out"):
@@ -1690,6 +1695,24 @@ class World:
                 if e["target"] == at["id"]:
                     return f"go {at['name']} first ({target['name']} is there), or pick something perceive lists"
         return "go where it is first (the places perceive lists under exits), or pick something perceive lists"
+
+    def shut_line(self, id: str) -> str | None:
+        """The refusal for a locked box, door or place, with only the ways its lock has: its key, its code, a pick
+        (`pick_dc`), a break (`break_dc`). None when nothing keeps it shut."""
+        e = self.get(id)
+        lk = self.locked_by(id) if e else None
+        if lk is None:
+            return None
+        st, ways = lk["state"], []
+        hand = [w for w, on in (("its key", st.get("key")), ("its code", st.get("code"))) if on]
+        if hand:
+            ways.append("with " + " or ".join(hand))
+        if st.get("pick_dc"):
+            ways.append("pick it")
+        if st.get("break_dc") and not st.get("broken"):
+            ways.append("break it")
+        return (f"{e['name']} is locked: unlock " + ("it" if lk["id"] == e["id"] else lk["name"]) + " first"
+                + (", " + ", or ".join(ways) if ways else ""))
 
     def locked_by(self, id: str) -> dict[str, Any] | None:
         """What keeps a box, a door or a place shut: the entity itself when its state says `locked`, or a lock

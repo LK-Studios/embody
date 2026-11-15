@@ -5,7 +5,7 @@ def apply(ctx):
     st = proj.state
     lines = []
     stage = stage_of(proj)
-    becomes = (st.becomes or {}).get("name") or "works"
+    becomes = bare((st.becomes or {}).get("name") or "works")
     done = st.built_stages or []
     lines.append("The " + becomes + ". Done: " + (", ".join(done) if done else "nothing yet") + ".")
     if stage is not None:

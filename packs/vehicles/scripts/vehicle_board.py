@@ -12,9 +12,8 @@ def check(ctx):
         return v.name + " is not here"
     if me.state.down or me.state.dead or me.state.asleep:
         return "you cannot climb aboard like this"
-    lk = ctx.locked(v)
-    if lk is not None:
-        return v.name + " is locked: unlock " + ("it" if lk.id == v.id else lk.name) + " first, with its key or its code, or pick it"
+    if ctx.shut(v):
+        return ctx.shut(v)
     if v.state.moving and v.state.boardable_moving is False:
         return v.name + " is moving too fast to climb aboard: halt it, or wait until it stands"
     if v.state.seats is not None and len(riders(ctx, v)) >= int(v.state.seats):

@@ -99,6 +99,9 @@ def test_a_plan_builds_where_it_is_held_and_says_what_it_wants(yard):
     assert gm.inspect("Plan for a cairn")["parent"] == works["id"]  # the plan is in the works
     survey = boss.act("survey", works["id"])["result"]
     assert "needs 2 more Stone" in survey and "no mason at work" in survey
+    becomes = dict(gm.inspect(works["id"])["state"]["becomes"], name="The cleared way")
+    gm.patch(works["id"], {"becomes": becomes})
+    assert boss.act("survey", works["id"])["result"].startswith("The cleared way. Done:")  # never "The The"
     with pytest.raises(Rejected) as r:
         boss.act("build", "Plan for a cairn")
     assert "already under way" in r.value.reason or "hold the plan" in r.value.reason

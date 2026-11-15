@@ -1663,6 +1663,18 @@ class Session:
                 holders[eid] = p["id"] if p else None
             return holders[eid]
 
+        around: set[str] | None = None
+
+        def unseen(eid: Any) -> bool:
+            # hidden from this viewer: not shown to them (World.sees), not a way they know, not where they stand
+            nonlocal around
+            x = w.get(eid) if isinstance(eid, str) else None
+            if x is None or not x["state"].get("hidden") or w.sees(me, x) or w.knows_way(me, eid):
+                return False
+            if around is None:
+                around = set(w.ancestors(me)) if me and w.get(me) else set()
+            return eid not in around
+
         for e in rows:
             if e["kind"] in _INTERNAL_KINDS or (not full and e["kind"] in _HOST_KINDS):
                 continue
@@ -1676,8 +1688,13 @@ class Session:
                     # an author's edit to someone else is the world changing under you, not news you heard;
                     # what it changed shows in the next perceive, the raw diff stays with the author
                     continue
-                if e["kind"] == "spawned" and (w.get(e["target_id"]) or {}).get("state", {}).get("hidden"):
-                    continue  # a hidden thing made where you are (a ledger's page, a trap) is still hidden
+                if e["kind"] in _BUILD_KINDS:
+                    # an author's making, joining or naming of a hidden thing (a ledger's page, a trap, a secret
+                    # place joined to the hall) tells nobody it is there; nor does its unmaking
+                    p = e["payload"] or {}
+                    refs = [e["target_id"], p.get("target"), p.get("entity"), p.get("parent"), *(p.get("participants") or [])]
+                    if p.get("hidden") or any(unseen(r) for r in refs):
+                        continue
             pe = _public_event(e)
             if not full and sb is not None:
                 pe["payload"] = {k: v for k, v in pe["payload"].items() if k != "seen_by"}  # not who else it shows itself to
@@ -3503,6 +3520,10 @@ def _guard(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
 
 for _op in OPS:
     setattr(Session, _op, _guard(_op, getattr(Session, _op)))
+
+
+# What an author's hand does to the world's shape: dropped for a viewer when a hidden thing it touches is hidden from them.
+_BUILD_KINDS = frozenset({"spawned", "linked", "unlinked", "renamed", "destroyed", "related", "unrelated"})
 
 
 def _seen_relation(r: dict[str, Any], me: str) -> bool:
