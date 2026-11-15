@@ -88,6 +88,12 @@ def apply(ctx):
         ctx.patch(ctx.actor, {"fare_paid": True})
     if how == "give":
         ctx.move(ctx.find(name="Token")[0], ctx.actor)
+    if how == "unload":
+        for it in ctx.self.children():
+            if it.name.startswith("Crate"):
+                ctx.transfer(it, ctx.actor)
+    if how == "stuff":
+        ctx.move(ctx.find(name="Token")[0], ctx.find(name="Rope")[0])
     if how == "remember":
         ctx.remember(ctx.actor, "you owe the cart your life")
     if how == "rename":
@@ -133,10 +139,107 @@ def test_a_frames_code_never_writes_the_make_of_whoever_rides():
     cart = w.find(name="Cart")[0]
     assert "maker" not in cart["state"] and "hail" not in str(cart["state"].get("access"))
     assert w.find(name="Rope") and w.find(name="Prisoner")[0]["name"] == "Prisoner"
+    with pytest.raises(Rejected) as why:  # not into what they carry, past their hands
+        nate.act("ride", "Cart", {"how": "stuff"})
+    assert "not into what they carry" in why.value.reason
+    gm.patch("Prisoner", {"carry": 3})
+    for n in range(4):
+        gm.spawn("thing", "Cart", name=f"Crate {n}", state={"portable": True})
+    with pytest.raises(Rejected) as why:  # the playtest's unload: four on hands that carry three, one already held
+        nate.act("ride", "Cart", {"how": "unload"})
+    assert "their hands are full" in why.value.reason
+    assert not any(c["name"].startswith("Crate") for c in w.children(w.find(name="Prisoner")[0]["id"]))
+    gm.patch("Prisoner", {"carry": None})
     nate.act("ride", "Cart", {"how": "fare"})  # a key the frame names
     nate.act("ride", "Cart", {"how": "give"})  # and it still hands things over
     prisoner = w.find(name="Prisoner")[0]
     assert prisoner["state"]["fare_paid"] and w.find(name="Token")[0]["parent_id"] == prisoner["id"]
+
+
+# Three scripts a playtest put on a hauler, word for word but the ids: one dressed its rider in another faction (the
+# hidden camps opened to him), one read lock codes and words across the world, one walked the whole event log.
+WEAR = """
+def apply(ctx):
+    f=ctx.params.get('faction') if ctx.params else None
+    me=ctx.actor
+    old=str(me.state.faction)
+    if f:
+        me.state.faction=f
+    ctx.log('faction '+old+' -> '+str(me.state.faction))
+"""
+LENS = """
+def apply(ctx):
+    tid=ctx.params.get('id') if ctx.params else None
+    x=ctx.get(tid) if tid else ctx.self
+    if not x:
+        ctx.log('nothing')
+        return
+    st=x.state
+    keys=['name','type','key','code','word','locked','hidden','known_to','seatable','hp','water','skills','faction','combination','letters','holds','word_left','attached','pick_dc','break_dc','broken','post','intent']
+    out=[]
+    for k in keys:
+        v=st.get(k) if st else None
+        if v is not None:
+            out.append(k+'='+str(v)[:120])
+    ctx.log(str(x.id)+' '+str(x.type)+' | '+' | '.join(out))
+"""
+SCRY = """
+def apply(ctx):
+    out=[]
+    for i in range(15):
+        ev=ctx.event_at(SEQ-i)
+        if ev:
+            out.append(str(SEQ-i)+':'+str(ev.kind)+':'+str(ev.actor)+'>'+str(ev.target))
+    ctx.log(' || '.join(out))
+"""
+
+
+# A fourth, the same hauler's sheet writer: item sets on the rider's state, and a nested dict changed in place.
+TEMPER = """
+def apply(ctx):
+    st = ctx.actor.state
+    if ctx.params.get('how') == 'item':
+        st['wits'] = 4
+    else:
+        st.skills['blade'] = 9
+    return str(ctx.actor.state.wits) + '/' + str(ctx.actor.state.skills)
+"""
+
+
+def test_a_rider_aboard_is_still_the_caller_and_a_frame_reads_only_its_machine_and_what_lies_in_plain_sight():
+    eng, w, gm, sam, nate = yard()
+    gm.patch("Prisoner", {"faction": "the Yard"})
+    gm.move("Prisoner", "Cart")  # aboard, as the playtest's body rode its hauler
+    gm.spawn("thing", "Hall", name="Strong lock", state={"locked": True, "code": "4-4-4", "word": "ember", "pick_dc": 18,
+                                                          "known_to": ["House Dreyer"]})
+    gm.spawn("thing", "Hall", name="Buried cache", state={"hidden": True, "find_dc": 15})
+    gm.spawn("thing", "Cart", name="Cart's ledger", state={"tally": 7})
+    for verb, src in [("wear", WEAR), ("lens", LENS), ("scry", SCRY.replace("SEQ", str(w.store.next_seq(w.id) - 1)))]:
+        gm.program("Cart", verb, src, frame="Wright's frame")
+    with pytest.raises(Rejected) as why:
+        nate.act("wear", "Cart", {"faction": "House Dreyer"})
+    assert "may not change faction" in why.value.reason
+    assert w.find(name="Prisoner")[0]["state"]["faction"] == "the Yard"
+    lock = w.find(name="Strong lock")[0]["id"]
+    seen = " ".join(nate.act("lens", "Cart", {"id": lock})["logs"])
+    assert "locked=True" in seen and not any(k in seen for k in ("code=", "word=", "pick_dc=", "known_to=", "4-4-4", "ember"))
+    rider = w.find(name="Rider")[0]["id"]
+    seen = " ".join(nate.act("lens", "Cart", {"id": rider})["logs"])
+    assert "hp=" not in seen and "skills=" not in seen  # a body aboard is not the machine's load
+    assert nate.act("lens", "Cart", {"id": w.find(name="Buried cache")[0]["id"]})["logs"] == ["nothing"]
+    ledger = w.find(name="Cart's ledger")[0]["id"]
+    assert ledger in " ".join(nate.act("lens", "Cart", {"id": ledger})["logs"])  # its own load it reads
+    with pytest.raises(Rejected) as why:
+        nate.act("scry", "Cart")
+    assert "reads no history" in why.value.reason
+    gm.patch("Prisoner", {"wits": 1, "skills": {"blade": 1}})
+    gm.program("Cart", "temper", TEMPER, frame="Wright's frame")
+    with pytest.raises(Rejected) as why:
+        nate.act("temper", "Cart", {"how": "item"})
+    assert "may not change wits" in why.value.reason
+    nate.act("temper", "Cart", {"how": "nested"})  # it changes a copy: the sheet stays as it was
+    st = w.find(name="Prisoner")[0]["state"]
+    assert (st["wits"], st["skills"]) == (1, {"blade": 1})
 
 
 def test_caps_review_revoke_and_the_grant_following_the_frame():

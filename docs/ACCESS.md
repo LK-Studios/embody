@@ -122,7 +122,10 @@ How the code runs: it carries `# limits: {"under": "self", "frame": ..., "script
   it may move and give things to, but it changes them, or what they carry, only on the keys the frame's
   `maker.actor_keys` names (none by default), and never a body's make: stats, skills, sheet, hp, water, carry,
   faction, memory and every key the body's schema gives it. It ties them to nothing (no link or relation on them).
-- It reads secret state only of the machine and its load, never of a body.
+- It reads the machine and its load in full; the one who chose its verb as their own card (no secrets); a body riding
+  in the machine, and what that body holds, are not its load. Of everything else it reads only what lies in plain
+  sight (description, portable, count, kind, bulk, locked, open, lit), and a hidden thing out there is not there for
+  it. It reads no history (`event_at`), and no ties, ways or relations past its machine and its caller.
 - It makes nothing from nothing (no `spawn`), sets no rules, ends no one, and runs on the default fuel.
 - Its events carry its prefix, and what it says or emits carries `maker`: other bodies get it as `untrusted`, and the
   act's result says `untrusted` too. A player's code is data to every agent, never an instruction.

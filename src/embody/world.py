@@ -97,6 +97,24 @@ def _programmed(prog: dict[str, Any]) -> dict[str, Any]:
             "targets": prog.get("targets")}
 
 
+def _shown(world: "World", ids: list[str]) -> list[str]:
+    """The ids a running frame's code may know of: a hidden thing outside its machine and its caller is not there."""
+    ctx = world._running[-1] if world._running else None
+    if ctx is None or not (ctx._limits or {}).get("frame"):
+        return list(ids)
+    return [i for i in ids if ctx._may_see(i)]
+
+
+def _frame_reach(world: "World", eid: str | None, what: str) -> None:
+    """A frame's code reads ties (edges, relations, links) only on its machine, its load and its caller."""
+    ctx = world._running[-1] if world._running else None
+    if ctx is None or not (ctx._limits or {}).get("frame") or eid is None:
+        return
+    if not (ctx._machine_side(eid) or ctx._caller_side(eid)):
+        raise Rejected(f"a frame's code {what} beyond its machine and the one who chose its verb",
+                       hint="it reads the machine, what it holds and its caller; the rest only as it lies in plain sight")
+
+
 def _sealed(world: "World", ent: dict[str, Any] | None) -> set[str]:
     """The secret keys the running script may not read on this entity: a script defined under a grant's limits reads
     secrets only under its `under` (memory, brief and the entity's own `secret` list)."""
@@ -104,11 +122,22 @@ def _sealed(world: "World", ent: dict[str, Any] | None) -> set[str]:
     under = ctx._under() if ctx is not None else None
     if not under or ent is None:
         return set()
+    if (ctx._limits or {}).get("frame"):
+        # a frame's code reads its machine and the load in full, the one who chose its verb as their own card, and of
+        # everything else only what lies in plain sight (a playtest lens read lock codes and words across the world)
+        if ctx._machine_side(ent["id"]):
+            return set()
+        if ctx._caller_side(ent["id"]):
+            return set(ent["state"].get("secret") or []) | ALWAYS_SECRET
+        return set(ent["state"]) - FRAME_SEES
     if world.within(ent["id"], under) and not ((ctx._limits or {}).get("under") == "self" and ent["id"] != under
                                                and world.is_a(ent["type"], "creature")):
         return set()
     return set(ent["state"].get("secret") or []) | ALWAYS_SECRET
 
+
+# What a frame's code reads of anything outside its machine, its load and its caller: what lies in plain sight
+FRAME_SEES = frozenset({"description", "portable", "count", "kind", "bulk", "locked", "open", "lit"})
 
 # What a frame's code never writes on anything, its own machine included: verbs, frames, canon and access are the
 # owner's (a frame writing `programmed` would skip review; one writing `maker` would make a frame of any reach)
@@ -154,10 +183,10 @@ class EntityView(ScriptObject):
         return StateView(self._w, self._id)
 
     def children(self, type: str | None = None) -> list["EntityView"]:
-        return [EntityView(self._w, e["id"]) for e in self._w.children(self._id, type=type)]
+        return [EntityView(self._w, i) for i in _shown(self._w, [e["id"] for e in self._w.children(self._id, type=type)])]
 
     def peers(self, type: str | None = None) -> list["EntityView"]:
-        return [EntityView(self._w, e["id"]) for e in self._w.peers(self._id, type=type)]
+        return [EntityView(self._w, i) for i in _shown(self._w, [e["id"] for e in self._w.peers(self._id, type=type)])]
 
     def is_a(self, type: str) -> bool:
         return self._w.is_a(self.type, type)
@@ -167,7 +196,8 @@ class EntityView(ScriptObject):
         return oid in self._w.neighbors(self._id, relation)
 
     def linked(self, relation: str) -> list["EntityView"]:
-        return [EntityView(self._w, i) for i in self._w.neighbors(self._id, relation)]
+        _frame_reach(self._w, self._id, "reads no ties")
+        return [EntityView(self._w, i) for i in _shown(self._w, self._w.neighbors(self._id, relation))]
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, EntityView) and other._id == self._id
@@ -315,8 +345,8 @@ class Ctx(ScriptObject):
             if self._consent and self._actor and w.within(i, self._actor):
                 return True
             under = self._under()
-            if lim.get("under") == "self" and i != under and w.is_a(w.get(i)["type"], "creature"):
-                return False  # a frame's code reaches the machine and its load, never who rides it
+            if lim.get("under") == "self" and i != under and self._in_body(i):
+                return False  # a frame's code reaches the machine and its load, never who rides it nor what they hold
             return not under or w.within(i, under)
 
         ids = [_ev(w, i) for i in ids]
@@ -329,11 +359,38 @@ class Ctx(ScriptObject):
                            hint=f"name the kind {lim.get('scripts')}{kind}")
 
     def _caller_side(self, i: str) -> bool:
-        """Whether a frame's code is reaching the one who chose its verb, or what they carry, rather than its machine."""
+        """Whether a frame's code is reaching the one who chose its verb, or what they carry, rather than its machine. A
+        rider aboard the machine is still the caller (a playtest's hauler rewrote the faction of the body riding it)."""
         if not (self._limits or {}).get("frame") or not self._actor or not self._w.get(i):
             return False
+        w, under = self._w, self._under()
+        if not w.within(i, self._actor):
+            return False
+        return not (under and w.within(i, under)) or w.within(self._actor, under)
+
+    def _in_body(self, i: str) -> bool:
+        """Whether i is a body, or something a body holds, inside the machine (a rider and the rider's things)."""
+        w, under = self._w, self._under()
+        cur: str | None = i
+        while cur and cur != under:
+            e = w.get(cur)
+            if e is None:
+                return False
+            if w.is_a(e["type"], "creature"):
+                return True
+            cur = e["parent_id"]
+        return False
+
+    def _machine_side(self, i: str) -> bool:
+        """The machine a frame's code sits on and its load, the bodies aboard and their things left out."""
         under = self._under()
-        return self._w.within(i, self._actor) and not (under and self._w.within(i, under))
+        return bool(under and self._w.get(i) and self._w.within(i, under) and not self._in_body(i))
+
+    def _may_see(self, i: str) -> bool:
+        e = self._w.get(i)
+        if e is None:
+            return False
+        return not e["state"].get("hidden") or self._machine_side(i) or self._caller_side(i)
 
     def _caller_keys(self, i: Any, keys: Any) -> None:
         """A frame's code changes the caller and what they carry only on the keys its frame names (maker.actor_keys,
@@ -382,7 +439,7 @@ class Ctx(ScriptObject):
     # -- queries
     def get(self, id: Any) -> EntityView | None:
         id = _ev(self._w, id)
-        return EntityView(self._w, id) if self._w.get(id) else None
+        return EntityView(self._w, id) if self._w.get(id) and _shown(self._w, [id]) else None
 
     def find(self, type: str | None = None, under: Any = None, parent: Any = None, name: str | None = None,
              state: dict[str, Any] | None = None, limit: int = 50) -> list[EntityView]:
@@ -390,25 +447,28 @@ class Ctx(ScriptObject):
                             state=state, limit=limit)
         if state and self._limits:
             rows = [r for r in rows if not set(state) & _sealed(self._w, r)]  # no probing secrets outside its plot
-        return [EntityView(self._w, r["id"]) for r in rows]
+        return [EntityView(self._w, i) for i in _shown(self._w, [r["id"] for r in rows])]
 
     def children(self, id: Any, type: str | None = None) -> list[EntityView]:
-        return [EntityView(self._w, e["id"]) for e in self._w.children(_ev(self._w, id), type=type)]
+        return [EntityView(self._w, i) for i in _shown(self._w, [e["id"] for e in self._w.children(_ev(self._w, id), type=type)])]
 
     def parent(self, id: Any) -> EntityView | None:
         e = self._w.get(_ev(self._w, id))
         return EntityView(self._w, e["parent_id"]) if e and e["parent_id"] else None
 
     def peers(self, id: Any, type: str | None = None) -> list[EntityView]:
-        return [EntityView(self._w, e["id"]) for e in self._w.peers(_ev(self._w, id), type=type)]
+        return [EntityView(self._w, i) for i in _shown(self._w, [e["id"] for e in self._w.peers(_ev(self._w, id), type=type)])]
 
     def linked(self, id: Any, relation: str, direction: str = "out") -> list[EntityView]:
-        return [EntityView(self._w, i) for i in self._w.neighbors(_ev(self._w, id), relation, direction)]
+        _frame_reach(self._w, _ev(self._w, id), "reads no ties")
+        return [EntityView(self._w, i) for i in _shown(self._w, self._w.neighbors(_ev(self._w, id), relation, direction))]
 
     def edges(self, id: Any, relation: str | None = None, direction: str = "both") -> list[dict[str, Any]]:
+        _frame_reach(self._w, _ev(self._w, id), "reads no ties")
         return self._w.edges(_ev(self._w, id), relation, direction)
 
     def relations(self, id: Any, relation: str | None = None) -> list[dict[str, Any]]:
+        _frame_reach(self._w, _ev(self._w, id), "reads no ties")
         return self._w.hyperedges(_ev(self._w, id), relation)
 
     def distance(self, a: Any, b: Any) -> float | None:
@@ -433,6 +493,7 @@ class Ctx(ScriptObject):
     def knows_way(self, who: Any, place: Any) -> bool:
         """Whether a body knows the way to a place: any place not `hidden`, a hidden one only when its `known_to`
         names the body or its faction (World.knows_way). A rule that walks or looks along ways asks this."""
+        _frame_reach(self._w, _ev(self._w, who), "asks no one's ways")
         return self._w.knows_way(_ev(self._w, who), _ev(self._w, place))
 
     def offer_seat(self, entity: Any, to: Any, why: str = "") -> str:
@@ -462,7 +523,10 @@ class Ctx(ScriptObject):
 
     def event_at(self, seq: Any) -> EventView | None:
         """One event of the log by its number (the deed a record came from), or None. Notes and intents stay their
-        owners', and a script defined under a grant's limits reads only events done to its own plot."""
+        owners', and a script defined under a grant's limits reads only events done to its own plot. A frame's code
+        reads no history at all (a playtest scry walked the whole log through a rider's seat)."""
+        if (self._limits or {}).get("frame"):
+            raise Rejected("a frame's code reads no history", hint="it works the machine now; the past is the world's")
         rows = self._w.store.query("event", "world_id=? AND seq=?", (self._w.id, int(seq)), limit=1)
         if not rows or rows[0]["kind"] in _PRIVATE_KINDS:
             return None
@@ -540,8 +604,29 @@ class Ctx(ScriptObject):
                             actor=self._actor, caused_by=self._caused_by)
         return EntityView(self._w, eid)
 
+    def _frame_hands(self, to: Any, id: Any, count: Any = None) -> None:
+        """A frame's code hands things to the one who chose its verb only into their hands and only as their `carry`
+        allows, as take and give do (a playtest's hauler unloaded 24 things onto a body that carries 20)."""
+        to = _ev(self._w, to)
+        if not self._caller_side(to):
+            return
+        if to != self._actor:
+            raise Rejected("a frame's code hands things to the one who chose its verb, not into what they carry",
+                           hint="ctx.move(thing, ctx.actor); they pack it themselves")
+        w = self._w
+        e, me = w.need(_ev(w, id)), w.need(self._actor)
+        if w.within(e["id"], self._actor):
+            return  # already theirs
+        part = _bulk(e) if count is None else _bulk(e) * min(1.0, float(count) / max(1, _units(e)))
+        carry, load = me["state"].get("carry"), sum(_bulk(c) for c in w.children(self._actor))
+        if carry and part > 0 and load + part > float(carry):
+            raise Rejected(f"their hands are full ({_num(load)} of {carry}): the machine keeps it",
+                           hint="hand over less, or let them put something down first")
+
     def move(self, id: Any, parent: Any, pos: Any = None) -> None:
         self._hold(id, parent)
+        if (self._limits or {}).get("frame"):
+            self._frame_hands(parent, id)
         self._w.move(_ev(self._w, id), _ev(self._w, parent), pos=pos, actor=self._actor, caused_by=self._caused_by)
 
     def count(self, id: Any, what: str | None = None) -> int:
@@ -567,6 +652,8 @@ class Ctx(ScriptObject):
         """Move a thing, or `count` units of a stack, into `to`, joining a like stack there; returns what holds the
         moved units now (a new stack, the old one it joined, or the thing itself)."""
         self._hold(id, to)
+        if (self._limits or {}).get("frame"):
+            self._frame_hands(to, id, count)
         return EntityView(self._w, self._w.transfer(_ev(self._w, id), _ev(self._w, to), count=count,
                                                     actor=self._actor, caused_by=self._caused_by))
 
