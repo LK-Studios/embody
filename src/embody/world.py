@@ -110,6 +110,10 @@ def _sealed(world: "World", ent: dict[str, Any] | None) -> set[str]:
     return set(ent["state"].get("secret") or []) | ALWAYS_SECRET
 
 
+# What a frame's code never writes on anything, its own machine included: verbs, frames, canon and access are the
+# owner's (a frame writing `programmed` would skip review; one writing `maker` would make a frame of any reach)
+FRAME_NEVER = frozenset({"programmed", "maker", "canon", "access", "access_groups", "scripts_pending"})
+
 # What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
 BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
                        "water", "max_water", "carry", "grants", "aid", "dead", "down", "wounded", "thirsty", "faction",
@@ -336,6 +340,11 @@ class Ctx(ScriptObject):
         none by default), and never a body's own make: its stats, skills, hp, water, carry, sheet and the rest its
         schema gives it. A playtest's hauler wrote its riders sixteen hp and wits 5."""
         i = _ev(self._w, i)
+        if (self._limits or {}).get("frame"):
+            owners = sorted(k for k in keys if k in FRAME_NEVER)
+            if owners:
+                raise Rejected(f"a frame's code may not write {', '.join(owners)}",
+                               hint="verbs come through program, frames and access from the owner")
         if not self._caller_side(i):
             return
         w = self._w
@@ -417,6 +426,7 @@ class Ctx(ScriptObject):
     def mark_strike(self, who: Any, target: Any, x: Any = 1) -> float:
         """Start `who`'s cooldown on `target` (times x: 2 for a heavy blow, 0.5 for a light one); returns it."""
         self._hold(who)
+        self._no_frame("marks no strikes")
         return self._w.mark_strike(_ev(self._w, who), _ev(self._w, target), float(x or 1), actor=self._actor,
                                    caused_by=self._caused_by)
 
@@ -475,17 +485,20 @@ class Ctx(ScriptObject):
         """Give a thing a new name (a written leaf, a sworn guard); refused when someone else already has it. The
         room hears `renamed`. Returns the old name."""
         self._hold(id)
+        self._caller_keys(id, ["name"])
         return self._w.rename(_ev(self._w, id), name, actor=self._actor, caused_by=self._caused_by)
 
     def chmod(self, thing: Any, mode: Any, verb: str | None = None) -> dict[str, Any]:
         """Set a thing's mode (rwxr-x---, 750, g+w), or with `verb` the classes that may do that verb to it."""
         self._hold(thing)
+        self._no_frame("sets no access: a machine's access is its owner's")
         return self._w.set_access(_ev(self._w, thing), mode=mode, verb=verb, actor=self._actor,
                                   caused_by=self._caused_by)
 
     def chown(self, thing: Any, owner: Any = None, group: str | None = None) -> dict[str, Any]:
         """Give a thing to an owner (a body, or a principal id) and/or set its group ("" clears it)."""
         self._hold(thing)
+        self._no_frame("gives nothing away: a machine's owner is the world's to set")
         return self._w.set_access(_ev(self._w, thing), owner=_ev(self._w, owner), group=group, actor=self._actor,
                                   caused_by=self._caused_by)
 
@@ -573,7 +586,14 @@ class Ctx(ScriptObject):
         self._hold(id)
         if (self._limits or {}).get("frame") and self._w.is_a(self._w.need(_ev(self._w, id))["type"], "creature"):
             raise Rejected("a frame's code ends no one", hint="it works the machine, not the people")
+        if self._caller_side(_ev(self._w, id)):
+            raise Rejected("a frame's code destroys nothing of the one who chose its verb",
+                           hint="it may take a thing into the machine (ctx.move), never end it")
         self._w.destroy(_ev(self._w, id), actor=self._actor, caused_by=self._caused_by)
+
+    def _no_frame(self, what: str) -> None:
+        if (self._limits or {}).get("frame"):
+            raise Rejected(f"a frame's code {what}", hint="it works the machine and what it holds; the owner sets the rest")
 
     def _no_caller_ties(self, *ids: Any) -> None:
         """A frame's code ties no one: no edge or relation on the caller or what they carry (their standing, their
@@ -623,6 +643,7 @@ class Ctx(ScriptObject):
     def remember(self, id: Any, text: str) -> None:
         """Write a note into that one's secret memory (what they did, what they saw): their mind reads it."""
         self._hold(id)
+        self._caller_keys(id, ["memory"])
         eid = _ev(self._w, id)
         self._w.remember(eid, str(text), actor=eid)
 

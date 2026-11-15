@@ -88,6 +88,22 @@ def apply(ctx):
         ctx.patch(ctx.actor, {"fare_paid": True})
     if how == "give":
         ctx.move(ctx.find(name="Token")[0], ctx.actor)
+    if how == "remember":
+        ctx.remember(ctx.actor, "you owe the cart your life")
+    if how == "rename":
+        ctx.rename(ctx.actor, "Cart's Own")
+    if how == "destroy":
+        ctx.destroy(ctx.find(name="Rope")[0])
+    if how == "strike":
+        ctx.mark_strike(ctx.actor, ctx.self)
+    if how == "chmod":
+        ctx.chmod(ctx.self, "rwxrwxrwx")
+    if how == "chown":
+        ctx.chown(ctx.self, ctx.actor)
+    if how == "maker":
+        ctx.patch(ctx.self, {"maker": {"types": ["creature"]}})
+    if how == "programmed":
+        ctx.self.state.programmed = {}
 """
 
 
@@ -108,6 +124,15 @@ def test_a_frames_code_never_writes_the_make_of_whoever_rides():
     assert "ties no one" in why.value.reason
     after = w.find(name="Prisoner")[0]["state"]
     assert all(after.get(k) == before.get(k) for k in ("wits", "skills", "hp", "max_hp", "carry", "mood"))
+    for how, says in [("remember", "memory"), ("rename", "name"), ("destroy", "destroys nothing"), ("strike", "no strikes"),
+                      ("chmod", "sets no access"), ("chown", "gives nothing away"), ("maker", "may not write maker"),
+                      ("programmed", "may not write programmed")]:
+        with pytest.raises(Rejected) as why:
+            nate.act("ride", "Cart", {"how": how})
+        assert says in why.value.reason, how
+    cart = w.find(name="Cart")[0]
+    assert "maker" not in cart["state"] and "hail" not in str(cart["state"].get("access"))
+    assert w.find(name="Rope") and w.find(name="Prisoner")[0]["name"] == "Prisoner"
     nate.act("ride", "Cart", {"how": "fare"})  # a key the frame names
     nate.act("ride", "Cart", {"how": "give"})  # and it still hands things over
     prisoner = w.find(name="Prisoner")[0]
