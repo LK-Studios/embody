@@ -56,6 +56,7 @@ def test_the_seats_have_stakes_and_the_well_is_hidden():
 
 def test_the_ridge_shows_the_reach_and_a_hard_check_finds_the_well():
     eng, gm, you = reach()
+    gm.patch(gm.world.root_id, {"check_again_after": 0})  # this test re-rolls a skill in one place on purpose
     for place in ["The Gate Yard", "The Salt Road", "The Glass Flats"]:
         you.act("go", place)
     r = you.act("go", "Red Ridge")
@@ -793,6 +794,7 @@ def test_a_newcomer_carries_a_skin_and_an_edge_and_a_squall_pins_them_on_their_f
 
 def test_hidden_things_turn_up_for_the_right_look_and_the_place_says_where_to_look():
     eng, gm = hosted()
+    gm.patch(gm.world.root_id, {"check_again_after": 0})  # this test re-rolls a skill in one place on purpose
     ash = newcomer(eng, gm, "guard", "Ash")
     assert "finger proud" in gm.inspect("The Gate Yard")["state"]["description"]
     gm.patch("Ash", {"skills": {"search": 30, "blade": 30}})
@@ -938,6 +940,7 @@ def test_the_house_has_skins_to_buy_a_man_with_before_the_riders_come():
 
 def test_pitch_mends_the_cistern_once_the_wedge_is_out_and_the_mended_cistern_counts():
     eng, gm = hosted(truce=True)
+    gm.patch(gm.world.root_id, {"check_again_after": 0})  # this test re-rolls a skill in one place on purpose
     chapter_two_now(gm)
     me = newcomer(eng, gm, "guard", "Bram")
     gm.patch("Bram", {"skills": {"search": 30, "lore": 30}})
