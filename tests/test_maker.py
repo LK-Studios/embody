@@ -99,3 +99,29 @@ def test_caps_review_revoke_and_the_grant_following_the_frame():
     assert "revoked" in call(nate, "program", thing="Cart", verb="horn", source=HAIL)["reason"]
     gm.unprogram("Cart", "hail")
     assert "hail" not in (w.find(name="Cart")[0]["state"].get("programmed") or {})
+
+
+ICE = """
+def apply(ctx):
+    ctx.patch(ctx.target, {"iced": ctx.self.name})
+"""
+
+
+def test_a_bodys_own_verb_with_targets_reaches_others_and_only_the_owner_gives_one_targets():
+    eng, w, gm, sam, nate = yard()
+    gm.move("Guard", "Hall")
+    gm.program("Guard", "ice", ICE, doc="frost someone near", targets="creature")
+    assert sam.inspect("Guard")["actions"]["ice"]["targets"] == "creature"
+    assert {a["target_name"] for a in sam.perceive()["affordances"] if a["verb"] == "ice"} == {"Prisoner"}
+    sam.act("ice", "Prisoner")  # found on the actor; ctx.target is the one it is done to
+    assert w.find(name="Prisoner")[0]["state"]["iced"] == "Guard"
+    sam.act("ice", "Guard")  # on yourself, as before
+    assert w.find(name="Guard")[0]["state"]["iced"] == "Guard"
+    with pytest.raises(Rejected, match="you can only ice a creature"):
+        sam.act("ice", "Cart")
+    with pytest.raises(Rejected, match="no action 'ice'"):
+        nate.act("ice", "Guard")  # the Guard's gift is the Guard's: nobody else turns it on its holder
+    assert not [a for a in nate.perceive()["affordances"] if a["verb"] == "ice"]
+    assert "no schema" in call(gm, "program", thing="Guard", verb="burn", source=ICE, targets="dragon")["reason"]
+    sam.act("take", "Wright's frame")
+    assert "owner's and author's" in call(sam, "program", thing="Cart", verb="zap", source=ICE, targets="any")["reason"]

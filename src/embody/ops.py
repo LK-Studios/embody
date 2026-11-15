@@ -1879,7 +1879,7 @@ class Session:
                            for v, a in w.schema_actions(e["type"]).items() if full or not a.get("hidden")}
         for v, a in own_verbs(e).items():  # verbs put on this one thing
             if isinstance(a, dict) and v not in card["actions"] and (full or not a.get("pending")):
-                card["actions"][v] = {"doc": a.get("doc", ""), "targets": None, "params": a.get("params") or {},
+                card["actions"][v] = {"doc": a.get("doc", ""), "targets": a.get("targets"), "params": a.get("params") or {},
                                       "programmed": True, **({"pending": True} if a.get("pending") else {})}
         if full:
             card["rules"] = e["state"].get("rules", [])
@@ -2958,13 +2958,15 @@ class Session:
         return live[0]
 
     def program(self, thing: str, verb: str, source: str, doc: str = "", params: dict[str, Any] | None = None,
-                frame: str | None = None) -> dict[str, Any]:
+                frame: str | None = None, targets: str | None = None) -> dict[str, Any]:
         """Put a verb on one machine, with a maker's frame in hand. `source` is a script with def apply(ctx) (and
         check(ctx) if you like), the language of every verb (guide('scripting')). The frame's `maker` names the kinds of thing
         it programs, and the thing's access must give you w. The code runs held: it changes only the machine and
         what it holds, plus whoever chose the verb; it reads public state; it makes nothing from nothing and sets
         no rules; what it says reaches others marked untrusted. With the frame's `review` on, the verb waits for
-        the owner. The owner and author program anything; frame=... holds their code to that frame."""
+        the owner. The owner and author program anything; frame=... holds their code to that frame. `targets` (a
+        type, or "any"; the owner's and author's only) lets a body's own verb reach others: act(verb, target) finds it
+        on the actor, and ctx.target is whom it is done to."""
         self._tick()
         w = self.world
         f = self._frame_for(frame)
@@ -2976,6 +2978,12 @@ class Session:
             raise Rejected(f"{e['name'] or eid} already has {verb} of its own", hint="pick another word")
         if e["state"].get("canon") and self.role != OWNER:
             raise Rejected(f"{e['name']} is canon: the owner's to change", hint="program something else")
+        if targets is not None:
+            if f is not None or not self._staff():
+                raise Rejected("targets is the owner's and author's: a frame's code is held to its own thing",
+                               hint="leave targets out, or ask the owner to program it")
+            if targets != "any":
+                w.schema(targets)  # a type the world has, or "no schema" with the way to define one
         old = own_verbs(e).get(verb)
         limits, made, recent, now = None, [], [], self.engine.wall()
         if f is not None:
@@ -3010,9 +3018,11 @@ class Session:
         except ScriptError as x:
             raise Rejected(x.reason, hint=x.hint) from None
         self._record("program", thing=thing, verb=verb, source=source, doc=doc or None, params=params,
-                     frame=f["id"] if f else None)
+                     frame=f["id"] if f else None, targets=targets)
         w.define_script(sid, text, str(doc)[:300])
         entry: dict[str, Any] = {"script": sid, "doc": str(doc)[:300], "params": dict(params or {})}
+        if targets is not None:
+            entry["targets"] = targets
         if f is not None:
             entry.update(frame=f["id"], by=self.pid)
             if f["state"]["maker"].get("review") and not self._staff():

@@ -92,7 +92,8 @@ def own_verbs(ent: dict[str, Any] | None) -> dict[str, Any]:
 def _programmed(prog: dict[str, Any]) -> dict[str, Any]:
     """A verb put on one thing (its `programmed` state) as an action: its script, doc and params, done near it, at the
     default fuel."""
-    return {"script": prog["script"], "doc": prog.get("doc", ""), "params": prog.get("params") or {}, "reach": "near"}
+    return {"script": prog["script"], "doc": prog.get("doc", ""), "params": prog.get("params") or {}, "reach": "near",
+            "targets": prog.get("targets")}
 
 
 def _sealed(world: "World", ent: dict[str, Any] | None) -> set[str]:
@@ -1611,7 +1612,8 @@ class World:
             if verb in acts and acts[verb].get("targets") is None:
                 return acts[verb], target_id
             prog = own_verbs(target).get(verb)
-            if isinstance(prog, dict) and prog.get("script"):
+            # one with `targets` is its holder's own, done to others: not a verb anyone near may use on the holder
+            if isinstance(prog, dict) and prog.get("script") and not (prog.get("targets") and target_id != actor_id):
                 if prog.get("pending"):
                     raise Rejected(f"{verb} on {target['name'] or target_id} waits for the owner's review",
                                    hint="try it again once the owner has looked at it")
@@ -1624,6 +1626,15 @@ class World:
             if tt not in (None, "any") and target_id and not self.is_a(self.need(target_id)["type"], tt):
                 raise Rejected(f"you can only {verb} a {tt}, and {target_id} is a {self.need(target_id)['type']}")
             return acts[verb], actor_id
+        prog = own_verbs(actor).get(verb) if target_id and target_id != actor_id else None
+        if isinstance(prog, dict) and prog.get("script") and prog.get("targets"):
+            # a verb put on the actor itself that reaches others (`targets`, by program): ctx.self is the actor
+            if prog.get("pending"):
+                raise Rejected(f"{verb} waits for the owner's review", hint="try it again once the owner has looked at it")
+            tt = prog["targets"]
+            if tt != "any" and not self.is_a(self.need(target_id)["type"], tt):
+                raise Rejected(f"you can only {verb} a {tt}, and {target_id} is a {self.need(target_id)['type']}")
+            return _programmed(prog), actor_id
         known = sorted(set(self.schema_actions(actor["type"])) |
                        (set(self.schema_actions(self.need(target_id)["type"])) if target_id else set()))
         raise Rejected(f"no action {verb!r} on {target_id or actor_id}",
@@ -1940,6 +1951,14 @@ class World:
                 ent = self.get(cid)
                 if ent and (tt == "any" or self.is_a(ent["type"], tt)):
                     add(verb, adef, cid)
+        for verb, prog in own_verbs(actor).items():  # verbs put on the actor itself that reach others (`targets`)
+            tt = prog.get("targets") if isinstance(prog, dict) else None
+            if not tt or not prog.get("script") or prog.get("pending"):
+                continue
+            for cid in candidates:
+                ent = self.get(cid)
+                if cid != actor_id and ent and (tt == "any" or self.is_a(ent["type"], tt)):
+                    add(verb, _programmed(prog), cid)
         # Verbs the things around the actor carry: every object is also its ops. A creature's own targetless
         # verbs (brace, check, sleep) are things it does, not things done to it, so they are not listed against it.
         for cid in candidates:
@@ -1952,7 +1971,7 @@ class World:
                 if adef.get("targets") is None:  # an action with `targets` is the holder's own verb, not one done to it
                     add(verb, adef, cid)
             for verb, prog in own_verbs(ent).items():  # verbs put on this one thing
-                if isinstance(prog, dict) and prog.get("script") and not prog.get("pending"):
+                if isinstance(prog, dict) and prog.get("script") and not prog.get("pending") and not prog.get("targets"):
                     add(verb, _programmed(prog), cid)
         return out
 

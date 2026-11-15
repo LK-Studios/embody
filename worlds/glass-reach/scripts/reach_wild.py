@@ -2,12 +2,14 @@
 # thornbacks come out at night, and Weeping Rock in the Scar wall north of it, the child's well under the glass wasps.
 # The story keeps day and night (`wild_night`, set at dusk, cleared at dawn). At dawn the rock's basin gains two
 # draws, every dew still gains its dew, a barrel cactus tapped dry is full again a week after, and a pack that fled
-# comes back once its day is out. Walk into the brake at night and the pack goes for you; down the big boar and the
-# rest run for a day. The wasps are their own (scripts/wasp_tick.py, wasp_smoke.py). The beasts pack does their
-# growing, eating and breeding; here the pack is riled from dusk to dawn, and in season for three days from the moon.
+# comes back once its day is out. Walk into the brake at night and the pack growls; still there a beat later
+# (GROWL_BEAT) and it goes for you. Down the big boar and the rest run for a day. The wasps are their own
+# (scripts/wasp_tick.py, wasp_smoke.py). The beasts pack does their growing, eating and breeding; here the pack is
+# riled from dusk to dawn, and in season for three days from the moon.
 use("common")
 PACK_FLEES = 86400
 RUT = 259200  # three days
+GROWL_BEAT = 120  # world seconds between the growl and the pack springing: about half a real minute at 4x
 
 def story_of(ctx):
     return ctx.find(type="story", limit=1)[0]
@@ -109,8 +111,19 @@ def on(ctx, event):
         beasts = pack(ctx, brake)
         if len(beasts) == 0:
             return
-        scene(ctx, brake, "Something heavy moves in the thorn, then three of them, low and fast and glittering: "
-              "thornbacks, out for the night, and " + who.name + " is in their ground.")
+        # a growl first, and a beat to back out in; whoever is still here when it is up, the pack goes for
+        scene(ctx, brake, "Something heavy moves in the thorn, and a low growl comes out of it, then another: "
+              "thornbacks, out for the night, and " + who.name + " is in their ground. There is a moment to back out.")
+        ctx.schedule(GROWL_BEAT, "pack_springs", target=brake, payload={"who": who.id})
+        return
+    if k == "pack_springs":
+        who = ctx.get(p.get("who"))
+        if who is None or who.parent is None or who.parent.id != brake.id or who.state.down or not st.wild_night:
+            return
+        beasts = pack(ctx, brake)
+        if len(beasts) == 0:
+            return
+        scene(ctx, brake, "Then they come, low and fast and glittering, out of the thorn at " + who.name + ".")
         for b in beasts:
             if not who.state.down:
                 strike(ctx, b, who, False)

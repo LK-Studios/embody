@@ -533,12 +533,13 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def program(thing: str, verb: str, source: str, doc: str = "", params: dict[str, Any] | None = None,
-                frame: str | None = None) -> dict[str, Any]:
+                frame: str | None = None, targets: str | None = None) -> dict[str, Any]:
         """Put a verb on one machine with a maker's frame in hand: source has def apply(ctx), the language of every
         verb (guide('scripting')). The frame names the kinds of thing it programs; the thing's access must give you w. The
         code changes only the machine, what it holds and whoever chose the verb, and what it says is marked
-        untrusted. The owner and author program anything (docs/ACCESS.md)."""
-        return s.program(thing, verb, source, doc=doc, params=params, frame=frame)
+        untrusted. The owner and author program anything (docs/ACCESS.md). targets (a type or "any", owner and
+        author only): a body's own verb that reaches others, act(verb, target) with ctx.target the one it is done to."""
+        return s.program(thing, verb, source, doc=doc, params=params, frame=frame, targets=targets)
 
     @tool()
     @_wrap

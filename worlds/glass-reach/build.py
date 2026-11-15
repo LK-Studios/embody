@@ -253,7 +253,7 @@ WARDEN_KINDS = ["arrived", "talked", "given", "dawn", "dusk"]
 GUILD_KINDS = ["arrived", "crawler"]
 # The Riders' Hollow (scripts/reach_riders.py): the muster at the fires, the watch, the cart at dawn, a freed prisoner home.
 # The wild ground (scripts/reach_wild.py): day and night, the dawn fills, the pack in the brake.
-WILD_KINDS = ["dusk", "dawn", "arrived", "downed", "killed", "moon_turns"]
+WILD_KINDS = ["dusk", "dawn", "arrived", "pack_springs", "downed", "killed", "moon_turns"]
 RIDER_KINDS = ["riders_fires", "riders_muster", "arrived", "dawn", "freed_home", "pick_failed", "lock_broken",
                "break_failed", "spoil_failed", "free_failed"]
 # What is hidden until someone looks (scripts/reach_finds.py) and what the road does to a newcomer (scripts/reach_road.py).

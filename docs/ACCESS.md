@@ -105,7 +105,10 @@ Ops, open to players and minds (they refuse without a live frame in hand):
 - `program(thing, verb, source, doc="", params=None)` puts a verb on one thing. The thing must be a kind the frame
   names, and its access must give the holder `w` (their own machine, or one its owner opened to them). The verb is a
   short lowercase word that the thing's schema does not already have. `source` is a script with `def apply(ctx)`, the
-  language of every verb.
+  language of every verb. The owner and author may add `targets` (a type, or "any") to a verb put on a body: it is then
+  that body's own verb done to others, `act(verb, target)` finds it on the actor, `ctx.self` is the body and
+  `ctx.target` whom it is done to, and perceive lists it against every reachable entity of that type. Nobody else can
+  turn it on the body that holds it. A frame cannot give `targets`: its code is held to its own thing.
 - `unprogram(thing, verb)` takes one off (with the frame that made it in hand).
 - `programs(thing=None)` lists the verbs on a thing, or what the frames in your hands have made, with the source of
   your own.
