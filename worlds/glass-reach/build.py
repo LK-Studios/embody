@@ -701,8 +701,8 @@ ROUTES = [
 # stars, the system, the planet, the continent and the Reach, so a later chapter only adds nodes to the right tier.
 # The Reach takes the root's frame unchanged, so every spot in it stays where it was. Names are defaults.
 TIERS = [("The Crown's stars", "galaxy", "The stars the Crown holds under its charter, and the dark between them."),
-         ("The Fulgar system", "system", "The sun the Reach burns under, and its moon."),
-         ("Fulgar", "planet", "A Crown world, held under the emperor's charter."),
+         ("The Drathur system", "system", "The sun the Reach burns under, and its moon: a fief of the Crown."),
+         ("Morrow", "planet", "A Crown world, held under the emperor's charter. The Keth call it the Ground."),
          ("The northern continent", "continent", "The land the Scar runs down."),
          ("The Reach", "region", "The desert east of the Scar: black glass and sand under a hard sun, the Keth's old "
                                  "country, held for the Crown from the Hold in the gap.")]
