@@ -52,7 +52,7 @@ header { grid-column:1 / span 2; display:flex; align-items:center; gap:6px 14px;
 .btn:hover, #auth button:hover, .depth button:hover { border-color:var(--dim); }
 
 /* the stage: one svg, two views, html overlays for trays and the scale */
-main { position:relative; overflow:hidden; min-width:0; min-height:0; touch-action:none; cursor:grab; }
+main { position:relative; overflow:hidden; min-width:0; min-height:0; touch-action:none; cursor:grab; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
 main.drag { cursor:grabbing; }
 #crumbs { position:absolute; left:10px; top:8px; right:120px; display:flex; flex-wrap:wrap; gap:2px; z-index:3; pointer-events:none; }
 #crumbs button { pointer-events:auto; background:var(--panel); border:1px solid var(--line); border-radius:var(--r); color:var(--dim); padding:3px 7px; font-size:11px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -67,7 +67,7 @@ svg#svg { display:block; width:100%; height:100%; }
 #scale { position:absolute; left:12px; bottom:12px; z-index:3; color:var(--dim); font-size:10.5px; pointer-events:none; display:flex; align-items:flex-end; gap:12px; }
 #scale .bar { height:6px; border:1px solid var(--dim); border-top:none; }
 #scale .north { width:18px; text-align:center; color:var(--ink); }
-#tally { position:absolute; right:10px; bottom:10px; z-index:3; color:var(--faint); font-size:10.5px; pointer-events:none; text-align:right; }
+#tally { position:absolute; right:10px; bottom:10px; z-index:3; color:var(--faint); font-size:10.5px; pointer-events:none; text-align:right; max-width:calc(100% - 130px); }
 
 /* the past: a bar to drag through the log; the stage wears a warning edge while it shows a moment gone */
 #pastbtn.on { border-color:var(--warn); color:var(--warn); }
@@ -121,9 +121,15 @@ body.past main { outline:2px solid var(--warn); outline-offset:-2px; }
 .mark.k-place { fill:var(--place); } .mark.k-creature { fill:var(--creature); } .mark.k-thing { fill:var(--thing); } .mark.k-other { fill:var(--other); }
 .mark.hit { stroke:var(--accent); stroke-width:2.4; }
 .mark.inh { fill:none; stroke-dasharray:2 2; }
+.ping { fill:none; stroke:var(--accent); stroke-width:2; vector-effect:non-scaling-stroke; pointer-events:none; animation:ping 1.1s ease-out 4; }
+@keyframes ping { 0% { stroke-opacity:1; stroke-width:4; } 70% { stroke-opacity:.25; stroke-width:1.5; } 100% { stroke-opacity:1; stroke-width:2; } }
+.tray .chip.stackm { border-style:solid; color:var(--ink); }
+.tray.stk { flex-direction:column; flex-wrap:nowrap; }
+.tray.stk .chip { justify-content:flex-start; }
+.tray.stk .z { margin-left:auto; padding-left:8px; color:var(--faint); font-size:10px; }
 .road { stroke:#c8d2d4; stroke-opacity:.45; stroke-width:1.6; fill:none; vector-effect:non-scaling-stroke; }
 .road.hidden { stroke-dasharray:4 4; }
-.mlbl { fill:var(--ink); font-family:var(--mono); paint-order:stroke; stroke:var(--ground); stroke-width:3px; stroke-linejoin:round; pointer-events:none; }
+.mlbl { fill:var(--ink); font-family:var(--mono); paint-order:stroke; stroke:var(--ground); stroke-linejoin:round; pointer-events:none; }   /* the halo is the stroke-width the map draws it with, 3 screen px */
 .mlbl.l1 { font-family:var(--display); font-weight:600; }
 .mlbl.deep { fill:var(--dim); }
 .tray { position:absolute; pointer-events:auto; background:rgba(14,18,20,.92); border:1px dashed var(--line2); border-radius:var(--r); padding:4px; max-width:260px; display:flex; flex-wrap:wrap; gap:3px; }
@@ -532,7 +538,9 @@ function rezoom() { if (V.view !== "map") return; clearTimeout(rezoomT); rezoomT
   let drag = null, pinch = null, lastTap = { t: 0, id: null };
   st.addEventListener("wheel", ev => { ev.preventDefault(); const r = st.getBoundingClientRect(); zoomAt(Math.exp(-ev.deltaY * 0.0015), ev.clientX - r.left, ev.clientY - r.top); }, { passive: false });
   st.addEventListener("pointerdown", ev => {
-    if (ev.target.closest("#tools, #crumbs, .tray")) return;
+    if (ev.target.closest("#tools, #crumbs, .tray, #scrub")) return;
+    if (ev.pointerType === "mouse" && ev.button !== 0) return;   // the left button pans and picks; the others are the browser's
+    ev.preventDefault();   // a drag on the map is a pan, never a text selection
     st.setPointerCapture(ev.pointerId);
     pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (pts.size === 1) drag = { x: ev.clientX, y: ev.clientY, cx: cam().x, cy: cam().y, moved: false, t: Date.now(), target: ev.target };
@@ -560,13 +568,23 @@ function rezoom() { if (V.view !== "map") return; clearTimeout(rezoomT); rezoomT
     st.classList.remove("drag");
     if (drag && !drag.moved && ev.type === "pointerup") {
       const hit = drag.target && drag.target.closest && drag.target.closest("[data-id]");
-      const id = hit ? hit.dataset.id : null, now = Date.now();
+      let id = hit ? hit.dataset.id : null;
+      const now = Date.now(), x = ev.clientX, y = ev.clientY, same = Math.hypot(x - (lastTap.x || -99), y - (lastTap.y || -99)) < 12;
+      const under = V.view === "map" && !(hit && (hit.dataset.more || hit.dataset.open)) ? pickAt(x, y) : null;
+      if (under) {
+        // the map picks the smallest thing under the tap; a tap on the same spot again steps down to the next one
+        id = under[0] || null;
+        if (id && same && now - lastTap.t >= 380 && V.sel && under.includes(V.sel)) id = under[(under.indexOf(V.sel) + 1) % under.length];
+      }
       if (hit && hit.dataset.more) { V.limits.set(id, (V.limits.get(id) || 40) + 80); draw(); }
       else if (hit && hit.dataset.open) { V.expanded.add(id); draw(); }
-      else if (id && lastTap.id === id && now - lastTap.t < 380) { focusOn(id); lastTap = { t: 0, id: null }; }
-      else if (id) { select(id); lastTap = { t: now, id }; }
+      else if (id && lastTap.id && (under ? same && under.includes(lastTap.id) : lastTap.id === id) && now - lastTap.t < 380) { focusOn(lastTap.id); lastTap = { t: 0, id: null }; }
+      else if (id) {
+        select(id); lastTap = { t: now, id, x, y };
+        if (under && under.length > 1) $("tally").textContent = (under.indexOf(id) + 1) + " of " + under.length + " here: " + under.map(nameOf).map(n => short(n, 18)).join(", ") + ". Tap again for the next.";
+      }
       else if (now - lastTap.t < 380 && !lastTap.id) { fit(); }
-      else { lastTap = { t: now, id: null }; openSheet(false); }
+      else { lastTap = { t: now, id: null }; openSheet(false); if (V.sel) unselect(); }
     } else if (drag && drag.moved) rezoom();
     drag = null;
   };
@@ -592,7 +610,7 @@ function rezoom() { if (V.view !== "map") return; clearTimeout(rezoomT); rezoomT
   document.addEventListener("keydown", ev => {
     if (ev.target.closest("input, select")) return;
     if (ev.key === "/") { ev.preventDefault(); $("q").focus(); }
-    if (ev.key === "Escape" && V.sel) { V.sel = null; draw(); panel(true); writeHash(); }
+    if (ev.key === "Escape" && V.sel) unselect();
     if (ev.key === "Backspace") $("up").click();
   });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
@@ -610,11 +628,65 @@ function focusOn(id) {
   if (V.hits) { V.prevFocus = null; }
   schedule(true); writeHash();
 }
-function select(id) {
+function select(id, reveal) {
+  // reveal: picked from the panel, so bring it into sight if it is drawn off screen
+  if (id !== V.sel) V.ping = null;
   V.sel = id; setTab("ent"); openSheet(true); panel(true); markSel(); writeHash();
+  if (reveal) revealSel();
+}
+function pickAt(cx, cy) {
+  // everything on the map under a screen point, smallest first: a body or thing within a finger's reach, then the tightest area
+  const seen = new Map();
+  for (const n of document.elementsFromPoint(cx, cy)) {
+    const h = n.closest && n.closest("#view [data-id]");
+    if (h && !seen.has(h.dataset.id)) { const r = h.getBoundingClientRect(); seen.set(h.dataset.id, { mark: h.classList.contains("mark"), size: r.width * r.height, d: 0 }); }
+  }
+  for (const m of document.querySelectorAll("#view .mark")) {
+    const r = m.getBoundingClientRect(), d = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+    if (d < 14 && !seen.has(m.dataset.id)) seen.set(m.dataset.id, { mark: true, size: 0, d });
+  }
+  return [...seen].sort((a, b) => b[1].mark - a[1].mark || a[1].d - b[1].d || a[1].size - b[1].size).map(([id]) => id);
+}
+function unselect() { V.sel = null; V.ping = null; draw(); panel(true); writeHash(); }
+function revealSel() {
+  const n = V.sel && document.querySelector(`#view [data-id="${CSS.escape(V.sel)}"]`);
+  if (!n) return;
+  const r = n.getBoundingClientRect(), s = $("stage").getBoundingClientRect(), m = 40;
+  if (r.left > s.left + m && r.right < s.right - m && r.top > s.top + m && r.bottom < s.bottom - m) return;
+  const c = cam(); c.x += s.left + s.width / 2 - (r.left + r.width / 2); c.y += s.top + s.height / 2 - (r.top + r.height / 2); c.fitted = false;
+  applyCam(); rezoom();
+}
+function showOnMap(id) {
+  // "on the map": the nearest thing with a place of its own, drawn among its neighbours, centered close and ringed
+  atMemo.clear();
+  let p = id, g = 0; while (p && g++ < 64) { const a = worldAt(p); if (a && a[2]) break; p = ent(p) ? ent(p).parent : null; }
+  if (!p || !W.ents.has(p)) { $("note").textContent = nameOf(id) + " has no place in the world frame, nor does anything it is in."; return; }
+  if (V.hits && !V.hits.has(id)) { V.hits = null; V.hitList = []; V.q = ""; V.qt = ""; $("q").value = ""; $("qt").value = ""; $("rn").textContent = ""; V.prevFocus = null; }
+  const pe = ent(p);
+  V.view = "map"; syncControls();
+  V.focus = pe.parent && W.ents.has(pe.parent) ? pe.parent : p; V.expanded.clear();
+  V.sel = id; V.ping = p; V.pingT = Date.now(); V.aim = p; V.tray = null;
+  schedule(true); writeHash(); panel(true);
+}
+function aimAt(p) {
+  const e = ent(p), at = worldAt(p), ol = e && outline(e);
+  if (!at) { fit(); return; }
+  let cx = at[0], cy = at[1], span = 0;
+  if (ol) { const b = bboxOf(ol); cx = (b.x0 + b.x1) / 2; cy = (b.y0 + b.y1) / 2; span = Math.max(b.x1 - b.x0, b.y1 - b.y0); }
+  const win = Math.max(span * 2.4, 40);   // close: the thing and a little of what is around it, never less than 40 units
+  fitTo({ x: cx - win / 2, y: -cy - win / 2, w: win, h: win }, 1e6);
+  cam().fitted = false;
 }
 let drawQueued = false, refit = false;
-function schedule(fitAfter) { refit = refit || !!fitAfter; if (drawQueued) return; drawQueued = true; requestAnimationFrame(() => { drawQueued = false; const f = refit; refit = false; draw(); if (f || !cam().k) { if (V.hits && V.hitList.length) fitHits(); else fit(); } }); }
+function schedule(fitAfter) {
+  refit = refit || !!fitAfter; if (drawQueued) return; drawQueued = true;
+  requestAnimationFrame(() => {
+    drawQueued = false; const f = refit; refit = false;
+    if (V.aim && V.view === "map") { const a = V.aim; V.aim = null; atMemo.clear(); aimAt(a); draw(); return; }   // aim first: labels are sized for the zoom they are drawn at
+    draw();
+    if (f || !cam().k) { if (V.hits && V.hitList.length) fitHits(); else fit(); }
+  });
+}
 
 // ---------------------------------------------------------------- what is in view: focus to depth, or the search's set
 function visible() {
@@ -747,7 +819,8 @@ function outline(e) {
   return null;
 }
 function bboxOf(pts) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return { x0, y0, x1, y1 }; }
-let mapTrays = [];
+function zLevel(e) { const lay = ((e && e.state) || {}).layout || {}; return Number((lay.at && lay.at[2]) ?? lay.floor ?? 0) || 0; }
+let mapTrays = [], mapStacks = [];
 function drawMap() {
   atMemo.clear();
   const { list, closed, top } = visible();
@@ -770,7 +843,7 @@ function drawMap() {
     }
   }
   if (topLine) pts.push(...topLine);
-  mapTrays = [];
+  mapTrays = []; mapStacks = [];
   if (!pts.length) {
     box = null;
     $("note").textContent = "Nothing under " + nameOf(top) + " has a place in the world frame yet. What is here is listed on the tray.";
@@ -792,12 +865,25 @@ function drawMap() {
     const route = (ed.data && ed.data.route) || [worldAt(ed.source), worldAt(ed.target)];
     out += `<polyline class="road${ed.data && ed.data.hidden ? " hidden" : ""}" points="${route.map(p => P(p)).join(" ")}"/>`;
   }
-  items.sort((a, b) => a.lvl - b.lvl || (b.ol ? 1 : 0) - (a.ol ? 1 : 0));
+  // the big under the small, and of two in one footprint the lower under the upper, so a click finds the top one
+  for (const it of items) { it.z = zLevel(it.e); it.size = it.ol ? (b => (b.x1 - b.x0) * (b.y1 - b.y0))(bboxOf(it.ol)) : 0; }
+  items.sort((a, b) => a.lvl - b.lvl || (b.ol ? 1 : 0) - (a.ol ? 1 : 0) || b.size - a.size || a.z - b.z);
+  // places stacked on one spot (a cellar under a hall): a 2D map draws them on top of each other, so they get a marker
+  const spots = new Map();
+  for (const it of items) {
+    const b = it.ol ? bboxOf(it.ol) : null, cx = b ? (b.x0 + b.x1) / 2 : it.at[0], cy = b ? (b.y0 + b.y1) / 2 : it.at[1];
+    const key = Math.round(cx) + "," + Math.round(cy);
+    let s = spots.get(key); if (!s) spots.set(key, s = { key, ids: [], x: cx, y: b ? b.y1 : cy, x1: b ? b.x1 : cx });
+    s.ids.push(it.id); if (b) { s.y = Math.max(s.y, b.y1); s.x1 = Math.max(s.x1, b.x1); }
+  }
+  mapStacks = [...spots.values()].filter(s => s.ids.length > 1 && new Set(s.ids.map(id => zLevel(ent(id)))).size > 1)
+    .map(s => ({ ...s, ids: s.ids.sort((a, b) => zLevel(ent(b)) - zLevel(ent(a))) }));
   const px = 1 / k, labels = [];
+  let marks = "";   // points go over the labels, so a label never hides a body or a thing you could tap
   for (const it of items) {
     const kd = kindOf(it.e.type), cls = [`k-${kd}`, it.lvl > 1 ? "deep" : "", V.sel === it.id ? "sel" : "", searching && V.hits.has(it.id) ? "hit" : "", V.past && V.changed.has(it.id) ? "changed" : "",
       searching && !V.hits.has(it.id) ? "dimmed" : ""].filter(Boolean).join(" ");
-    const tip = `<title>${esc(label(it.e) + " · " + it.e.type + "\n" + it.at[0].toFixed(1) + ", " + it.at[1].toFixed(1))}</title>`;
+    const tip = `<title>${esc(label(it.e) + " · " + it.e.type + "\n" + it.at[0].toFixed(1) + ", " + it.at[1].toFixed(1) + (it.z ? ", z " + fmt(it.z) : ""))}</title>`;
     if (it.ol) {
       out += `<polygon class="area ${cls}" data-id="${esc(it.id)}" points="${it.ol.map(P).join(" ")}">${tip}</polygon>`;
       const b = bboxOf(it.ol), w = (b.x1 - b.x0) * k;
@@ -806,13 +892,13 @@ function drawMap() {
       const r = (it.lvl > 1 ? 4 : 5.5) * px, x = it.at[0], y = -it.at[1];
       const shape = kd === "creature" ? `<circle cx="${x}" cy="${y}" r="${r}"` : kd === "thing" ? `<polygon points="${x},${y - r * 1.25} ${x + r * 1.25},${y} ${x},${y + r * 1.25} ${x - r * 1.25},${y}"`
         : `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}"`;
-      out += `${shape} class="mark ${cls}" data-id="${esc(it.id)}">${tip}</${kd === "creature" ? "circle" : kd === "thing" ? "polygon" : "rect"}>`;
+      marks += `${shape} class="mark ${cls}" data-id="${esc(it.id)}">${tip}</${kd === "creature" ? "circle" : kd === "thing" ? "polygon" : "rect"}>`;
       labels.push({ id: it.id, x: x + r * 1.6, y: y + r * 0.6, room: 0, lvl: it.lvl, area: false });
     }
   }
   // labels in screen pixels: the big and near always, the small when you zoom in, never on top of each other
   const taken = [];
-  for (const L of labels.sort((a, b) => (V.hits && V.hits.has(b.id)) - (V.hits && V.hits.has(a.id)) || a.lvl - b.lvl || b.room - a.room)) {
+  for (const L of labels.sort((a, b) => (b.id === V.sel) - (a.id === V.sel) || (V.hits && V.hits.has(b.id)) - (V.hits && V.hits.has(a.id)) || a.lvl - b.lvl || b.room - a.room)) {
     const e = ent(L.id), txt = short(label(e), 26), fs = L.lvl <= 1 ? 12 : 10.5, wpx = txt.length * fs * 0.62, hpx = fs + 3;
     const sx = L.x * k, sy = L.y * k, x0 = L.area ? sx - wpx / 2 : sx, y0 = sy - hpx;
     const must = V.sel === L.id || (V.hits && V.hits.has(L.id));
@@ -820,6 +906,14 @@ function drawMap() {
     if (!must && taken.some(t => x0 < t.x1 && x0 + wpx > t.x0 && y0 < t.y1 && y0 + hpx > t.y0)) continue;
     taken.push({ x0, y0, x1: x0 + wpx, y1: y0 + hpx });
     out += `<text class="mlbl l${Math.min(L.lvl, 2)}${L.lvl > 1 ? " deep" : ""}" x="${L.x}" y="${L.y}" font-size="${(fs * px).toFixed(4)}" stroke-width="${(3 * px).toFixed(4)}"${L.area ? ' text-anchor="middle"' : ""}>${esc(txt)}</text>`;
+  }
+  out += marks;
+  // the ring "on the map" leaves: it pulses a few times, and the delay keeps one pulse running through redraws
+  const pi = V.ping && items.find(i => i.id === V.ping);
+  if (pi) {
+    const b = pi.ol ? bboxOf(pi.ol) : null, cx = b ? (b.x0 + b.x1) / 2 : pi.at[0], cy = b ? (b.y0 + b.y1) / 2 : pi.at[1];
+    const r = (b ? Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 : 0) + 14 * px;
+    out += `<circle class="ping" cx="${cx}" cy="${-cy}" r="${r}" style="animation-delay:-${Date.now() - (V.pingT || 0)}ms"/>`;
   }
   for (const [host, ids2] of unplaced) {
     const he = ent(host), hol = he && outline(he), hat = worldAt(host);
@@ -856,6 +950,14 @@ function placeOverlays() {
       shown.map(id => { const e = ent(id), kd = kindOf(e.type); return `<button class="chip${V.hits && V.hits.has(id) ? " hit" : ""}${V.sel === id ? " sel" : ""}" data-pick="${esc(id)}" title="${esc(label(e) + " · " + e.type)}"><i class="kd-${kd}"></i>${esc(short(label(e), 18))}</button>`; }).join("") +
       (t.ids.length > shown.length ? `<button class="chip" data-focus="${esc(t.host)}">+${t.ids.length - shown.length} more</button>` : "") + `</div>`;
   }
+  // stacked places: a marker at the spot's top right; open, it lists the levels from the top down
+  for (const s of mapStacks) {
+    const x = Math.max(4, Math.min(st.clientWidth - 230, s.x1 * c.k + c.x + 4)), y = Math.max(36, Math.min(st.clientHeight - 70, -s.y * c.k + c.y - 10));
+    const tk = "s:" + s.key, open = V.tray === tk || (V.tray !== "-" + tk && (s.ids.includes(V.ping) || s.ids.includes(V.sel)));
+    if (!open) { html += `<div class="tray shut" style="left:${x}px;top:${y}px"><button class="chip stackm" data-tray="${esc(tk)}" title="${esc(s.ids.map(nameOf).join("\n"))}">${s.ids.length} stacked</button></div>`; continue; }
+    html += `<div class="tray stk" style="left:${x}px;top:${y}px;z-index:4"><div class="cap"><span>${s.ids.length} stacked, top first</span><button data-tray="-${esc(tk)}" aria-label="close">&times;</button></div>` +
+      s.ids.map(id => { const e = ent(id), kd = kindOf(e.type); return `<button class="chip solid${V.sel === id ? " sel" : ""}" data-pick="${esc(id)}"><i class="kd-${kd}"></i>${esc(short(label(e), 22))}<span class="z">z ${fmt(zLevel(e))}</span></button>`; }).join("") + `</div>`;
+  }
   ov.innerHTML = html;
   ov.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => select(b.dataset.pick));
   ov.querySelectorAll("[data-focus]").forEach(b => b.onclick = () => focusOn(b.dataset.focus));
@@ -875,6 +977,7 @@ function draw() {
   crumbs();
 }
 function markSel() {
+  if (V.view === "map") { draw(); return; }   // the map redraws: the picked one's label comes first and the ring moves off
   document.querySelectorAll("#view .sel").forEach(n => n.classList.remove("sel"));
   if (V.sel) document.querySelectorAll(`#view [data-id="${CSS.escape(V.sel)}"]`).forEach(n => { if (!n.dataset.open && !n.dataset.more) n.classList.add("sel"); });
   if (V.view === "map") placeOverlays();
@@ -1022,9 +1125,9 @@ function panel(force) {
 }
 function chip(id, extra) { const e = ent(id); if (!e) return ""; const kd = kindOf(e.type); return `<button class="chip${extra || ""}" data-go="${esc(id)}" title="${esc(e.type + " · " + id)}"><i class="kd-${kd}"></i>${esc(short(label(e), 30))}</button>`; }
 function wire(el) {
-  el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => select(b.dataset.go));
+  el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => select(b.dataset.go, true));
   el.querySelectorAll("[data-focus]").forEach(b => b.onclick = () => { focusOn(b.dataset.focus); });
-  el.querySelectorAll("[data-map]").forEach(b => b.onclick = () => { setView("map"); const e = ent(b.dataset.map); focusOn(e && e.parent && worldAt(b.dataset.map) ? e.parent : b.dataset.map); });
+  el.querySelectorAll("[data-map]").forEach(b => b.onclick = () => showOnMap(b.dataset.map));
   el.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => { try { navigator.clipboard.writeText(b.dataset.copy); b.textContent = "copied"; } catch (x) {} });
 }
 function meter(name, v, max) {
@@ -1120,7 +1223,7 @@ function paneResults() {
 }
 function wireRes(el) {
   wire(el);
-  el.querySelectorAll("tr[data-go], li[data-go]").forEach(r => r.onclick = () => { V.sel = r.dataset.go; markSel(); writeHash(); paneResults(); });
+  el.querySelectorAll("tr[data-go], li[data-go]").forEach(r => r.onclick = () => { if (V.sel !== r.dataset.go) V.ping = null; V.sel = r.dataset.go; markSel(); writeHash(); paneResults(); revealSel(); });
   el.querySelectorAll("th[data-sort]").forEach(t => t.onclick = () => { if (V.sortKey === t.dataset.sort) V.sortDir *= -1; else { V.sortKey = t.dataset.sort; V.sortDir = -1; } paneResults(); });
   const f = $("rfit"); if (f) f.onclick = () => fitHits();
   const c = $("rclear"); if (c) c.onclick = () => clearSearch();
