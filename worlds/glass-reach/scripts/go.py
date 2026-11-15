@@ -6,11 +6,12 @@ def knows_way(ctx, place):
     return kt is not None and kt == ctx.actor.state.faction
 
 def shut(ctx, x):
-    # a door or a place a lock keeps shut (the locks pack), with the way to open it
+    # a door or a place a lock keeps shut (the locks pack): the lock's own word when it has one (stone no hand
+    # shifts), else the engine's line naming only the ways that lock has
     lk = ctx.locked(x)
     if lk is None:
         return None
-    return x.name + " is locked: unlock " + ("it" if lk.id == x.id else lk.name) + " first, with its key or its code, or pick it"
+    return lk.state.shut_why or ctx.shut(x)
 
 def check(ctx):
     here = ctx.actor.parent

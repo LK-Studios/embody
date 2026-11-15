@@ -1477,7 +1477,9 @@ def test_the_thornbrake_bites_at_night_and_tessels_steading_keeps_a_dew_still_an
     gm.move("Tam", "The Gate Yard")
     me.act("go", "The Thornbrake")
     kinds = lambda k: gm.world.store.count("event", "world_id=? AND kind=?", (gm.world.id, k))
-    assert kinds("hit") + kinds("missed") == 3  # the pack goes for you at night
+    assert kinds("hit") + kinds("missed") == 0  # at night the pack growls first: a beat to back out in
+    gm.clock(step=121)
+    assert kinds("hit") + kinds("missed") == 3  # still there, and it goes for you
     gm.patch("The thornback boar", {"hp": 0})
     gm.patch("Tam", {"skills": {"blade": 20}})
     me.act("attack", "The thornback boar")
