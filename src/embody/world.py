@@ -1698,12 +1698,15 @@ class World:
 
     def shut_line(self, id: str) -> str | None:
         """The refusal for a locked box, door or place, with only the ways its lock has: its key, its code, a pick
-        (`pick_dc`), a break (`break_dc`). None when nothing keeps it shut."""
+        (`pick_dc`), a break (`break_dc`). A lock no hand opens (its `shut_why`, the whole line) says that instead.
+        None when nothing keeps it shut."""
         e = self.get(id)
         lk = self.locked_by(id) if e else None
         if lk is None:
             return None
         st, ways = lk["state"], []
+        if st.get("shut_why"):
+            return str(st["shut_why"])
         hand = [w for w, on in (("its key", st.get("key")), ("its code", st.get("code"))) if on]
         if hand:
             ways.append("with " + " or ".join(hand))

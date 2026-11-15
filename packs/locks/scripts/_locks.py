@@ -11,6 +11,8 @@ def key_in_hand(who, lk):
 def turns(ctx, lk):
     # how this hand may turn the lock: "key", "code" or "bolt" (no key and no code), else why not and what would
     p = ctx.params or {}
+    if lk.state.shut_why:
+        return str(lk.state.shut_why)  # no hand turns it, key, code or bolt: a script opens it
     if p.get("code") is not None:
         if not lk.state.code:
             return "this lock takes no code" + (": it takes its key" if lk.state.key else "")

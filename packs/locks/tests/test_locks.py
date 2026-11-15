@@ -173,3 +173,19 @@ def test_a_lockpick_counts_before_stealth_or_craft(guild):
     bel.act("pick", "Box lock")  # d20 + wits 1 + lockpick 3: the trade beats a quiet hand
     wait(gm, 660)
     assert kinds(eng, "lock_picked")[0]["mod"] == 4
+
+
+def test_a_lock_no_hand_opens_refuses_every_hand_with_its_own_line(guild):
+    eng, gm, ada, bel = guild
+    why = "The stone lid will not move for any hand."
+    gm.patch("Box lock", {"shut_why": why, "pick_dc": None, "break_dc": None})
+    for who, verb, params in ((ada, "unlock", None), (bel, "unlock", {"code": "7-3-1"})):
+        with pytest.raises(Rejected) as r:
+            who.act(verb, "Box lock", params=params)
+        assert r.value.reason == why  # not even its key: a script opens it
+    with pytest.raises(Rejected) as r:
+        bel.act("take", "Emberglass")
+    assert r.value.reason == why
+    assert not any(a["verb"] == "unlock" and a.get("ok") for a in ada.perceive()["affordances"] if a["target_name"] == "Box lock")
+    gm.patch("Box lock", {"locked": False})  # what a script does when the seal opens
+    assert bel.act("take", "Emberglass")["ok"]

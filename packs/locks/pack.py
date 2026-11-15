@@ -13,8 +13,10 @@ verbs, so a world binds nothing on its people. Spawn a lock inside what it locks
 
 A lock's state: `locked` (default True), `key` (the name or id of the thing that fits it; it can be stolen, given or
 lost, and nobody copies it), `code` (a string, secret: never on a card), `pick_dc` (absent: it cannot be picked),
-`break_dc` (absent: it will not break), `broken` (written by play). A lock with neither a key nor a code is a bolt:
-anyone in reach turns it. The lock is `attached`: it is in reach wherever what it locks is (from both sides of a door,
+`break_dc` (absent: it will not break), `broken` (written by play), `shut_why` (a line: no hand unlocks it, not with a
+key, a code or as a bolt; only a script does, by patching `locked`; unlock and anything it keeps shut refuse with that
+line, while `pick_dc` and `break_dc` still apply if set). A lock with neither a key nor a code is a bolt: anyone in
+reach turns it. The lock is `attached`: it is in reach wherever what it locks is (from both sides of a door,
 from outside a place), and it never comes away (`portable: False`).
 
 Verbs, done to the lock:
@@ -27,7 +29,7 @@ Verbs, done to the lock:
 
 Events, on what the lock keeps shut (the box, the door, the place), reach 1 unless said: `unlocked`, `locked`,
 `lock_picked`, `pick_failed`, `lock_broken` and `break_failed` (reach 2), each with `by`, `lock` and `holder`, so rules
-and minds can react: guards come running. Scripts ask `ctx.locked(x)` for what keeps x shut, or None.
+and minds can react: guards come running. Scripts ask `ctx.locked(x)` for what keeps x shut, or None, and `ctx.shut(x)` for the refusal to give.
 """
 
 PACK = {"name": "locks", "description": "Locks on boxes, doors and places: a key, a code, picking or force, and nothing opens without them."}
@@ -38,7 +40,7 @@ def define(s):
     s.define_schema("lock", extends="thing",
                     doc="A lock attached to a box, a door or a place: nothing opens without it.",
                     state={"portable": False, "attached": True, "locked": True, "key": None, "code": None,
-                           "pick_dc": None, "break_dc": None, "broken": False, "picking": None,
+                           "pick_dc": None, "break_dc": None, "broken": False, "picking": None, "shut_why": None,
                            "secret": ["code", "picking"], "description": "A lock."},
                     actions={"unlock": {"script": "locks_unlock", "doc": "Unlock it, with its key in hand or its code",
                                         "duration": 2, "params": {"code": "the code, if it takes one"}},
