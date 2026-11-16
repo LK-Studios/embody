@@ -1322,7 +1322,7 @@ def test_the_notice_by_the_cistern_was_the_hosts_and_a_flask_on_the_ridge_says_s
     seen = lambda: {c["name"] for c in me.perceive()["present"]}
     assert "A Crown flask" not in seen()
     gm.patch(flask["id"], {"find_dc": 1})  # the reveal is under test, not the roll (dice move with the event count)
-    me.act("check", params={"skill": "search", "dc": 13})
+    me.act("check", params={"skill": "search", "dc": 1})  # and a check any roll clears
     assert "A Crown flask" in seen()
     me.act("take", "A Crown flask")
     r = me.act("read", "A Crown flask")
