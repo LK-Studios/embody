@@ -101,6 +101,7 @@ Mutations (each one is logged as an event):
 - `ctx.relate(relation, [participants], data=None)`, `ctx.unrelate(id)`
 - `ctx.set_rule(entity, script, kinds=None, fuel=None)`, `ctx.clear_rule(entity, script)`
 - `ctx.remember(x, text)` a note in x's secret memory, as `remember` writes it: what they did or saw, for their mind
+- `ctx.mark(body, where, what, kind='permanent', band='near', lasts=None)` marks a body's looks (a tattoo, a scar, paint, a swapped part): `what` on the region `where`, kind worn-on, permanent, replaced or grown, seen from a band (close, near, far); a worn-on mark is gone after `lasts` world days. Emits `marked` and returns the mark's id. `ctx.unmark(body, id)` takes one off (`unmarked`). Only the world's rules mark a body: not a guest's script, a frame or a programmed verb
 
 Stacks: a thing whose state has a `count` is that many of itself (Emberglass, 60 of it). Its card shows `count`, and so does every list that names it (a rack's `holding`). village `take`, `drop`, `give` and `put` take `params {"count": n}` to move part of one; without a count they move all of it.
 

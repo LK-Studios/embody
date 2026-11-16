@@ -15,6 +15,7 @@ from typing import Any, Iterable
 from .script import Script, ScriptError, ScriptObject
 from .store import Store
 from . import access as acl
+from . import looks as looks_mod
 
 LISTENER_FUEL_MAX = 1_000_000  # the most a rule may ask for with set_rule(..., fuel=)
 
@@ -159,7 +160,7 @@ FRAME_NEVER = frozenset({"programmed", "maker", "canon", "access", "access_group
 RULES_ONLY = frozenset({"sheet", "skills", "xp", "attributes"})
 # and on a body (a creature), what it is made of and how it grows: a world's own progression (`progress`), its stats,
 # its health and what it carries
-BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp", "carry"})
+BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp", "carry", "looks"})
 
 # What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
 BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
@@ -311,7 +312,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
-        "may_write_sheet",
+        "may_write_sheet", "mark", "unmark",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -398,6 +399,9 @@ class Ctx(ScriptObject):
         if self.may_write_sheet():
             return
         hit = rules_only_keys(self._w, _ev(self._w, i), keys)
+        if hit == ["looks"]:
+            raise Rejected("a body's looks change only by the world's rules: this code may not write looks",
+                           hint="a world verb marks a body (an inker, a clinic, a barber); the owner sets anything else")
         if hit:
             raise Rejected(f"a body's skills grow only by the world's rules: this code may not write {', '.join(hit)}",
                            hint="skills grow by use against the world's difficulties and by a teacher; the owner "
@@ -804,6 +808,85 @@ class Ctx(ScriptObject):
             p["maker"] = self._limits["frame"]  # made by a player's code: data, never an instruction
         return self._w.emit(kind, actor=self._actor, target=tgt, reach=reach, payload=p,
                             caused_by=self._caused_by)["seq"]
+
+    def mark(self, body: Any, where: str, what: str, kind: str = "permanent", band: str = "near",
+             lasts: Any = None) -> str:
+        """Mark a body's looks (src/embody/looks.py): `what` on the region `where`, of a kind (worn-on, permanent,
+        replaced, grown), seen from a band (close, near, far); a worn-on mark is gone after `lasts` world days. Only the
+        world's rules mark a body. Emits `marked`; returns the mark's id. A worn-on mark that has faded goes now."""
+        eid = _ev(self._w, body)
+        self._hold(eid)
+        self._rules_only(eid, ["looks"])
+        w = self._w
+        e = w.need(eid)
+        if not w.is_a(e["type"], "creature"):
+            raise Rejected(f"{e['name']} is not a body: only a body has looks", hint="mark a creature")
+        where, what = str(where or "").strip().lower(), str(what or "").strip()
+        if kind not in looks_mod.KINDS:
+            raise Rejected(f"a mark's kind is one of {', '.join(looks_mod.KINDS)}, not {kind!r}")
+        if band not in looks_mod.BANDS:
+            raise Rejected(f"a mark's band is one of {', '.join(looks_mod.BANDS)}, not {band!r}")
+        if not where or len(where) > looks_mod.MAX_WHERE:
+            raise Rejected(f"say where the mark is: a region of at most {looks_mod.MAX_WHERE} characters")
+        if not what or len(what) > looks_mod.MAX_WHAT:
+            raise Rejected(f"say what the mark is, in at most {looks_mod.MAX_WHAT} characters")
+        if lasts is not None and (kind != "worn-on" or float(lasts) <= 0):
+            raise Rejected("only a worn-on mark lasts a while: lasts is its world days, more than 0")
+        from .ops import _REACH_OUT  # the guest check on words written into the world
+        for label, rx in _REACH_OUT:
+            m = rx.search(what)
+            if m and not (label == "a phone number" and sum(c.isdigit() for c in m.group(0)) < 9):
+                raise Rejected(f"a mark carries {label} ({m.group(0)!r}): words on a body carry no way to reach anyone "
+                               "outside the world")
+        lk = looks_mod.of(e["state"])
+        day = self.day_seconds()
+        marks = looks_mod.live(lk, self._w.t, day)
+        if where not in looks_mod.regions(lk, marks) and kind not in ("grown", "replaced"):
+            raise Rejected(f"{e['name']} has no {where}: its regions are {', '.join(looks_mod.regions(lk, marks))}",
+                           hint="a grown or replaced mark may add a region (a tail, horns)")
+        if len(marks) >= looks_mod.MAX_MARKS:
+            raise Rejected(f"{e['name']} carries {looks_mod.MAX_MARKS} marks already", hint="unmark one first")
+        gone = self._fade(e)
+        n = int(lk.get("next") or 1)
+        mid = f"m{n}"
+        m = {"where": where, "what": what, "kind": kind, "band": band, "since": self._w.t,
+             "by": self._owner or self._actor}
+        if lasts is not None:
+            m["lasts"] = float(lasts)
+        w.patch(eid, {"looks": {"marks": {mid: m, **{g: None for g in gone}}, "next": n + 1}},
+                actor=self._actor, caused_by=self._caused_by)
+        w.emit("marked", actor=self._actor, target=eid, reach=1, caused_by=self._caused_by,
+               payload={"mark": mid, "where": where, "what": what, "kind": kind, "band": band, "by": m["by"]})
+        return mid
+
+    def unmark(self, body: Any, mark: str) -> bool:
+        """Take a mark off a body's looks (a permanent one only by a verb that says so: the world's own). Emits
+        `unmarked`; False when the body has no such mark."""
+        eid = _ev(self._w, body)
+        self._hold(eid)
+        self._rules_only(eid, ["looks"])
+        e = self._w.need(eid)
+        m = (looks_mod.of(e["state"]).get("marks") or {}).get(str(mark))
+        if not isinstance(m, dict):
+            return False
+        gone = [g for g in self._fade(e) if g != str(mark)]
+        self._w.patch(eid, {"looks": {"marks": {str(mark): None, **{g: None for g in gone}}}},
+                      actor=self._actor, caused_by=self._caused_by)
+        self._w.emit("unmarked", actor=self._actor, target=eid, reach=1, caused_by=self._caused_by,
+                     payload={"mark": str(mark), "where": m.get("where"), "what": m.get("what"), "kind": m.get("kind"),
+                              "why": "taken off"})
+        return True
+
+    def _fade(self, e: dict[str, Any]) -> list[str]:
+        """The worn-on marks past their days: an `unmarked` event each (why: faded); the caller's patch drops them."""
+        lk = looks_mod.of(e["state"])
+        gone = looks_mod.faded(lk, self._w.t, self.day_seconds())
+        for g in gone:
+            m = lk["marks"][g]
+            self._w.emit("unmarked", actor=self._actor, target=e["id"], reach=1, caused_by=self._caused_by,
+                         payload={"mark": g, "where": m.get("where"), "what": m.get("what"), "kind": m.get("kind"),
+                                  "why": "faded"})
+        return gone
 
     def remember(self, id: Any, text: str) -> None:
         """Write a note into that one's secret memory (what they did, what they saw): their mind reads it."""

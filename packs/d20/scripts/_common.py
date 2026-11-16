@@ -494,6 +494,7 @@ def strike(ctx, me, t, slow):
         ctx.patch(t, {"hp": hp, "braced": False})
         ctx.emit("hit", target=t, reach=1, by=me.id, dmg=dmg, weapon=wname, attack=attack, defence=defence, hp=hp,
                  rolls=rolls, asleep=asleep)
+        scar(ctx, t, dmg, wname)
         settle(ctx, t, me.id)
     else:
         ctx.emit("missed", target=t, reach=1, by=me.id, weapon=wname, attack=attack, defence=defence, rolls=rolls,
@@ -502,6 +503,20 @@ def strike(ctx, me, t, slow):
         ctx.patch(me, {"braced": False})
     ctx.log(("hit for " + str(dmg) if hit else "miss") + " (" + str(attack) + " vs " + str(defence) + ")")
     return {"hit": hit, "dmg": dmg, "attack": attack, "defence": defence, "cooldown_x": cx}
+
+SCAR_REGIONS = ["head", "face", "neck", "torso", "back", "arms", "hands", "legs", "feet"]
+
+def scar(ctx, t, dmg, how):
+    # with the root's `looks_rules` {scar_damage} set (none by default), a hit that deals at least that much leaves a
+    # permanent near mark, "a fresh scar", on a region of the body the world's dice pick (src/embody/looks.py)
+    need = (ctx.root().state.looks_rules or {}).get("scar_damage")
+    if need is None or dmg < int(need) or not t.is_a("creature") or not ctx.may_write_sheet():
+        return None
+    lk = t.state.looks or {}
+    if len(lk.get("marks") or {}) >= 40:
+        return None
+    where = ctx.rand.choice(lk.get("regions") or SCAR_REGIONS)
+    return ctx.mark(t, where, "a fresh scar from " + how, "permanent", "near", None)
 
 def melee(who):
     # the first weapon held that is not one that fires: what a blow is struck with
@@ -618,6 +633,7 @@ def shot(ctx, me, t, weapon):
         ctx.patch(t, {"hp": hp, "braced": False})
         ctx.emit("hit", target=t, reach=1, by=me.id, dmg=dmg, weapon=wname, attack=attack, defence=defence, hp=hp,
                  rolls=rolls, asleep=asleep, ranged=True)
+        scar(ctx, t, dmg, wname)
         settle(ctx, t, me.id)
     else:
         ctx.emit("missed", target=t, reach=1, by=me.id, weapon=wname, attack=attack, defence=defence, rolls=rolls,

@@ -29,6 +29,7 @@ from . import positions as posn
 from .script import Script, ScriptError
 from .store import Store
 from . import access as acl
+from . import looks as looks_mod
 from .world import ALWAYS_SECRET, LIMITS_HEAD, Rejected, World, rules_only_keys, _HOST_KINDS, _INTERNAL_KINDS, _PRIVATE_KINDS, _public_event, own_verbs
 from .workspace import USE_LINE, Workspace, read_scripts, resolve_uses, restore_world, save_world
 
@@ -1248,6 +1249,26 @@ class Session:
         self._tick()
         return read_requests(self.engine.requests_path, self.world.id, limit=max(1, min(int(limit), 500)))
 
+    def looks(self, entity: str) -> dict[str, Any]:
+        """A body's looks for a renderer or an image tool: its base description, its regions (the body plan and any a
+        mod added), its marks {id, where, what, kind, band, since, by, covered, seen, fades_at} and the lines a region.
+        Your own body, or as the owner or an author: every mark. Anyone else in the same place: only the marks they see
+        from there, uncovered. Redraw on `marked` and `unmarked` events, never from a guessed diff."""
+        self._tick()
+        w = self.world
+        eid = self._resolve(entity)
+        e = w.need(eid)
+        if not w.is_a(e["type"], "creature"):
+            raise Rejected(f"{e['name']} is not a body: only a body has looks", hint="looks(entity) takes a creature")
+        band = self._band(eid)
+        full = band == "self" or (self._privileged() and self._sees(eid))
+        if not full:
+            p = self._principal()
+            me = p["entity_id"] if p else None
+            if not me or not w.get(me) or w.need(me)["parent_id"] != e["parent_id"] or e["state"].get("hidden"):
+                raise Rejected(f"you cannot see {e['name']} from where you are", hint="be in the same place")
+        return looks_mod.view(w, e, "self" if full else band, w.t, float(w.meta().get("day_seconds") or 86400), full=full)
+
     def report_flaw(self, what: str, how: str = "", severity: str = "") -> dict[str, Any]:
         """Tell the world's owner about a hole: something the rules let you do that they should not (a check you can
         roll until it lands, a verb that writes what it should not, a secret you could read). `what` in a line or two,
@@ -1926,6 +1947,10 @@ class Session:
                 continue
             if not full and k == "sheet" and isinstance(v, dict):
                 v = _sheet_view(v, None)  # others read the attributes and the skills that have a rank
+            if not full and k == "looks" and isinstance(v, dict):
+                v = self._looks_lines(e, self._band(e["id"]))  # the marks this reader sees, a line a region
+                if not v:
+                    continue
             if not full and k == "templates" and isinstance(v, dict):
                 v = {name: {kk: vv for kk, vv in t.items() if kk in _TEMPLATE_PUBLIC}
                      for name, t in v.items() if isinstance(t, dict)}
@@ -1946,7 +1971,29 @@ class Session:
         if isinstance(sheet, dict):
             root = self.world.get(self.world.root_id)
             card["state"]["sheet"] = _sheet_view(sheet, (root["state"].get("sheet_rules") or {}) if root else {})
+        if isinstance(card["state"].get("looks"), dict):
+            card["state"]["looks"] = self._looks_lines(self.world.need(card["id"]), "self")  # yours, covered ones noted
         return card
+
+    def _band(self, eid: str) -> str:
+        """How near this reader is to a body, for its looks: self, close (within looks.CLOSE_M, both laid out in one
+        frame) or near (the same place, or no spots to measure)."""
+        w = self.world
+        p = self._principal() if self.world_id else None
+        me = p["entity_id"] if p else None
+        if me == eid:
+            return "self"
+        if not me or not w.get(me) or not posn.same_frame(w, me, eid):
+            return "near"
+        a, b = posn.resolve(w, me), posn.resolve(w, eid)
+        if a["how"] in ("own", "grid") and b["how"] in ("own", "grid") and a["at"] and b["at"] and \
+                geo.dist3(a["at"], b["at"]) <= looks_mod.CLOSE_M:
+            return "close"
+        return "near"
+
+    def _looks_lines(self, e: dict[str, Any], band: str) -> list[str]:
+        w = self.world
+        return looks_mod.card_lines(w, e, band, w.t, float(w.meta().get("day_seconds") or 86400))
 
     def _card(self, e: dict[str, Any], full: bool = False) -> dict[str, Any]:
         w = self.world
@@ -3731,7 +3778,7 @@ OPS = [
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
-    "vouch", "review_script", "report_flaw", "flaws", "relink",
+    "vouch", "review_script", "report_flaw", "flaws", "relink", "looks",
 ]
 
 

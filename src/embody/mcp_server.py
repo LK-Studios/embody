@@ -278,6 +278,14 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def looks(entity: str, principal: str | None = None) -> dict[str, Any]:
+        """A body's looks for a renderer: base description, regions, marks (where, what, kind, band, covered) and the
+        lines a region. Yours in full; someone else's as far as you see them from where you stand. Redraw on marked and
+        unmarked events."""
+        return S(principal).looks(entity)
+
+    @tool()
+    @_wrap
     def relink(grant: str) -> dict[str, Any]:
         """(owner) A guest lost their token or their link: the same grant (seat, scope, brief, limits) gets a fresh token
         and a fresh one-day link; the old token stops working. Send them the paste it returns."""
