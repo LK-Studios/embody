@@ -21,7 +21,8 @@ from packs.d20.pack import install_rules
 def define(s):
     s.define_schema("person", extends="combatant")
     s.define_schema("post", extends="thing", state={"portable": False},
-                    actions={"train": {"script": "train", "doc": "Learn against this post at the world's dc"}})
+                    actions={"train": {"script": "train", "doc": "Learn against this post at the world's dc"},
+                             "honor": {"script": "honor", "doc": "A deed the world rewards"}})
 
 def populate(s):
     root = s.summary()["root"]
@@ -42,6 +43,13 @@ def apply(ctx):
 '''
 
 
+HONOR = '''use("common")
+def apply(ctx):
+    p = ctx.params or {}
+    return deed(ctx, ctx.actor, str(p.get("skill")), int(p.get("amount")), "honored the post")
+'''
+
+
 @pytest.fixture
 def drill(tmp_path):
     for p in ("village", "d20", "sheet"):
@@ -51,6 +59,7 @@ def drill(tmp_path):
     (world / "scripts").mkdir(parents=True)
     (world / "build.py").write_text(BUILD, encoding="utf-8")
     (world / "scripts" / "train.py").write_text(TRAIN, encoding="utf-8")
+    (world / "scripts" / "honor.py").write_text(HONOR, encoding="utf-8")
     eng = Engine(workspace=tmp_path, record=False)
     gm = eng.session("gm", capabilities=[AUTHOR])
     load_world(gm, "drill")
@@ -186,6 +195,10 @@ def test_past_self_taught_use_banks_and_a_teacher_turns_it_into_a_rank_for_a_pri
         ada.act("train", "Bel")
     assert "teaches nothing" in r.value.reason and teachers() == []
     gm.patch("Bel", {"teaches": lesson})
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")  # a teacher teaches only below its own rank: Bel has no climb
+    assert "all they know of climb" in r.value.reason
+    gm.patch("Bel", {"skills": {**gm.inspect("Bel")["state"]["skills"], "climb": 3}})
     assert teachers() == ["Bel"]
     r = ada.act("train", "Bel")  # the one skill Bel teaches, no params needed
     assert r["result"] == {"skill": "climb", "rank": 2, "xp": 0, "paid": {"water": 2, "ember": 1}}
@@ -246,3 +259,61 @@ def test_only_the_worlds_rules_write_a_sheet(drill):
     assert gm.inspect("Ada")["state"]["sheet"]["skills"]["blade"] == 2
     # the world's own scripts are its rules: they teach
     assert learned(ada.act("train", "North Post", params={"skill": "climb", "dc": 19, "success": True}))
+
+
+def test_rank_costs_practice_deeds_lessons_attributes_and_the_grant_cap(drill):
+    eng, gm, ada = drill
+    root = gm.summary()["root"]
+    gm.patch(root, {"sheet_rules": {**gm.inspect(root)["state"]["sheet_rules"], "rank_costs": [6, 8, 12, 16, 23],
+                                    "max_rank": 5, "self_taught": 4, "attr_cap": 15, "attr_cost_base": 4, "attr_cost_x": 1,
+                                    "grant_cap": 3, "teach_skill": "teaching"}})
+    gm.patch("Ada", {"sheet": to_sheet(gm.inspect("Ada")["state"]), "water": 10})
+    assert gm.inspect("Ada")["state"]["sheet"]["attributes"]["poise"] == 14
+    # rank costs from the list: climb +3, dc 19 needs 17: 6 on a success, rank 0 costs 6, rank 1 costs 8
+    r = ada.act("train", "North Post", params={"skill": "climb", "dc": 19, "success": True})
+    got = learned(r)[0]
+    assert (got["source"], got["rank"], got["xp"], got["next"], got["ranked_up"]) == ("use", 1, 0, 8, True)
+    # the 6 points went to poise too, at 4 a point here: 14 to 15, the natural cap, and no further
+    assert got["grew"] == ["poise", 15] and any(e["kind"] == "grew" for e in r["events"])
+    learned(ada.act("train", "South Post", params={"skill": "climb", "dc": 19, "success": True}))
+    assert gm.inspect("Ada")["state"]["sheet"]["attributes"]["poise"] == 15
+    # practice: at most a third of rank 1's 8 (2) from practice, then it says where the rest comes from
+    from_practice = 0
+    for _ in range(3):
+        try:
+            from_practice += ada.act("practice", params={"skill": "climb"})["result"]["earned"]
+        except Rejected as e:
+            assert "a third" in e.reason and "use out in the world" in e.reason
+            break
+    assert from_practice == 2
+    with pytest.raises(Rejected):
+        ada.act("practice", params={"skill": "juggling"})
+    # deeds: a world script's award, a third of the rank of its own (practice's third is apart)
+    sheet = gm.inspect("Ada")["state"]["sheet"]
+    third = [6, 8, 12, 16, 23][sheet["skills"]["climb"]] // 3
+    r = ada.act("honor", "South Post", params={"skill": "climb", "amount": 50})
+    assert r["result"] == third and learned(r)[0]["source"] == "deed" and learned(r)[0]["why"] == "honored the post"
+    first = learned(r)[0]  # a new rank opens a new third; the same rank has none left
+    again = ada.act("honor", "South Post", params={"skill": "climb", "amount": 50})["result"]
+    assert again == ([6, 8, 12, 16, 23][first["rank"]] // 3 if first["ranked_up"] else 0)
+    sheet = gm.inspect("Ada")["state"]["sheet"]
+    rank, xp = sheet["skills"]["climb"], sheet["xp"]["climb"]
+    # a lesson below self_taught is experience; the teacher needs the skill above you and teaching
+    gm.patch("Bel", {"teaches": {"climb": {"up_to": 5, "price": {"water": 1}}}})
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")
+    assert "not how to teach it" in r.value.reason
+    gm.patch("Bel", {"skills": {**gm.inspect("Bel")["state"]["skills"], "climb": 4, "teaching": 1}})
+    r = ada.act("train", "Bel")
+    costs = [6, 8, 12, 16, 23]
+    assert r["result"]["earned"] == costs[rank] // 3
+    assert learned(r)[0]["source"] == "lesson" and learned(r)[0]["by"] == gm.inspect("Bel")["id"]
+    assert gm.inspect("Ada")["state"]["water"] == 9
+    # grants: two sources of +2 add 3 at most here
+    base = mod(ada, "lore")
+    gm.patch("Ada", {"grants": [{"source": "a", "bonus": 2}, {"source": "b", "bonus": 2}]})
+    assert mod(ada, "lore") == base + 3
+    # perceive and the guide read the list
+    assert gm.inspect("Ada")["state"]["sheet"]["xp"]
+    g = ada.guide("skills")["text"]
+    assert "costs, by r: 6, 8, 12, 16, 23" in g and "+3 to one roll" in g and "up to 15" in g

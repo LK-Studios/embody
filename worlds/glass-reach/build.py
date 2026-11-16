@@ -1068,10 +1068,13 @@ def keep_wardens(s, names):
 
 
 # Players grow (Nate 2026-11-15): a newcomer's body carries a sheet (packs/sheet) that rolls exactly what its body,
-# wits and will rolled, and its skills rise with use against the world's difficulties. NPCs keep flat skills. Use
-# raises a skill to rank 2; ranks 3 to 5 need a teacher (`teaches` on a body, the owner's call), at most one teaching
-# roll a skill, a target, a world day.
-SHEET_RULES = {"per_target_day": 1, "rank_cost": 15, "max_rank": 5, "self_taught": 2}
+# wits and will rolled, and its skills rise with use against the world's difficulties. NPCs keep flat skills. Wizard's
+# answers (2026-11-16): ranks to 15 at costs rising 6 x 1.4^r, use alone to rank 4 and a teacher past it (a teacher
+# needs the skill above you and teaching), practice and deeds a third of a rank each, attributes grow slowly to 15
+# (20 stays for boons), all grants together +12 at most. At most one teaching roll a skill, a target, a world day.
+SHEET_RULES = {"per_target_day": 1, "rank_cost": 15, "max_rank": 15, "self_taught": 4,
+               "rank_costs": [6, 8, 12, 16, 23, 32, 45, 63, 89, 124, 174, 243, 340, 476, 667],
+               "grant_cap": 12, "teach_skill": "teaching", "attr_cap": 15}
 # the Reach's own finding skills, on wits' attributes as d20 rolled them
 REACH_SKILLS = {"search": {"primary": "acuity", "secondary": "cognition", "scope": "going over a place or a body for what is hidden", "related": []},
                 "track": {"primary": "comprehension", "secondary": "acuity", "scope": "reading tracks and following them", "related": ["survival"]}}

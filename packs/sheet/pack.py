@@ -23,8 +23,8 @@ The numbers, so a narrator can explain a roll:
   verb's own dc and every opposed roll (a blow, a shot, parley, threaten, a sleeper searched) teach; `check` with a dc
   the caller chose never does. The roll it needed is the dc less the body's natural bonus (no grants, no conditions):
   needed 1 to 7 earns 0, 8 to 12 earns 1, 13 to 16 earns 2, 17 to 20 earns 3, and nothing past 20 (out of reach) or
-  below 1. A success doubles it. Rank r to r + 1 costs 10 x (r + 1). At most 3 teaching rolls a skill, a target, a
-  world day. Every award is a `learned` event on the body (reach 0: its own feed), with the skill, what it needed,
+  below 1. A success doubles it. Rank r to r + 1 costs 10 x (r + 1), or `rank_costs`[r] when the world sets a list
+  (the Reach: 6 x 1.4^r). At most 3 teaching rolls a skill, a target, a world day. Every award is a `learned` event on the body (reach 0: its own feed), with the skill, what it needed,
   what it earned, its xp and rank; the event log is the ledger. Only the world's rules teach and write a sheet or
   skills: a guest's script, a frame's code and a verb programmed on one thing never do (refused, and learn under
   them teaches nothing).
@@ -33,11 +33,22 @@ The numbers, so a narrator can explain a roll:
   turns it into the rank. A teacher is any body with `teaches`: {skill: {up_to, price, every_days}}. `train` (d20,
   on the teacher, params `skill`) spends the experience, pays the `price` (`water` from your own, any other key a
   stack of that kind you hold, such as ember, handed to the teacher), and emits `trained`; `every_days` keeps a
-  teacher to one lesson a student in that many world days. A teacher teaches up to its `up_to` (max_rank when none). A world's own verbs teach with
-  `learn(ctx, who, skill, dc, success, against)` from d20's common.
+  teacher to one lesson a student in that many world days. A teacher teaches from rank 1: below self_taught a lesson
+  is experience (`lesson_xp`; none: a third of the rank's cost). A teacher teaches only below its own rank in the skill
+  (a sheet's rank, or a flat skill), up to its `up_to`, and with `teach_skill` set only with rank 1 or more in that
+  skill too. A world's own verbs teach with `learn(ctx, who, skill, dc, success, against)` from d20's common.
+- Practice: d20's `practice` (an hour alone, params `skill`) rolls against `practice_dc` by rank (a list; none: 10 +
+  rank), earns by the same bands, at least 1, and at most a third of a rank's cost comes from practice.
+- Deeds: `deed(ctx, who, skill, amount, why)` from d20's common, for a world's own scripts (the world decides which
+  deeds count): at most a third of a rank's cost from deeds, apart from practice's third. Each is a learned event with
+  `source` deed and the why. Every learned event says its source: use, practice, deed or lesson.
+- Attributes grow with `attr_cap` set (none by default): each point a skill earns counts toward its primary
+  attribute, score s to s + 1 costs attr_cost_base x attr_cost_x ^ (s - 10) (40 x 1.6), up to attr_cap; max_score
+  stays for boons. A rise is a `grew` event.
+- `grant_cap` (none by default): all grants together add at most that to one roll.
 - Every number above lives on the world root as `sheet_rules` (the pack writes the defaults once; the world's DM tunes
   them there): earn, success_x, rank_cost, max_rank, per_target_day, related_div, untrained, min_score, max_score,
-  self_taught.
+  self_taught, rank_costs, practice_dc, lesson_xp, teach_skill, attr_cap, attr_cost_base, attr_cost_x, grant_cap.
 - `perceive` shows a sheet as its attributes and the skills that have a rank (and, on your own card, the xp toward the
   next). guide('skills') has the skillbook and the rules.
 - A d20 body moves across with `to_sheet(state)`: body to force, poise, endurance; wits to acuity, cognition,
@@ -49,6 +60,16 @@ The numbers, so a narrator can explain a roll:
 PACK = {"name": "sheet", "description": "Twelve attributes, skills that grow with use, and grants: an opt-in character sheet on top of d20."}
 
 RULES = [
+    {"id": "practice", "date": "2026-11-16",
+     "was": "Experience came only from use against the world's difficulties, and from a teacher past self_taught; "
+            "attributes never grew and grants had no total cap.",
+     "now": "A world may set rank_costs (a cost per rank), and practice (an hour alone) and deeds the world rewards each "
+            "give at most a third of a rank. Teachers teach from rank 1: below self_taught a lesson is experience; a "
+            "teacher teaches only below its own rank (and, where the world names it, needs teaching). With attr_cap set "
+            "a skill's experience slowly raises its primary attribute. With grant_cap set all grants together add at "
+            "most that. Every learned event says its source.",
+     "recheck": ["plans that count experience by the old costs", "notes on what a teacher can teach"],
+     "guide": ["player", "mind"]},
     {"id": "teachers", "date": "2026-11-15",
      "was": "Use raised a skill's rank all the way to max_rank, and a world's own verbs could write a sheet.",
      "now": "A world may set `self_taught` in its sheet_rules: use raises a skill to that rank only, then banks "
@@ -92,7 +113,8 @@ CATALOGUE = {
 
 SHEET_RULES = {"earn": [[7, 0], [12, 1], [16, 2], [20, 3]], "success_x": 2, "rank_cost": 10, "max_rank": 15,
                "per_target_day": 3, "related_div": 3, "untrained": "acuity", "min_score": 1, "max_score": 20,
-               "self_taught": None}
+               "self_taught": None, "rank_costs": None, "practice_dc": None, "lesson_xp": None, "teach_skill": None,
+               "attr_cap": None, "attr_cost_base": 40, "attr_cost_x": 1.6, "grant_cap": None}
 
 
 def to_sheet(state: dict) -> dict:

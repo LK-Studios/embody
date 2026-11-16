@@ -1089,7 +1089,7 @@ def test_the_road_wardens_hold_strangers_turn_back_dreyer_and_take_a_shard_toll(
     assert where(gm, "Sen") == "The Salt Road" and not gm.inspect("Sen")["state"].get("pinned_until")
     spy = newcomer(eng, gm, "dreyer", "Vey")
     gm.move("Vey", "The Glass Flats")
-    gm.patch("Vey", {"squalled": True, "skills": {"stealth": 40}, "water": 40, "max_water": 40})
+    gm.patch("Vey", {"squalled": True, "skills": {"stealth": 40}, "sheet": {"skills": {"stealth": 40}}, "water": 40, "max_water": 40})
     spy.act("creep", "The Salt Road")  # the broken step past the bows
     assert where(gm, "Vey") == "The Salt Road"
 
@@ -1466,7 +1466,7 @@ def test_the_riders_hollow_fills_at_the_fires_and_what_is_done_there_counts_at_t
     assert where(gm, "Tam") == "The Bone Field" and kinds("run_out") == 1
     # one who got in unseen spoils the cart and cuts Sel loose; a careful hand is not heard
     gm.move("Tam", "The Riders' Hollow")
-    gm.patch("Tam", {"wits": 10, "skills": {"stealth": 10}, "carry": 40})
+    gm.patch("Tam", {"wits": 10, "skills": {"stealth": 10}, "sheet": {"skills": {"stealth": 20}}, "carry": 40})
     me.act("spoil", "The riders' water cart")
     gm.clock(step=121)
     assert gm.inspect("The riders' water cart")["state"]["spoiled"] and gm.inspect("The riders' water cart")["state"]["left"] == 0
@@ -1507,7 +1507,7 @@ def test_the_thornbrake_bites_at_night_and_tessels_steading_keeps_a_dew_still_an
     gm.clock(step=121)
     assert kinds("hit") + kinds("missed") == 3  # still there, and it goes for you
     gm.patch("The thornback boar", {"hp": 0})
-    gm.patch("Tam", {"skills": {"blade": 20}})
+    gm.patch("Tam", {"skills": {"blade": 20}, "sheet": {"skills": {"blade": 20}}})
     me.act("attack", "The thornback boar")
     assert gm.inspect("Thornback sow")["state"]["hidden"]  # the leader down, the rest run
     # the key is on old Tessel's bones; the cellar opens to it; the deed is proof Taan takes

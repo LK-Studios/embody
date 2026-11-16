@@ -26,8 +26,9 @@ def mods(seat):
 def test_a_newcomer_carries_a_sheet_that_rolls_what_its_template_rolled():
     eng, gm, root = reach()
     rules = gm.inspect(root)["state"]["sheet_rules"]
-    assert {k: rules[k] for k in ("per_target_day", "rank_cost", "max_rank", "self_taught")} == \
-        {"per_target_day": 1, "rank_cost": 15, "max_rank": 5, "self_taught": 2}
+    assert {k: rules[k] for k in ("per_target_day", "max_rank", "self_taught", "grant_cap", "teach_skill", "attr_cap")} == \
+        {"per_target_day": 1, "max_rank": 15, "self_taught": 4, "grant_cap": 12, "teach_skill": "teaching", "attr_cap": 15}
+    assert rules["rank_costs"][:5] == [6, 8, 12, 16, 23] and rules["rank_costs"][-1] == 667
     for tpl, name in (("carrier", "Cal"), ("guard", "Gus"), ("keth", "Kit"), ("dreyer", "Dev")):
         seat = eng.session(name.lower())
         seat.join("glass-reach", template=tpl, name=name)

@@ -1012,9 +1012,18 @@ class Session:
                  "Growth: only a difficulty the world sets teaches (a find, a lock, a hazard, a world verb's dc, an "
                  "opposed roll); a check whose dc you chose never does. Needed = dc - your natural bonus (no grants). "
                  f"Experience by needed roll (up to: earned): {rules.get('earn')}, x{rules.get('success_x', 2)} on a "
-                 f"success. Rank r to r + 1 costs {rules.get('rank_cost', 10)} x (r + 1), up to "
-                 f"{rules.get('max_rank', 15)}. At most {rules.get('per_target_day', 3)} teaching rolls a skill, a "
-                 "target, a world day. Each award is a learned event on you.", ""]
+                 f"success. {_costs_line(rules)}, up to {rules.get('max_rank', 15)}. At most "
+                 f"{rules.get('per_target_day', 3)} teaching rolls a skill, a target, a world day. Each award is a "
+                 "learned event on you."]
+        if rules.get("self_taught") is not None:
+            lines.append(f"Use alone raises a skill to rank {rules['self_taught']}; past it, use banks experience for the "
+                         "next rank and a teacher (train) turns it into the rank. Below it a lesson is experience too.")
+        lines.append("practice (an hour alone) and deeds the world rewards each give at most a third of a rank's cost.")
+        if rules.get("attr_cap") is not None:
+            lines.append(f"Each point a skill earns counts toward its primary attribute, slowly, up to {rules['attr_cap']}.")
+        if rules.get("grant_cap") is not None:
+            lines.append(f"All grants together add at most +{rules['grant_cap']} to one roll.")
+        lines.append("")
         for name, sk in sorted((books[0]["state"].get("skills") or {}).items()):
             sk = sk if isinstance(sk, dict) else {}
             on = sk.get("primary") or "?"
@@ -3917,14 +3926,28 @@ def _brief(e: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _rank_cost(rules: dict[str, Any], rank: int) -> int:
+    """The experience rank r to r + 1 costs, as packs/d20's rank_cost(): the world's `rank_costs` list, else
+    rank_cost x (r + 1)."""
+    costs = rules.get("rank_costs")
+    if costs:
+        return int(costs[min(rank, len(costs) - 1)])
+    return int(rules.get("rank_cost") or 10) * (rank + 1)
+
+
+def _costs_line(rules: dict[str, Any]) -> str:
+    if rules.get("rank_costs"):
+        return "Rank r to r + 1 costs, by r: " + ", ".join(str(int(c)) for c in rules["rank_costs"])
+    return f"Rank r to r + 1 costs {rules.get('rank_cost', 10)} x (r + 1)"
+
+
 def _sheet_view(sheet: dict[str, Any], rules: dict[str, Any] | None) -> dict[str, Any]:
     """A sheet as a card shows it: the attributes and the skills that have a rank. With the world's sheet_rules (your
     own card), the xp toward each next rank too, as "xp/cost". Never `taught`, the progression's own bookkeeping."""
     ranks = {k: v for k, v in (sheet.get("skills") or {}).items() if isinstance(v, (int, float)) and v > 0}
     out: dict[str, Any] = {"attributes": sheet.get("attributes") or {}, "skills": ranks}
     if rules is not None:
-        cost = int(rules.get("rank_cost") or 10)
         xp = sheet.get("xp") or {}
-        out["xp"] = {k: f"{int(xp.get(k) or 0)}/{cost * (int(ranks.get(k) or 0) + 1)}" for k in sorted(set(ranks) | set(xp))
+        out["xp"] = {k: f"{int(xp.get(k) or 0)}/{_rank_cost(rules, int(ranks.get(k) or 0))}" for k in sorted(set(ranks) | set(xp))
                      if int(xp.get(k) or 0) or k in ranks}
     return out

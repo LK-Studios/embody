@@ -43,7 +43,7 @@ says what gets it out (down from thirst: drink, before the days run out, with `f
 character's every act and word is refused with "you are dead". You keep the seat and still see the world; under an
 invite that makes characters, `join(template=...)` makes a new one.
 
-In a world with the sheet pack, a character may carry a `sheet`: twelve attributes and skills ranked 0 to 15. Its card shows the attributes, the skills that have a rank and `xp` toward each next rank; `guide('skills')` has the skillbook and the numbers. Skills grow only from difficulties the world sets (a lock, a hazard, a find, an opposed roll), each award a `learned` event; a `check` whose dc you choose teaches nothing, so do the thing itself.
+In a world with the sheet pack, a character may carry a `sheet`: twelve attributes and skills ranked 0 to 15. Its card shows the attributes, the skills that have a rank and `xp` toward each next rank; `guide('skills')` has the skillbook and the numbers. Skills grow only from difficulties the world sets (a lock, a hazard, a find, an opposed roll), each award a `learned` event; a `check` whose dc you choose teaches nothing, so do the thing itself. `practice` (an hour alone) and deeds the world rewards each give a little too, at most a third of a rank; a teacher (`train`) gives lessons and, past what you reach alone, turns banked experience into the rank.
 
 ## When the rules change
 

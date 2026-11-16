@@ -6,7 +6,8 @@ def stat_for(skill):
 
 def bonus(who, skill, ctx=None):
     # what a body adds to a d20 roll: its natural bonus (natural), less the conditions everyone can see, plus its grants
-    # (with ctx: a grant for one use is spent by this roll). A body with no sheet and no grants rolls stat + skill as ever.
+    # (with ctx: a grant for one use is spent by this roll; together at most `grant_cap` when the world sets it). A body
+# with no sheet and no grants rolls stat + skill as ever.
     st = who.state
     b = natural(ctx, who, skill)
     if st.wounded:
@@ -22,7 +23,8 @@ def bonus(who, skill, ctx=None):
 # body rolls body/wits/will plus a skill, as before. These are only the fallbacks when the root says nothing.
 SHEET_RULES = {"earn": [[7, 0], [12, 1], [16, 2], [20, 3]], "success_x": 2, "rank_cost": 10, "max_rank": 15,
                "per_target_day": 3, "related_div": 3, "untrained": "acuity", "min_score": 1, "max_score": 20,
-               "self_taught": None}
+               "self_taught": None, "rank_costs": None, "practice_dc": None, "lesson_xp": None, "teach_skill": None,
+               "attr_cap": None, "attr_cost_base": 40, "attr_cost_x": 1.6, "grant_cap": None}
 
 def sheet_rules(ctx):
     rules = dict(SHEET_RULES)
@@ -101,13 +103,126 @@ def take_grants(ctx, who, skill, here):
         if a is not None:
             src = str(a.get("by") or "aid")
             best[src] = max(best.get(src, int(a.get("bonus") or 0)), int(a.get("bonus") or 0))
-    return sum(best.values())
+    total = sum(best.values())
+    cap = sheet_rules(ctx).get("grant_cap")  # the most every grant together adds to one roll, when the world sets it
+    if cap is not None and total > int(cap):
+        total = int(cap)
+    return total
+
+def rank_cost(rules, rank):
+    # the experience rank r to r + 1 costs: `rank_costs`[r] when the world sets a list (its last entry past its end),
+    # else rank_cost x (r + 1)
+    costs = rules.get("rank_costs")
+    if costs:
+        return int(costs[min(int(rank), len(costs) - 1)])
+    return int(rules["rank_cost"]) * (int(rank) + 1)
+
+def self_top(rules):
+    # the highest rank use alone reaches: self_taught when the world sets it, else max_rank
+    top = int(rules["max_rank"])
+    if rules.get("self_taught") is not None:
+        top = min(top, int(rules["self_taught"]))
+    return top
+
+def attr_cost(rules, score):
+    # the attribute experience score s to s + 1 costs: attr_cost_base x attr_cost_x ^ (s - 10), rounded
+    return int(round(float(rules["attr_cost_base"]) * float(rules["attr_cost_x"]) ** (int(score) - 10)))
+
+def earn_for(rules, need):
+    # sheet_rules' `earn` bands: the experience a roll that needed `need` earns (nothing below 1 or past the last band)
+    if need < 1:
+        return 0
+    for band in rules["earn"]:
+        if need <= int(band[0]):
+            return int(band[1])
+    return 0
+
+def taught_today(ctx, sheet, key):
+    # how many teaching rolls `key` (skill|target) had today, and the `taught` patch that counts one more and clears
+    # earlier days (a patch merges; None deletes)
+    day = int(ctx.t // ctx.day_seconds())
+    taught = {}
+    for k, v in (sheet.get("taught") or {}).items():
+        if v[0] != day:
+            taught[k] = None
+    old = (sheet.get("taught") or {}).get(key)
+    n = old[1] if old is not None and old[0] == day else 0
+    taught[key] = [day, n + 1]
+    return n, taught
+
+def third_left(sheet, book, skill, rank, rules):
+    # a capped source (practice, deeds) gives at most a third of a rank's cost toward it: sheet[book] {skill: [rank,
+    # xp]} counts it, new at each rank. Returns (what is left, what it gave so far)
+    got = (sheet.get(book) or {}).get(skill)
+    used = int(got[1]) if got is not None and int(got[0]) == int(rank) else 0
+    return max(0, rank_cost(rules, rank) // 3 - used), used
+
+def grow(ctx, who, skill, earned, rules, new):
+    # slow attribute growth: each point a skill earns is one toward its primary attribute (`attr_xp` on the sheet);
+    # score s to s + 1 costs attr_cost(s), and growth stops at `attr_cap` (none: attributes never grow; max_score stays
+    # for boons). Adds to the sheet patch `new`; returns [attribute, score] when one rose
+    cap = rules.get("attr_cap")
+    name = (skillbook(ctx).get(skill) or {}).get("primary")
+    if cap is None or not name or earned <= 0:
+        return None
+    sheet = who.state.sheet
+    score = (sheet.get("attributes") or {}).get(name)
+    score = 10 if score is None else int(score)
+    if score >= int(cap):
+        return None
+    pts = int((sheet.get("attr_xp") or {}).get(name) or 0) + earned
+    was = score
+    while score < int(cap) and pts >= attr_cost(rules, score):
+        pts = pts - attr_cost(rules, score)
+        score = score + 1
+    new["attr_xp"] = {name: 0 if score >= int(cap) else pts}
+    if score > was:
+        new["attributes"] = {name: score}
+        return [name, score]
+    return None
+
+def award(ctx, who, skill, earned, extra):
+    # the one way experience lands on a sheet (use, practice, a deed, a lesson): adds it, ranks up while it can to
+    # self_taught, banks past it up to the next rank (for a teacher), feeds the primary attribute, and patches the sheet
+    # with `extra` too. Returns {rank, xp, next, ranked_up, teacher, grew}; the caller says it with said()
+    rules = sheet_rules(ctx)
+    sheet = who.state.sheet
+    rank = int((sheet.get("skills") or {}).get(skill) or 0)
+    xp = int((sheet.get("xp") or {}).get(skill) or 0) + earned
+    was = rank
+    top = self_top(rules)
+    while rank < top and xp >= rank_cost(rules, rank):
+        xp = xp - rank_cost(rules, rank)
+        rank = rank + 1
+    if rank >= int(rules["max_rank"]):
+        xp = 0
+    elif rank >= top:
+        xp = min(xp, rank_cost(rules, rank))  # banked to the next rank, for a teacher
+    new = dict(extra or {})
+    grew = None
+    if earned:
+        new["skills"] = {skill: rank}
+        new["xp"] = {skill: xp}
+        grew = grow(ctx, who, skill, earned, rules, new)
+    ctx.patch(who, {"sheet": new})
+    full = rank >= top and rank < int(rules["max_rank"]) and xp >= rank_cost(rules, rank)
+    return {"rank": rank, "xp": xp, "next": rank_cost(rules, rank), "ranked_up": rank > was, "teacher": full, "grew": grew}
+
+def said(ctx, who, skill, earned, source, out, more):
+    # the learned event on the body (reach 0: its own feed), the ledger of every award; `more` has what the source
+    # adds (need, dc, success, against, why, by); `grew` names an attribute that rose with it
+    ctx.emit("learned", target=who, reach=0, skill=skill, source=source, need=more.get("need"), earned=earned,
+             success=more.get("success"), dc=more.get("dc"), against=more.get("against"), why=more.get("why"),
+             by=more.get("by"), xp=out["xp"], rank=out["rank"], next=out["next"],
+             ranked_up=out["ranked_up"], teacher=out["teacher"], grew=out["grew"])
+    if out["grew"] is not None:
+        ctx.emit("grew", target=who, reach=0, attribute=out["grew"][0], score=out["grew"][1], skill=skill)
 
 def learn(ctx, who, skill, dc, success, against=None):
     # use-based progression for a body with a sheet: only a difficulty the world set teaches (a find, a lock, a hazard,
     # a world verb's dc, an opposed roll), never a check whose dc the caller chose. The roll it needed is dc less its
     # natural bonus (no grants, no conditions); sheet_rules' `earn` bands turn that into experience, a success times
-    # `success_x`; rank r to r + 1 costs rank_cost x (r + 1), up to max_rank. At most `per_target_day` teaching rolls
+    # `success_x`; rank r to r + 1 costs rank_cost(rules, r), up to max_rank. At most `per_target_day` teaching rolls
     # a skill, a target, a world day. Past `self_taught` (when the root sets it) use banks experience up to the next
     # rank and a teacher's train turns it into one. Every award is a `learned` event on the body. Returns what it
     # earned. Only the world's rules teach: under a guest's script, a frame or a programmed verb it teaches nothing.
@@ -117,49 +232,36 @@ def learn(ctx, who, skill, dc, success, against=None):
         return 0
     rules = sheet_rules(ctx)
     need = int(dc) - natural(ctx, who, skill)
-    earned = 0
-    if need >= 1:
-        for band in rules["earn"]:
-            if need <= int(band[0]):
-                earned = int(band[1])
-                break
+    earned = earn_for(rules, need)
     if success:
         earned = earned * int(rules["success_x"])
-    day = int(ctx.t // ctx.day_seconds())
-    key = skill + "|" + (against.id if against is not None else "")
-    taught = {}
-    for k, v in (sheet.get("taught") or {}).items():
-        if v[0] != day:
-            taught[k] = None  # an earlier day's count goes (a patch merges; None deletes)
-    old = (sheet.get("taught") or {}).get(key)
-    n = old[1] if old is not None and old[0] == day else 0
+    n, taught = taught_today(ctx, sheet, skill + "|" + (against.id if against is not None else ""))
     if n >= int(rules["per_target_day"]):
         return 0
-    taught[key] = [day, n + 1]
-    ranks = dict(sheet.get("skills") or {})
-    xps = dict(sheet.get("xp") or {})
-    rank = int(ranks.get(skill) or 0)
-    xp = int(xps.get(skill) or 0) + earned
-    was = rank
-    top = int(rules["max_rank"])
-    if rules.get("self_taught") is not None:
-        top = min(top, int(rules["self_taught"]))
-    while rank < top and xp >= int(rules["rank_cost"]) * (rank + 1):
-        xp = xp - int(rules["rank_cost"]) * (rank + 1)
-        rank = rank + 1
+    out = award(ctx, who, skill, earned, {"taught": taught})
+    if earned:
+        said(ctx, who, skill, earned, "use", out, {"need": need, "dc": dc, "success": bool(success),
+                                                   "against": against.id if against is not None else None})
+    return earned
+
+def deed(ctx, who, skill, amount, why):
+    # a story deed's experience, for a world's own scripts (the world decides which deeds count and how much): at most
+    # a third of the rank's cost comes from deeds (`deeds` on the sheet, new each rank), apart from practice's third.
+    # A learned event with source "deed" and the why. Only the world's rules award it. Returns what it gave.
+    st = who.state
+    sheet = st.sheet
+    if not sheet or not skill or st.dead or not ctx.may_write_sheet() or int(amount) <= 0:
+        return 0
+    rules = sheet_rules(ctx)
+    rank = int((sheet.get("skills") or {}).get(skill) or 0)
     if rank >= int(rules["max_rank"]):
-        xp = 0
-    elif rank >= top:
-        xp = min(xp, int(rules["rank_cost"]) * (rank + 1))  # banked to the next rank, for a teacher
-    new = {"taught": taught}
-    if earned:
-        new["skills"] = {skill: rank}
-        new["xp"] = {skill: xp}
-    ctx.patch(who, {"sheet": new})
-    if earned:
-        ctx.emit("learned", target=who, reach=0, skill=skill, need=need, earned=earned, success=bool(success), dc=dc,
-                 against=against.id if against is not None else None, xp=xp, rank=rank, next=int(rules["rank_cost"]) * (rank + 1),
-                 ranked_up=rank > was, teacher=rank >= top and rank < int(rules["max_rank"]) and xp >= int(rules["rank_cost"]) * (rank + 1))
+        return 0
+    left, used = third_left(sheet, "deeds", skill, rank, rules)
+    earned = min(int(amount), left)
+    if earned <= 0:
+        return 0
+    out = award(ctx, who, skill, earned, {"deeds": {skill: [rank, used + earned]}})
+    said(ctx, who, skill, earned, "deed", out, {"why": str(why)})
     return earned
 
 def weapon_skill(who, weapon, old):
