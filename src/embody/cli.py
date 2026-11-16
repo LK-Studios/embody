@@ -495,7 +495,8 @@ def main(argv: list[str] | None = None) -> int:
             emit(args, r, f"created {r['id']} ({r['name']}), root {r['root']}")
         elif args.cmd == "load":
             r = load_world(s, args.ref, upgrade=args.upgrade, hosted=args.hosted)
-            emit(args, r, f"{'upgraded' if args.upgrade else 'loaded'}{' (hosted)' if args.hosted else ''} {s.world_id}: "
+            added = f" (+{r['ticks_added']} standing ticks)" if r.get("ticks_added") else ""  # ahead of the cut below
+            emit(args, r, f"{'upgraded' if args.upgrade else 'loaded'}{' (hosted)' if args.hosted else ''} {s.world_id}{added}: "
                           f"{json.dumps(r, default=str)[:400]}")
         elif args.cmd == "init":
             r = init_workspace(Path.cwd())

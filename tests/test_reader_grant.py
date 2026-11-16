@@ -1,5 +1,5 @@
 """A read-only grant on one part of the world (an observer with limits.under): a game's client reads that part as
-anyone standing there sees it, nothing hidden, no one's notes, and writes nothing."""
+anyone standing there sees it, nothing hidden, no one's notes, and writes nothing. Its wait is that part's event feed."""
 
 import pytest
 
@@ -49,7 +49,7 @@ def test_a_read_only_grant_writes_nothing_and_reads_no_ones_feed():
     gm, s, vault, inv = reader(eng)
     for op, kw in [("patch", {"entity": "Guard", "changes": {"hp": 0}}), ("spawn", {"type": "thing", "parent": "Hall"}),
                    ("history", {}), ("recall", {"entity": "Guard"}), ("say", {"text": "hello"}), ("timers", {}),
-                   ("summary", {}), ("verify", {}), ("wait", {"timeout": 0}), ("join", {"entity": "Guard"}),
+                   ("summary", {}), ("verify", {}), ("join", {"entity": "Guard"}),
                    ("scripts", {}), ("act", {"verb": "go"})]:
         with pytest.raises(Rejected, match="not open to a read-only grant"):
             getattr(s, op)(**kw)
@@ -69,7 +69,7 @@ def test_a_read_only_grant_is_shown_only_what_it_may_call(tmp_path):
     eng, w, i = engine_with_two_rooms()
     gm, s, vault, inv = reader(eng)
     shown = {op for op in OPS if s.may(op)}
-    assert shown == {op for op in _READER_OPS if op in OPS} and "script_source" not in shown and "wait" not in shown
+    assert shown == {op for op in _READER_OPS if op in OPS} and "script_source" not in shown and "wait" in shown
     for op in set(OPS) - shown:  # and every op it is not shown is refused when called
         assert "read-only grant" in call(s, op)["reason"], op
     srv = build_server(gm, tmp_path / "x.db", eng, http_only=True)
@@ -92,3 +92,30 @@ def test_a_read_only_grant_is_shown_only_what_it_may_call(tmp_path):
                              "headers": [(b"authorization", f"Bearer {inv['token']}".encode())]}, receive, send)
     asyncio.run(get())
     assert set(json.loads(out["body"])["ops"]) == shown
+
+
+def test_a_read_only_grant_hears_what_happens_in_its_part_and_nothing_else():
+    eng, w, i = engine_with_two_rooms()
+    gm, s, vault, inv = reader(eng)
+    w = gm.world
+    w.set_meta({"public_timers": ["dawn"]})
+    ledger = [c["id"] for c in w.children(vault)][0]
+    start = s.wait(timeout=0)
+    assert start["timed_out"] and start["events"] == []  # it starts now: no backlog unless it asks with since
+    c0 = start["cursor"]
+    w.emit("bleated", actor=i["Guard"], target=i["Guard"])
+    w.emit("growled", actor=ledger, target=vault)  # in the hidden vault
+    w.emit("rattled", actor=i["Prisoner"], target=i["Cell"])  # in the other room
+    gm.remember("the vault code is 1234", entity="Guard")
+    gm.patch("Guard", {"hp": 9})
+    w.emit("dawn", target=w.root_id)  # a public timer, on the world above the part
+    w.emit("cistern_cracks", target=w.root_id)  # a timer the world does not make public
+    b = s.wait(since=c0, timeout=0)
+    assert [e["kind"] for e in b["events"]] == ["bleated", "dawn"] and "timed_out" not in b
+    assert all("by_player" not in e for e in b["events"])
+    assert s.wait(since=b["cursor"], timeout=0)["events"] == []  # the cursor moves past what it read
+    assert [e["kind"] for e in s.wait(since=c0, kinds=["dawn"], timeout=0)["events"]] == ["dawn"]
+    piece = s._reader_feed(0, None, c0 + 1, 0.1, lambda: 0.0, lambda _: None, budget=1)  # from the vault's growl
+    assert piece["more"] and piece["events"] == [] and piece["cursor"] == c0 + 2  # a long backlog comes in pieces
+    with pytest.raises(Rejected, match="event feed"):
+        s.wait(until="True")

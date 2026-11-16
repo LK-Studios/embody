@@ -1253,7 +1253,8 @@ class Session:
         where = w.need(lim["under"])["name"] if lim.get("under") and w.get(lim["under"]) else "the whole world"
         if role == OBSERVER_ROLE:
             return (f"   Your grant reads only under {where}, as anyone standing there would see it: map, inspect, find, "
-                    f"perceive(from_entity=<a place>), measure and looks. Nothing hidden, no one's notes, and no writes.")
+                    f"perceive(from_entity=<a place>), measure, looks, and wait(since=<cursor>) for what happens there. Nothing "
+                    f"hidden, no one's notes, and no writes.")
         return (f"   Your hand reaches {('under ' + where) if lim.get('under') else where} and what it holds; the rest you "
                 f"may read. You may spawn {', '.join(lim['types']) if lim.get('types') is not None else 'any type'}"
                 f" and the schemas you define. Your scripts, schemas and event kinds start with {lim.get('scripts')}, and "
@@ -2238,6 +2239,66 @@ class Session:
                 "present": [self._card(c) for c in w.children(pid) if self._reader_sees(c["id"])],
                 "exits": [x for x in self._exits(pid) if self._reader_sees(x["to"])]}
 
+    def _reader_feed(self, timeout: float, kinds: list[str] | None, since: int | None, poll: float,
+                     clock: Callable[[], float], sleep: Callable[[float], None], budget: int = 20_000) -> dict[str, Any]:
+        """wait for a read-only grant: the events of its part as a body standing there would come to know them, after
+        `since` (default: now), with the cursor to pass next time. An event counts when it happens to or by something
+        the grant reads (a hunt on the ridge, a goat that bleats), or when it is one of the world's public timers
+        (meta `public_timers`: dawn, dusk) on the part or above it. Nothing hidden, no one's notes, no refusals, no
+        edits and nobody's seat. Returns at the first such events or at the timeout, at most 200 at a time; a long
+        backlog comes back in pieces with `more: true`."""
+        start = clock()
+        with self.engine.lock:
+            self._tick()
+            w = self.world
+            scan = int(since) if since is not None else w.store.next_seq(w.id) - 1
+        while True:
+            with self.engine.lock:
+                self._tick()
+                w = self.world
+                hi = w.store.next_seq(w.id) - 1
+                out: list[dict[str, Any]] = []
+                read = 0
+                while scan < hi and len(out) < 200 and read < budget:
+                    rows = w.events(since=scan, until=hi, kinds=kinds, skip=_INTERNAL_KINDS | _HOST_KINDS, limit=500)
+                    if not rows:
+                        scan = hi
+                        break
+                    for r in rows:
+                        scan, read = r["seq"], read + 1
+                        if self._reader_heard(r):
+                            out.append(r)
+                        if len(out) >= 200 or read >= budget:
+                            break
+                more = scan < hi and (len(out) >= 200 or read >= budget)
+                if out or more or clock() - start >= timeout:
+                    evs = self._events_for(None, out)
+                    for e in evs:
+                        e.pop("by_player", None)  # whose seat it is stays the host's
+                    b: dict[str, Any] = {"world": w.id, "t": w.t, "events": evs, "cursor": scan}
+                    if more:
+                        b["more"] = True
+                    elif not out:
+                        b["timed_out"] = True
+                    return b
+            sleep(poll)
+
+    def _reader_heard(self, r: dict[str, Any]) -> bool:
+        """Whether a read-only grant's feed carries this event (see _reader_feed)."""
+        w = self.world
+        under = self.limits["under"]
+        p = r["payload"] or {}
+        if p.get("seen_by") is not None or r["kind"] in _PRIVATE_KINDS or r["kind"] in _READER_UNHEARD:
+            return False
+        if r["kind"] in _BUILD_KINDS and p.get("hidden"):
+            return False
+        tgt, actor = r["target_id"], r["actor_id"]
+        mine = [i for i in (tgt, actor) if i and w.get(i) and w.within(i, under)]
+        if mine:
+            return all(self._reader_sees(i) for i in mine)
+        public = set(w.meta().get("public_timers") or [])
+        return r["kind"] in public and not actor and (not tgt or tgt in w.ancestors(under))
+
     def _place_card(self, e: dict[str, Any]) -> dict[str, Any]:
         w = self.world
         card = self._card(e)
@@ -3194,6 +3255,11 @@ class Session:
 
         A filter (until or kinds) that names a field or event kind the rules retired is refused at once, naming the
         change; every reply carries `rules_notice` while the seat has not read the rules changes."""
+        if self._reader():
+            if until is not None or full or positions:
+                raise Rejected("a read-only grant's wait is its part's event feed: it takes since, kinds and timeout",
+                               hint="wait(since=<the cursor it gave>, kinds=[...], timeout=30)")
+            return self._reader_feed(timeout, kinds, since, poll, clock, sleep)
         with self.engine.lock:
             self._refuse_stale(until, kinds)
         b = self._wait(timeout, kinds, poll, full, until, since, clock, sleep, positions)
@@ -4033,7 +4099,9 @@ class Session:
 
 # What a read-only grant on one part of the world may call (Session._reader): reads that show it as anyone sees it.
 _ANYONE_OPS = frozenset({"worlds", "use", "guide", "clock", "report_flaw", "leave"})
-_READER_OPS = _ANYONE_OPS | {"map", "inspect", "find", "perceive", "measure", "looks"}
+_READER_OPS = _ANYONE_OPS | {"map", "inspect", "find", "perceive", "measure", "looks", "wait"}
+# What a read-only grant's feed leaves out besides the private and host kinds: edits, seats and the engine's faults.
+_READER_UNHEARD = frozenset({"patched", "embodied", "released", "script_error", "opinion", "merged"})
 
 # Events that carry words: one who does not understand (World.understands) hears their tone, not their text.
 _WORD_KINDS = frozenset({"say", "talked"})
