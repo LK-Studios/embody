@@ -332,16 +332,31 @@ def known_way(who, place):
     # a hidden place is on a body's map only if it is its own side's
     return not (place.state.hidden and place.state.known_to != who.state.faction)
 
+def way_out(place):
+    # a place you may step out of into the place that holds it, with no way drawn between them: one that says
+    # `way_out` (a tent, a cart), or a vehicle (the vehicles pack: its way out is alight)
+    if place.state.way_out is not None:
+        return bool(place.state.way_out)
+    return place.is_a("vehicle")
+
+def ways_from(ctx, pid):
+    # the places one step from a place: its ways, and the place that holds it when it may be stepped out of
+    out = [e["target"] for e in ctx.edges(pid, "connects_to", "out")]
+    p = ctx.get(pid)
+    if p is not None and p.parent is not None and way_out(p):
+        out.append(p.parent.id)
+    return out
+
 def first_step(ctx, who, here, goal, limit):
-    # breadth-first over connects_to: the first step on the shortest way this body knows to `goal` (a place id), or,
-    # with goal None, to the nearest place with water in it. None when there is none within `limit` steps.
+    # breadth-first over the ways (and out of a vehicle or anything else that may be stepped out of): the first step
+    # on the shortest way this body knows to `goal` (a place id), or, with goal None, to the nearest place with water
+    # in it. None when there is none within `limit` steps.
     seen = {here.id: True}
     frontier = [[here.id, None]]
     for depth in range(limit):
         nxt = []
         for item in frontier:
-            for e in ctx.edges(item[0], "connects_to", "out"):
-                tid = e["target"]
+            for tid in ways_from(ctx, item[0]):
                 if tid in seen:
                     continue
                 seen[tid] = True

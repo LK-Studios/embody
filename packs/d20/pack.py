@@ -69,7 +69,9 @@ The numbers, so a narrator can explain a roll:
   the skin, and `poured` says by, item, store, amount, left and kept. An endless source takes nothing. A body
   nobody embodies looks after itself (the `quench` behavior): thirsty, it drinks from a skin in hand, else from a source here; with nothing
   here it walks toward the nearest water it knows the way to (up to six steps, one step a look; hidden places
-  only for their own faction) and walks back to its `post` the same way. The walks arrive `quiet`. At an endless
+  only for their own faction) and walks back to its `post` the same way. Stepping out of a vehicle (its way out is
+  alight) or of any place with `way_out: true` counts as a step, into the place that holds it, so a body aboard a
+  dry hauler climbs down for water; `way_out: false` keeps a sealed place's own. The walks arrive `quiet`. At an endless
   source (a place with `water_source`, or a source thing with no `left`) it drinks its fill (a draw a look until
   it is within a draw of full) and fills its skin; a store with a count (`left`) gives it one draw, the fullest
   store first, and no skinful, so idle bodies never drink a cask dry. A source with `keep_for` (a faction, an

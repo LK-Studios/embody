@@ -286,3 +286,23 @@ without meaning to, and nobody was watching while the host's minds were down.
 - The repair was content, not a rollback. The world told it as the glass-wights, hollow men from the Scar that broke
   to sand. Their own kit went with them, and what they took stayed where they fell, or went back to its owner. The
   fallen woke, and the day's chronicle said plainly, outside the story, that it was a fault and no player's doing.
+
+## 2026-11-16: Two idle bodies died of thirst aboard a standing crawler
+
+**Seen:** two of a guest crew (Garran Teague e221 and Dov Ashby e233) sat in Hauler Nine (e341) while their
+players were away for about a day. They drank its two casks dry, went down from thirst, and died two world days later
+(day 28). A third crew member who was not aboard walked off for water by herself and lived.
+
+**Why:** the d20 `quench` behavior looks for water with `first_step`, which only follows `connects_to` edges. A
+vehicle is a place with no exits: you `alight` from it. So from inside one, an idle body finds no water anywhere and
+waits until it dies, even with a source one step away in the place the vehicle stands in.
+
+**Taught:**
+- An idle body's way to water needs every way out of where it is: alight from a vehicle, and maybe climb down or
+  leave a room that is reached by an act and not an exit.
+- Until that changes, a standing vehicle with people aboard needs a water source aboard that refills, or its idle
+  riders are in danger.
+
+**Repair (Nate's word, 2026-11-16):** both were revived as a host repair after an engine fault, under the death
+rules: alive, on their feet, hp and water full, and a `revived` note on each saying why. They still stand aboard the
+dry crawler, so the quench fix matters before their water runs out again.

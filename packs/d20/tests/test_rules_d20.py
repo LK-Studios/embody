@@ -503,6 +503,22 @@ def test_a_thirsty_body_two_steps_from_water_walks_there_drinks_its_fill_and_wal
     assert all(not gm.world.get(gm.inspect(n)["id"])["state"].get("hidden") for n in names)
 
 
+
+def test_a_thirsty_body_aboard_a_vehicle_steps_down_for_water():
+    # Hauler Nine's case (the Reach, day 28): two hands drank its casks dry and stayed aboard to die, because the walk
+    # to water followed ways only. A vehicle's way out is alight; anything else says so with `way_out`.
+    eng, gm, you = reach()
+    cart = gm.spawn("vehicle", "The Glass Flats", "Dry Cart")["id"]
+    gm.spawn("person", cart, "Rider", state={"faction": "House Varrick", "water": 2, "max_water": 10})
+    pit = gm.spawn("place", "The Glass Flats", "Sealed Pit", state={"way_out": False})["id"]
+    gm.spawn("person", pit, "Prisoner Two", state={"faction": "House Varrick", "water": 2, "max_water": 10})
+    trail = []
+    for _ in range(3):
+        gm.clock(step=60)
+        trail.append(gm.world.get(gm.inspect("Rider")["parent"])["name"])
+    assert trail[:3] == ["The Glass Flats", "The Salt Road", "The Old Salt Works"]
+    assert gm.inspect("Prisoner Two")["parent"] == pit  # a place that says it has no way out keeps its own
+
 def test_the_tremor_settles_after_two_quiet_minutes():
     eng, gm, you = reach()
     for place in ["The Gate Yard", "The Salt Road", "The Glass Flats"]:
