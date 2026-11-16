@@ -927,8 +927,12 @@ class Session:
         No topic: the index and the rules for every role. A topic (narrator, author, player, mind, hosting, watch):
         that part's whole guide; scripting: the ctx reference (docs/SCRIPTING.md). A pointer to another part reads as
         guide('<part>'). changes: this world's rules changelog since version `since` (default: since your seat last
-        read it), and reading it marks your seat current."""
-        if (topic or "").strip().lower() == "changes":
+        read it), and reading it marks your seat current; `since` with no topic, or a topic that asks for the changes
+        ("changelog", "rules", "what changed", "v13"), reads the same."""
+        ask = (topic or "").strip().lower()
+        if ask in _CHANGES_ASKS or re.fullmatch(r"v?\d+", ask) or (since is not None and not ask):
+            if since is None and re.fullmatch(r"v?\d+", ask):
+                since = max(0, int(ask.lstrip("v")) - 1)  # "v13": what v13 changed
             return self._changes(since)
         if (topic or "").strip().lower() == "skills":
             return self._skills_guide()
@@ -3793,6 +3797,8 @@ _NEWS_KINDS = frozenset({"found", "downed", "killed", "outlawed", "yielded", "tr
                          "challenged", "agreed", "spoiled", "wounded", "rose", "searched", "stopped",
                          "broke_down", "struck"})
 GUIDE_TOPICS = ("narrator", "author", "player", "mind", "hosting", "watch", "scripting", "changes", "skills")
+_CHANGES_ASKS = frozenset({"changes", "change", "changelog", "rules", "rules changes", "rule changes", "what changed",
+                           "whats new", "what's new", "news", "updates", "update", "rules_notice"})
 
 
 def rules_version(w: World) -> int:

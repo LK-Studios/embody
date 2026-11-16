@@ -87,3 +87,16 @@ def test_packs_log_their_own_rules_once(tmp_path):
     v = ch["version"]
     load_world(gm, REPO / "worlds" / "glass-reach", upgrade=True)
     assert gm.guide("changes", since=0)["version"] == v  # an upgrade logs nothing it logged before
+
+
+def test_any_way_of_asking_what_changed_reads_the_changelog(tmp_path):
+    eng, gm = _ferry(tmp_path)
+    p = eng.session("pc")
+    p.join("ferry-at-dusk", "Traveler")
+    gm.rules_changed("hp-bar", was="vigor and hp", now="one hp bar")
+    gm.rules_changed("sweat", was="", now="heavy deeds cost water")
+    for ask, since in (("changelog", None), ("what changed", None), ("v2", None), ("", 1), ("Rules", 0)):
+        ch = p.guide(ask, since=since)
+        assert ch["topic"] == "changes", ask
+    assert "world:sweat" in p.guide("v2")["text"] and "world:hp-bar" not in p.guide("v2")["text"]  # what v2 changed, not v1
+    assert p.guide()["topic"] == "index"  # no topic and no since: the index as before
