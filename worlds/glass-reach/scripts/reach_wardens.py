@@ -1,3 +1,4 @@
+use("common")
 # The road wardens: five Guild spears and bows at a post on the Salt Road, where every road in the Reach meets. They
 # keep the road for the Carriers against Dreyer's men and look over strangers. A Dreyer man who walks onto the road is
 # turned back to the Flats, unless a shard buys him a day's road or he creeps past the bows (stealth against the
@@ -55,7 +56,7 @@ def arrive(ctx, st, who, quiet):
     sgt = sergeant(ctx)
     if f == "House Dreyer":
         if quiet:
-            roll = ctx.rand.roll("1d20") + int(who.state.wits or 0) + int((who.state.skills or {}).get("stealth") or 0)
+            roll = ctx.rand.roll("1d20") + bonus(who, "stealth", ctx)
             if roll >= WATCH_DC:
                 ctx.emit("scene", target=who, reach=0, text="You come up onto the road in the dune shadow with the broken "
                          "step. Up at the wardens' post a bow turns your way, holds, and turns back. Nobody calls out.")

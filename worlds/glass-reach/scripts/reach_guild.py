@@ -1,3 +1,4 @@
+use("common")
 # The Guild Yard beside the Landing. The dawn crawler fills the yard tank. The counting house is the yard's to keep:
 # anyone not of the Guild who walks into it while one of the yard's four stands in the yard or at the door is turned
 # back into the yard, unless they crept in unseen (stealth against the yard's watch). With all four down or gone, the
@@ -42,7 +43,7 @@ def on(ctx, event):
     if len(eyes) == 0:
         return
     if p.get("quiet"):
-        roll = ctx.rand.roll("1d20") + int(who.state.wits or 0) + int((who.state.skills or {}).get("stealth") or 0)
+        roll = ctx.rand.roll("1d20") + bonus(who, "stealth", ctx)
         if roll >= WATCH_DC:
             ctx.emit("scene", target=who, reach=0, text="You slip through the counting house door on the broken step. "
                      "Nobody in the yard turns.")

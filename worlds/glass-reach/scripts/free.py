@@ -1,3 +1,4 @@
+use("common")
 # Cutting someone loose (the Riders' Hollow, 2026-11-11): a person whose state is `bound` is tied and goes nowhere.
 # A minute at the knots, then d20 + wits + stealth against their `free_dc`, rolled when the time is out and only if you
 # are still there. Freed, they go home (`home`) on their own a half hour later unless someone ties them again. A fail
@@ -28,7 +29,7 @@ def finish(ctx):
         ctx.log("you left " + who.name + " still tied")
         return
     roll = ctx.rand.roll("1d20")
-    mod = int(me.state.wits or 0) + int((me.state.skills or {}).get("stealth") or 0)
+    mod = bonus(me, "stealth", ctx)  # d20's: the sheet when there is one, else wits + stealth
     total = roll + mod
     dc = int(who.state.free_dc or 10)
     if total >= dc:

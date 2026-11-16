@@ -1,3 +1,4 @@
+use("common")
 # The Riders' Hollow (Nate 2026-11-11): the end of chapter two was a count with nothing to go to. Dreyer's riders now
 # have a place. It lies empty and hidden past the Dry Camp until the fires on the chapter's ninth night, when the
 # riders ride in from the muster on the Hollow's own state: Captain Iven Strake with the paychest's key, six riders,
@@ -104,7 +105,7 @@ def on(ctx, event):
         if len(watchers(ctx, hollow)) == 0:
             return
         if p.get("quiet"):
-            roll = ctx.rand.roll("1d20") + int(who.state.wits or 0) + int((who.state.skills or {}).get("stealth") or 0)
+            roll = ctx.rand.roll("1d20") + bonus(who, "stealth", ctx)
             if roll >= WATCH_DC:
                 ctx.emit("scene", target=who, reach=0, text="You come down into the Hollow on the broken step, between "
                          "the fires and the picket line. Nobody looks up.")
