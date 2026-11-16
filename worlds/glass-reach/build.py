@@ -1077,7 +1077,9 @@ SHEET_RULES = {"per_target_day": 1, "rank_cost": 15, "max_rank": 15, "self_taugh
                "grant_cap": 12, "teach_skill": "teaching", "attr_cap": 15}
 # the Reach's own finding skills, on wits' attributes as d20 rolled them
 REACH_SKILLS = {"search": {"primary": "acuity", "secondary": "cognition", "scope": "going over a place or a body for what is hidden", "related": []},
-                "track": {"primary": "comprehension", "secondary": "acuity", "scope": "reading tracks and following them", "related": ["survival"]}}
+                "track": {"primary": "comprehension", "secondary": "acuity", "scope": "reading tracks and following them", "related": ["survival"]},
+                # a teacher needs it (sheet_rules teach_skill): showing another how, not only knowing how
+                "teaching": {"primary": "projection", "secondary": "comprehension", "scope": "showing another how a thing is done", "related": []}}
 for _t in TEMPLATES.values():
     _t["state"]["sheet"] = to_sheet(_t["state"])
 
