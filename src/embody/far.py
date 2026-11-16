@@ -9,7 +9,8 @@ its description, in ordinary perceive. Only what carries `far` is ever in sight,
   nearest `visibility_m` up from the viewer's place (haze, dust).
 - Bands: past half its range it is far, inside it mid (the mid line when it has one, else the far line).
 - Merging up the tree: a thing whose container is also in sight shows only if it is larger than the container's merge
-  size (`far.merge_m`, default a quarter of the container's size); otherwise the container's line stands for it.
+  size (`far.merge_m`, default a quarter of the container's size), or its `far.stands_out` is true (what moves on a
+  plain catches the eye); otherwise the container's line stands for it.
 - Hidden stays hidden: a hidden thing never shows; a hidden place shows only to one who knows the way to it, or when
   its `far` says `seen: true`, and then without its name or id (`far.called`, if any, is what it looks like).
 - Line of sight, 2.5D: a thing with `occludes: true` and a top (a ridge, a wall, the Scar) blocks what lies behind it
@@ -296,16 +297,17 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
         seen[e["id"]] = {"id": e["id"] if how == "named" else None,
                          "name": e["name"] if how == "named" else (f.get("called") or None),
                          "bearing": deg, "compass": compass, "distance_m": round(d), "distance": words(d),
-                         "band": band, "line": line, "_size": big, "_merge": float(f.get("merge_m") or big / 4)}
+                         "band": band, "line": line, "_size": big, "_merge": float(f.get("merge_m") or big / 4),
+                         "_out": bool(f.get("stands_out"))}
     out = []
     for eid, row in seen.items():
         holder = next((a for a in w.ancestors(eid) if a in seen), None)
-        if holder is not None and row["_size"] <= seen[holder]["_merge"]:
-            continue  # the container's line stands for it
+        if holder is not None and row["_size"] <= seen[holder]["_merge"] and not row["_out"]:
+            continue  # the container's line stands for it (unless it stands out: a pack moving on the plain)
         out.append(row)
     out.sort(key=lambda x: -x["_size"] / max(x["distance_m"], 1))
     for row in out:
-        del row["_size"], row["_merge"]
+        del row["_size"], row["_merge"], row["_out"]
     res: dict[str, Any] = {"in_sight": out[:MAX_IN_SIGHT]}
     res.update(carried(w, place, body, at, unit, frames, skip, amb))
     return res

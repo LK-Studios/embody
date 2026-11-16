@@ -112,3 +112,11 @@ def test_at_night_a_glow_carries_and_the_dark_shapes_close_in_and_smoke_goes_dow
     gm.patch("Varn", {"carries": {"smell": {"range_m": 160000}}})
     gm.clock(step=3601)
     assert nate.perceive(far=True)["smelled"][0]["distance_m"] == 37000  # still air: a quarter of its range
+
+
+def test_what_stands_out_shows_though_its_container_is_in_sight():
+    eng, w, gm, nate = skyline()
+    gm.patch("Varn Spire", {"far": {"far": "a needle of glass", "stands_out": True}})  # what moves on a plain, say
+    gm.clock(step=3601)
+    s = sight(nate)
+    assert s["Varn Spire"]["line"] == "a needle of glass" and "Varn" in s and "_out" not in s["Varn Spire"]

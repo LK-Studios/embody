@@ -2,7 +2,8 @@ use("beasts")
 # The beasts' day and what they do when something happens near them. Any event kind the world names at install
 # (dawn) is a day: forage regrows, beasts age and grow, go hungry or eat, keep or lose their loyalty, give birth,
 # conceive and give what they give. The kinds named as the night (root `beast_night`) are when predators hunt; with
-# none they hunt at the start of the day. `arrived`: a kept guard growls at a stranger. `hit`, `missed`: a kept guard
+# none they hunt at the start of the day. With strike kinds too (root `beast_strike`), the night only brings a pack to
+# its prey (stalks) or across a place (prowls), and the strike is when it falls on it. `arrived`: a kept guard growls at a stranger. `hit`, `missed`: a kept guard
 # takes up its owner's fight, and an owner's blow costs loyalty; a wild beast a person hurts to half breaks off and
 # runs (break_off). `killed`: a beast killed leaves a carcass.
 
@@ -16,6 +17,8 @@ def on(ctx, event):
         t = ctx.get(event.target) if event.target else None
         if t is not None and t.state.beast:
             carcass(ctx, t)
+    elif k in (ctx.root().state.beast_strike or []):
+        strikes(ctx)
     elif k in (ctx.root().state.beast_night or []):
         hunts(ctx)
     else:
@@ -108,6 +111,13 @@ def day(ctx):
     for b in beasts:
         if b.state.species not in specs:
             specs[b.state.species] = species_of(ctx, b)
+    for b in beasts:
+        # the night is over: a pack that stalked or prowled and never struck goes back to its den
+        if b.state.stalking or b.state.prowling:
+            going(ctx, b, "dawn")
+        elif predator(b, specs[b.state.species]):
+            home = ref(ctx, b.state.home)
+            out_far(ctx, b, specs[b.state.species], home is not None and b.parent.id != home.id)
     for b in beasts:
         age(ctx, b, specs[b.state.species])
     beasts = [b for b in beasts if not b.state.dead]
@@ -328,7 +338,9 @@ def predator(b, sp):
     return bool(sv(b, sp, "preys_on", None)) and not kept(b)
 
 def hunts(ctx):
-    # each hungry pack of wild predators (one species in one place) hunts once: the weakest prey within its range
+    # each hungry pack of wild predators (one species in one place) hunts once: the weakest prey within its range. With
+    # strike kinds it only stalks a beast now (a person it still hunts at once), or some nights prowls (`prowls`)
+    two = bool(ctx.root().state.beast_strike) and bool(ctx.root().state.beast_night)
     beasts = [b for b in ctx.find(type="beast", limit=100000) if able(b) and not b.state.down]
     specs = {}
     for b in beasts:
@@ -348,9 +360,101 @@ def hunts(ctx):
         if min([int(b.state.fed or 0) for b in pk]) >= below:
             continue
         hd = max([int(b.state.hungry_days or 0) for b in pk])
+        ranging = hd >= int(sv(pk[0], sp, "range_after", 2))
+        if two and not ranging and ctx.rand.chance(float(sv(pk[0], sp, "prowls", 0))) and prowl(ctx, pk, sp):
+            continue
         prey = pick_prey(ctx, pk, sp, hd)
-        if prey is not None:
-            hunt(ctx, pk, prey, sp)
+        if prey is None:
+            continue
+        if two and prey.state.beast:
+            stalk(ctx, pk, prey, sp)
+        else:
+            hunt(ctx, pk, prey, sp, ranging)
+
+def strikes(ctx):
+    # the packs that stalk fall on their prey now: the one they marked, or the weakest in reach now if it went or
+    # another is weaker; fed by now, or with nothing left in reach, they call it off
+    marked = {}
+    for b in ctx.find(type="beast", limit=100000):
+        if able(b) and b.state.stalking:
+            marked.setdefault(str(b.state.species) + ">" + str(b.state.stalking), []).append(b)
+    for key in sorted(marked.keys()):
+        group = marked[key]
+        was = group[0].state.stalking
+        for b in group:
+            ctx.patch(b, {"stalking": None})
+        pk = [b for b in group if not b.state.dead and not b.state.down]
+        if not pk:
+            continue
+        sp = species_of(ctx, pk[0])
+        below = int(sv(pk[0], sp, "hunts_below", 1))
+        if min([int(b.state.fed or 0) for b in pk]) >= below:
+            ctx.emit("beast_called_off", target=pk[0].parent, reach=1, hunters=[h.id for h in pk], prey=was, why="fed")
+            continue
+        hd = max([int(b.state.hungry_days or 0) for b in pk])
+        prey = pick_prey(ctx, pk, sp, hd)
+        if prey is None:
+            ctx.emit("beast_called_off", target=pk[0].parent, reach=1, hunters=[h.id for h in pk], prey=was, why="no prey")
+            continue
+        hunt(ctx, pk, prey, sp, hd >= int(sv(pk[0], sp, "range_after", 2)))
+
+def stalk(ctx, pk, prey, sp):
+    # the pack comes to where its prey is and waits for the strike: anyone there sees it
+    place = prey.parent
+    for h in pk:
+        if h.parent.id != place.id:
+            walk_to(ctx, h, place, "stalk")
+        ctx.patch(h, {"stalking": prey.id, "prowling": None})
+        out_far(ctx, h, sp, True)
+    ctx.emit("beast_stalks", target=place, reach=1, hunters=[h.id for h in pk], prey=prey.id, place=place.id,
+             species=pk[0].state.species)
+
+def prowl(ctx, pk, sp):
+    # a night it only crosses a place in its reach, strikes nothing, and goes home at dawn
+    lead = pk[0]
+    home = ref(ctx, lead.state.home) or lead.parent
+    places = [p for p in in_range(ctx, lead, 1) if p.id != home.id]
+    if not places:
+        return False
+    to = ctx.rand.choice(places)
+    for h in pk:
+        if h.parent.id != to.id:
+            walk_to(ctx, h, to, "prowl")
+        ctx.patch(h, {"prowling": to.id, "stalking": None})
+        out_far(ctx, h, sp, True)
+    ctx.emit("beast_prowls", target=to, reach=1, hunters=[h.id for h in pk], place=to.id, species=lead.state.species)
+    return True
+
+def going(ctx, b, why):
+    # done for the night (or driven off): back to its den
+    ctx.patch(b, {"stalking": None, "prowling": None})
+    home = ref(ctx, b.state.home)
+    if home is not None and b.parent is not None and b.parent.id != home.id:
+        walk_to(ctx, b, home, why)
+    out_far(ctx, b, species_of(ctx, b), False)
+
+def out_far(ctx, b, sp, out):
+    # a pack out of its den is seen from afar by its species' `far_out` line; home, it is not
+    line = sv(b, sp, "far_out", None)
+    if line is None:
+        return
+    want = line if out else None
+    if b.state.far != want:
+        ctx.patch(b, {"far": want})
+
+def herders(ctx, prey, place):
+    # the people standing with a herd beast: awake and up, of the faction its `herd` names, or its owner and theirs
+    owner = ctx.get(prey.state.owner) if prey.state.owner else None
+    out = []
+    for c in ctx.children(place, "creature"):
+        if c.state.beast or c.state.dead or c.state.down or c.state.asleep:
+            continue
+        f = c.state.faction
+        if prey.state.herd is not None and f is not None and f == prey.state.herd:
+            out.append(c)
+        elif owner is not None and (c.id == owner.id or (f is not None and f == owner.state.faction)):
+            out.append(c)
+    return out
 
 def in_range(ctx, b, steps):
     # its place, its home, and the places next to its home; one step further when it ranges
@@ -412,16 +516,26 @@ def pick_prey(ctx, pk, sp, hd):
                 best_s = score
     return best
 
-def hunt(ctx, pk, prey, sp):
+def hunt(ctx, pk, prey, sp, ranging=False):
     place = prey.parent
     for h in pk:
         if h.parent.id != place.id:
             walk_to(ctx, h, place, "hunt")
+        out_far(ctx, h, sp, True)
     ctx.emit("beast_hunts", target=place, reach=1, hunters=[h.id for h in pk], prey=prey.id, species=pk[0].state.species)
     if not prey.state.beast:
         for h in pk:  # a person is fought for real, at the pace of the fighters' ticks: they can run or fight
             ctx.patch(h, {"attacked_by": prey.id})
         return
+    # each herder standing with it may turn the pack back: d20 + survival against 10 + 2 a hunter, 4 more if starving
+    for g in herders(ctx, prey, place):
+        roll = ctx.rand.roll("1d20") + bonus(g, "survival", ctx)
+        if roll >= 10 + 2 * len(pk) + (4 if ranging else 0):
+            ctx.emit("beast_turned_back", target=place, reach=1, by=g.id, hunters=[h.id for h in pk], prey=prey.id,
+                     roll=roll)
+            for h in pk:
+                going(ctx, h, "turned back")
+            return
     flee = ctx.rand.roll("1d20") + bonus(prey, "survival", ctx)
     if flee >= 10 + 2 * len(pk):
         ways = [ctx.get(e["target"]) for e in ctx.edges(place, "connects_to", "out")]

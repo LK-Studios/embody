@@ -86,10 +86,28 @@ three jackals and four goats on a ridge regrowing 5 hunt for ninety days in the 
 them; whether both last the ninety is the dice's (in about half of worlds they do). The guards stop teeth, not age:
 an old pair is no longer a grown pair, and kids are fair game, so a herd can still age out.
 
+Stalking, herders and driving off. A world that names `strike` kinds too (`install_rules(..., night="dusk",
+strike="night")`, root `beast_strike`) gives a hunt a warning window: at the night the pack only comes to where its
+prey is and waits (`beast_stalks` {hunters, prey, place}, each hunter `stalking` the prey), where anyone there sees it;
+at the strike it falls on the prey it marked, or the weakest in reach now if that one went or another is weaker, or
+calls it off (`beast_called_off` {why: fed, no prey}). A person it still hunts at once. Some nights a pack not yet
+ranging only crosses a place in its reach (`prowls`, a chance a night, default 0: `beast_prowls` {hunters, place}).
+Whatever stalked or prowled and never struck goes back to its den at the day. Herders count: when a pack falls on a
+herd beast, each person standing in its place, awake and up, of the faction its `herd` names (or its owner, or of the
+owner's faction), rolls d20 + survival against 10 + 2 a hunter, 4 more for a ranging pack; one pass turns the pack back
+to its den (`beast_turned_back` {by}). Anyone in the place may `drive_off` a wild hunter there (once in ten minutes):
+d20 + survival or resolve against 10 + 2 for each of the pack there, 2 easier for each of their own faction standing
+with them; a pass sends the whole pack home (`beast_driven_off` {by, hunters}), a fail is `beast_stood_ground`, and
+failing by 5 or more one of it comes at them. Seen from afar: a species' `far_out` (a far line, the author reference's far
+views: {"far": ..., "size_m": ..., "stands_out": true}) is set as `far` on each of a pack while it is out of its den
+(stalking, prowling, after a hunt away from home) and taken off when it is back, so a lookout on a height sees it out
+on the plain at the range and the light the far view gives.
+
 Events: `beast_grew`, `beast_hungry`, `beast_tamed`, `beast_trust`, `beast_bit`, `beast_shied`, `beast_feral`,
 `beast_carrying`, `beast_born`, `beast_died` {why: hunger, age}, `beast_yielded`, `beast_stays`, `beast_comes`,
 `beast_released`, `growled`, `fed`, `beast_hunts`, `beast_fled`, `beast_hunt_failed`, `killed` {by, why: hunt},
-`beast_wandered_in`, `butchered`, `beast_broke_off` {beast, by, to, hp}, `grazed` {by, place, left, fed}. Walks arrive
+`beast_wandered_in`, `butchered`, `beast_broke_off` {beast, by, to, hp}, `grazed` {by, place, left, fed},
+`beast_stalks`, `beast_prowls`, `beast_called_off`, `beast_turned_back`, `beast_driven_off`, `beast_stood_ground`. Walks arrive
 `quiet`.
 
 Grazing. A beast someone plays (a seat, a mind) eats when it likes: `graze` takes a meal off its place's forage of its
@@ -151,6 +169,8 @@ BEAST_ACTIONS = {
     "stay": {"script": "beast_stay", "doc": "Tell your beast to stay here"},
     "come": {"script": "beast_come", "reach": "sight", "doc": "Call your beast to you: here it follows again, one way over it comes"},
     "release": {"script": "beast_release", "doc": "Let your beast go wild"},
+    "drive_off": {"script": "beast_drive_off", "duration": 10, "cooldown": 600,
+                  "doc": "Drive off a wild hunting pack here: survival or resolve, easier with your own people by you"},
     "butcher": {"script": "beast_butcher", "duration": 30,
                 "doc": "Cut a meal of meat from a dead beast here, to carry and feed by hand"},
     "graze": {"script": "beast_graze", "reach": "self", "duration": 600, "cooldown": 21600,
@@ -171,11 +191,13 @@ def define(s):
 
 FUEL = 400_000  # one day's walk: the ninety-day hunters test peaks near 21,000, the Reach at twelve beasts 15,500
 
-def install_rules(s, root, day="dawn", night=None, fuel=FUEL):
+def install_rules(s, root, day="dawn", night=None, fuel=FUEL, strike=None):
     """The beasts' rule on the root: `day` (an event kind, or a list) turns their day; `night` (a kind or a list, or
-    None) is when predators hunt, else they hunt at the start of the day. `fuel`: the rule's budget for one day's
-    walk over every beast and place (the default holds a few hundred beasts). Idempotent."""
+    None) is when predators hunt, else they hunt at the start of the day; `strike` (a kind or a list, with a night)
+    splits a hunt: the night only stalks (or prowls), the strike falls on the prey. `fuel`: the rule's budget for one
+    day's walk over every beast and place (the default holds a few hundred beasts). Idempotent."""
     days = [day] if isinstance(day, str) else list(day)
     nights = [] if night is None else ([night] if isinstance(night, str) else list(night))
-    s.patch(root, {"beast_night": nights or None})
-    s.set_rule(root, "beasts_rule", kinds=days + nights + ["arrived", "hit", "missed", "killed"], fuel=fuel)
+    strikes = [] if strike is None else ([strike] if isinstance(strike, str) else list(strike))
+    s.patch(root, {"beast_night": nights or None, "beast_strike": strikes or None})
+    s.set_rule(root, "beasts_rule", kinds=days + nights + strikes + ["arrived", "hit", "missed", "killed"], fuel=fuel)
