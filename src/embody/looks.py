@@ -9,6 +9,11 @@ tail, horns), and that adds it. A mark is {where, what, kind, band, since, by, l
 - band: how near one must be to see it: far (seen from afar too), near (anyone in the same place), close (within
   CLOSE_M metres, or the body itself).
 
+A grown mark may carry `stages`, [{after_days, what, band?}] in order: on read its line is the last stage passed since
+`since` (before the first, its own `what`), worked out from the clock like a fade, so hair grows with no tick. An empty
+`what` shows no line (clean-shaven). A cut (ctx.regrow) moves `since` back to a stage. A body plan may carry `growth`
+{region: stages}: a body made from that template starts with those marks at its join.
+
 A thing the body holds with `covers: [regions]` hides marks on those regions, unless it says `worn: false`. Only the
 world's rules write looks (ctx.mark, ctx.unmark, or the owner's patch): `looks` is one of the body's rules-only keys.
 """
@@ -24,6 +29,7 @@ CLOSE_M = 2.0
 MAX_WHAT = 200
 MAX_WHERE = 40
 MAX_MARKS = 40
+MAX_STAGES = 12
 
 
 def of(state: dict[str, Any]) -> dict[str, Any]:
@@ -52,6 +58,38 @@ def live(lk: dict[str, Any], t: float, day: float) -> dict[str, dict[str, Any]]:
 def faded(lk: dict[str, Any], t: float, day: float) -> list[str]:
     marks = lk.get("marks") or {}
     return [mid for mid in marks if isinstance(marks[mid], dict) and mid not in live(lk, t, day)]
+
+
+def stage(m: dict[str, Any], t: float, day: float) -> tuple[dict[str, Any], int | None, float | None]:
+    """A grown mark as it reads now: (the mark with the passed stage's what and band, the stage's index or None before
+    the first, when the next stage starts or None). Any other mark reads as it is."""
+    st = m.get("stages")
+    if m.get("kind") != "grown" or not isinstance(st, list) or not st:
+        return m, None, None
+    since = float(m.get("since") or 0)
+    gone = (t - since) / day
+    i = max((k for k, s in enumerate(st) if float(s.get("after_days") or 0) <= gone), default=None)
+    nxt = 0 if i is None else i + 1
+    at = since + float(st[nxt].get("after_days") or 0) * day if nxt < len(st) else None
+    if i is None:
+        return m, None, at
+    return {**m, "what": st[i].get("what") or "", "band": st[i].get("band") or m.get("band") or "near"}, i, at
+
+
+def seed(lk: dict[str, Any], t: float, by: str | None) -> dict[str, Any]:
+    """The marks a body plan's `growth` {region: stages} starts a new body with, grown from `t`: a looks patch."""
+    growth = lk.get("growth")
+    if not isinstance(growth, dict) or not growth:
+        return {}
+    n = int(lk.get("next") or 1)
+    marks = {}
+    for region, st in list(growth.items())[:MAX_MARKS]:
+        if not isinstance(st, list) or not st:
+            continue
+        marks[f"m{n}"] = {"where": str(region).lower(), "what": "", "kind": "grown", "band": "near", "since": t,
+                          "by": by, "stages": [dict(s) for s in st[:MAX_STAGES] if isinstance(s, dict)]}
+        n += 1
+    return {"marks": marks, "next": n} if marks else {}
 
 
 def regions(lk: dict[str, Any], marks: dict[str, dict[str, Any]] | None = None) -> list[str]:
@@ -118,15 +156,19 @@ def view(world: Any, e: dict[str, Any], viewer_band: str, t: float, day: float, 
     cover = covered(world, e["id"])
     regs = regions(lk, marks)
     rows, shown = [], []
-    for mid, m in sorted(marks.items(), key=order):
+    for mid, m0 in sorted(marks.items(), key=order):
+        m, at_stage, next_at = stage(m0, t, day)
         hid = m.get("where") in cover
-        seen = sees(viewer_band, str(m.get("band") or "near")) and not hid
+        seen = bool(m.get("what")) and sees(viewer_band, str(m.get("band") or "near")) and not hid
         if not full and not seen:
             continue
-        rows.append({"id": mid, "where": m.get("where"), "what": m.get("what"), "kind": m.get("kind"),
-                     "band": m.get("band") or "near", "since": m.get("since"), "by": m.get("by"),
-                     "covered": hid, "seen": seen, "fades_at": fades_at(m, day)})
-        if seen or full:
+        row = {"id": mid, "where": m.get("where"), "what": m.get("what"), "kind": m.get("kind"),
+               "band": m.get("band") or "near", "since": m.get("since"), "by": m.get("by"),
+               "covered": hid, "seen": seen, "fades_at": fades_at(m, day)}
+        if m0.get("stages"):
+            row.update({"stage": at_stage, "stages": len(m0["stages"]), "next_stage_at": next_at})
+        rows.append(row)
+        if m.get("what") and (seen or full):
             shown.append((mid, m))
     return {"id": e["id"], "name": e["name"], "description": e["state"].get("description"), "regions": regs,
             "marks": rows, "lines": lines(regs, shown, note_covered=full, cover=cover)}

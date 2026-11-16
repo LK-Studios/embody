@@ -312,7 +312,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
-        "may_write_sheet", "mark", "unmark",
+        "may_write_sheet", "mark", "unmark", "regrow",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -810,10 +810,12 @@ class Ctx(ScriptObject):
                             caused_by=self._caused_by)["seq"]
 
     def mark(self, body: Any, where: str, what: str, kind: str = "permanent", band: str = "near",
-             lasts: Any = None) -> str:
+             lasts: Any = None, stages: Any = None) -> str:
         """Mark a body's looks (src/embody/looks.py): `what` on the region `where`, of a kind (worn-on, permanent,
-        replaced, grown), seen from a band (close, near, far); a worn-on mark is gone after `lasts` world days. Only the
-        world's rules mark a body. Emits `marked`; returns the mark's id. A worn-on mark that has faded goes now."""
+        replaced, grown), seen from a band (close, near, far); a worn-on mark is gone after `lasts` world days, and a
+        grown one may grow through `stages` [{after_days, what, band?}] (then `what` may be empty: it shows before the
+        first stage). Only the world's rules mark a body. Emits `marked`; returns the mark's id. A worn-on mark that has
+        faded goes now."""
         eid = _ev(self._w, body)
         self._hold(eid)
         self._rules_only(eid, ["looks"])
@@ -828,16 +830,13 @@ class Ctx(ScriptObject):
             raise Rejected(f"a mark's band is one of {', '.join(looks_mod.BANDS)}, not {band!r}")
         if not where or len(where) > looks_mod.MAX_WHERE:
             raise Rejected(f"say where the mark is: a region of at most {looks_mod.MAX_WHERE} characters")
-        if not what or len(what) > looks_mod.MAX_WHAT:
+        if (not what and stages is None) or len(what) > looks_mod.MAX_WHAT:
             raise Rejected(f"say what the mark is, in at most {looks_mod.MAX_WHAT} characters")
         if lasts is not None and (kind != "worn-on" or float(lasts) <= 0):
             raise Rejected("only a worn-on mark lasts a while: lasts is its world days, more than 0")
-        from .ops import _REACH_OUT  # the guest check on words written into the world
-        for label, rx in _REACH_OUT:
-            m = rx.search(what)
-            if m and not (label == "a phone number" and sum(c.isdigit() for c in m.group(0)) < 9):
-                raise Rejected(f"a mark carries {label} ({m.group(0)!r}): words on a body carry no way to reach anyone "
-                               "outside the world")
+        st = self._stages(stages, kind) if stages is not None else None
+        for words in [what] + [s["what"] for s in st or []]:
+            self._no_reach_out(words)
         lk = looks_mod.of(e["state"])
         day = self.day_seconds()
         marks = looks_mod.live(lk, self._w.t, day)
@@ -853,11 +852,69 @@ class Ctx(ScriptObject):
              "by": self._owner or self._actor}
         if lasts is not None:
             m["lasts"] = float(lasts)
+        if st:
+            m["stages"] = st
         w.patch(eid, {"looks": {"marks": {mid: m, **{g: None for g in gone}}, "next": n + 1}},
                 actor=self._actor, caused_by=self._caused_by)
         w.emit("marked", actor=self._actor, target=eid, reach=1, caused_by=self._caused_by,
                payload={"mark": mid, "where": where, "what": what, "kind": kind, "band": band, "by": m["by"]})
         return mid
+
+    def _stages(self, stages: Any, kind: str) -> list[dict[str, Any]]:
+        if kind != "grown":
+            raise Rejected("only a grown mark has stages (hair, a beard, a horn that lengthens)")
+        if not isinstance(stages, list) or not 0 < len(stages) <= looks_mod.MAX_STAGES:
+            raise Rejected(f"stages is a list of 1 to {looks_mod.MAX_STAGES} {{after_days, what, band}}")
+        out, last = [], -1.0
+        for s in stages:
+            if not isinstance(s, dict):
+                raise Rejected("each stage is {after_days, what, band}")
+            d = float(s.get("after_days") or 0)
+            if d < 0 or d < last:
+                raise Rejected("stages go in order of after_days, each 0 or more world days")
+            words = str(s.get("what") or "").strip()
+            if len(words) > looks_mod.MAX_WHAT:
+                raise Rejected(f"a stage's what is at most {looks_mod.MAX_WHAT} characters")
+            row: dict[str, Any] = {"after_days": d, "what": words}
+            if s.get("band") is not None:
+                if s["band"] not in looks_mod.BANDS:
+                    raise Rejected(f"a stage's band is one of {', '.join(looks_mod.BANDS)}, not {s['band']!r}")
+                row["band"] = s["band"]
+            out.append(row)
+            last = d
+        return out
+
+    def _no_reach_out(self, what: str) -> None:
+        from .ops import _REACH_OUT  # the guest check on words written into the world
+        for label, rx in _REACH_OUT:
+            m = rx.search(what)
+            if m and not (label == "a phone number" and sum(c.isdigit() for c in m.group(0)) < 9):
+                raise Rejected(f"a mark carries {label} ({m.group(0)!r}): words on a body carry no way to reach anyone "
+                               "outside the world")
+
+    def regrow(self, body: Any, mark: str, stage: int = 0) -> bool:
+        """Cut a grown mark back to one of its stages (a shave: 0; a barber's trim: the stage to leave): its `since`
+        moves so that stage reads now, and it grows on from there. Emits `regrown`; False when the body has no such
+        grown mark with stages."""
+        eid = _ev(self._w, body)
+        self._hold(eid)
+        self._rules_only(eid, ["looks"])
+        e = self._w.need(eid)
+        m = (looks_mod.of(e["state"]).get("marks") or {}).get(str(mark))
+        if not isinstance(m, dict) or m.get("kind") != "grown" or not m.get("stages"):
+            return False
+        st = m["stages"]
+        k = int(stage)
+        if not 0 <= k < len(st):
+            raise Rejected(f"that mark grows through stages 0 to {len(st) - 1}, not {k}")
+        since = self._w.t - float(st[k].get("after_days") or 0) * self.day_seconds()
+        gone = [g for g in self._fade(e) if g != str(mark)]
+        self._w.patch(eid, {"looks": {"marks": {str(mark): {"since": since}, **{g: None for g in gone}}}},
+                      actor=self._actor, caused_by=self._caused_by)
+        self._w.emit("regrown", actor=self._actor, target=eid, reach=1, caused_by=self._caused_by,
+                     payload={"mark": str(mark), "where": m.get("where"), "stage": k, "what": st[k].get("what") or "",
+                              "by": self._owner or self._actor})
+        return True
 
     def unmark(self, body: Any, mark: str) -> bool:
         """Take a mark off a body's looks (a permanent one only by a verb that says so: the world's own). Emits

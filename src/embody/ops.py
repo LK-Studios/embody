@@ -879,6 +879,10 @@ class Session:
             state["brief"] = t["brief"]
         if description:  # the newcomer's own word on how they look, over the template's
             state["description"] = description
+        lk = looks_mod.of(state)
+        grown = looks_mod.seed(lk, w.t, None)  # the plan's growth: hair and the like, growing from the join
+        if grown:
+            state["looks"] = {**lk, "marks": {**(lk.get("marks") or {}), **grown["marks"]}, "next": grown["next"]}
         parent = self._resolve(t["place"]) if t.get("place") else w.root_id
         eid = w.spawn(t.get("type", "creature"), parent, name=name, state=state)
         for item in t.get("kit") or []:  # what a newcomer of this kind carries in: a skin, a blade, whatever the world says

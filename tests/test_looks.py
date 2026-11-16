@@ -11,7 +11,7 @@ INK = """
 def apply(ctx):
     p = ctx.params or {}
     return ctx.mark(ctx.actor, p.get('where'), p.get('what'), p.get('kind') or 'permanent', p.get('band') or 'near',
-                    p.get('lasts'))
+                    p.get('lasts') or None, p.get('stages') or None)
 """
 SCRUB = """
 def apply(ctx):
@@ -25,7 +25,7 @@ def parlour():
     gm.define_script("ink", INK)
     gm.define_script("scrub", SCRUB)
     gm.define_schema("needle", extends="thing", actions={
-        "ink": {"script": "ink", "doc": "Be marked", "params": {"where": "", "what": "", "kind": "", "band": "", "lasts": ""}},
+        "ink": {"script": "ink", "doc": "Be marked", "params": {"where": "", "what": "", "kind": "", "band": "", "lasts": "", "stages": ""}},
         "scrub": {"script": "scrub", "doc": "Have a mark taken off", "params": {"mark": ""}}})
     gm.spawn("needle", "Hall", name="Needle", state={"portable": False})
     nate = eng.session("nate")
@@ -111,3 +111,60 @@ def test_worn_on_fades_and_unmark_takes_one_off_with_events():
     with pytest.raises(Rejected) as r:
         sam.looks("Prisoner")
     assert "cannot see" in r.value.reason
+
+
+BEARD = [{"after_days": 0, "what": ""}, {"after_days": 2, "what": "a few days' stubble"},
+         {"after_days": 10, "what": "a short beard"}, {"after_days": 40, "what": "a full beard, untrimmed", "band": "far"}]
+SHAVE = """
+def apply(ctx):
+    return ctx.regrow(ctx.actor, ctx.params.get('mark'), int(ctx.params.get('stage') or 0))
+"""
+
+
+def barber(gm):
+    gm.define_script("shave", SHAVE)
+    gm.define_schema("razor", extends="thing", actions={
+        "shave": {"script": "shave", "doc": "Cut a grown mark back", "params": {"mark": "", "stage": ""}}})
+    gm.spawn("razor", "Hall", name="Razor", state={"portable": False})
+    root = gm.world.root_id
+    gm.patch(root, {"templates": {
+        "human": {"type": "creature", "place": "Hall", "state": {"looks": {"growth": {"face": BEARD}}}},
+        "synthetic": {"type": "creature", "place": "Hall", "state": {"looks": {"regions": ["head", "torso", "arms"]}}}}})
+
+
+def test_a_beard_grows_on_the_clock_and_a_razor_cuts_it_back():
+    eng, w, gm, nate, sam = parlour()
+    barber(gm)
+    kim = eng.session("kim")
+    kim.join("two-rooms", template="human", name="Kim")
+    bot = eng.session("bot")
+    bot.join("two-rooms", template="synthetic", name="Unit Four")
+    assert gm.inspect("Unit Four")["state"]["looks"].get("marks") in (None, {})  # a plan with no growth grows nothing
+    beard = next(iter(gm.inspect("Kim")["state"]["looks"]["marks"]))
+    assert seen_lines(sam, "Kim") == []  # clean-shaven at the join
+    own = kim.looks("Kim")["marks"][0]
+    assert own["stage"] == 0 and own["what"] == "" and own["next_stage_at"] is not None
+    gm.clock(step=2 * 86400)
+    assert seen_lines(sam, "Kim") == ["Face: a few days' stubble."]
+    # paint over it fades on its own while the hair keeps growing
+    kim.act("ink", "Needle", {"where": "face", "what": "white clay daubed on the cheeks", "kind": "worn-on", "lasts": 1})
+    gm.clock(step=8 * 86400)
+    assert seen_lines(sam, "Kim") == ["Face: a short beard."]
+    # a trim back one stage, then a shave
+    r = kim.act("shave", "Razor", {"mark": beard, "stage": 1})
+    ev = [e["payload"] for e in r["events"] if e["kind"] == "regrown"][0]
+    assert (ev["stage"], ev["what"]) == (1, "a few days' stubble")
+    assert seen_lines(sam, "Kim") == ["Face: a few days' stubble."]
+    kim.act("shave", "Razor", {"mark": beard})
+    assert seen_lines(sam, "Kim") == []
+    gm.clock(step=40 * 86400)
+    assert sam.looks("Kim")["marks"][0]["band"] == "far" and sam.looks("Kim")["marks"][0]["next_stage_at"] is None
+    # a verb programmed on one thing may not move the clock on a beard
+    gm.program("Needle", "fake", "def apply(ctx):\n    ctx.patch(ctx.actor, {'looks': {'marks': {'" + beard +
+               "': {'since': 0}}}})\n")
+    with pytest.raises(Rejected, match="looks change only by the world's rules"):
+        kim.act("fake", "Needle")
+    for stages, why in (([{"after_days": 3, "what": "x"}, {"after_days": 1, "what": "y"}], "in order"),
+                        ("long", "list of 1 to")):
+        with pytest.raises(Rejected, match=why):
+            nate.act("ink", "Needle", {"where": "hair", "what": "", "kind": "grown", "stages": stages})
