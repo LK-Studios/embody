@@ -8,7 +8,9 @@ use("common")
 # world days. Only a body with a sheet trains.
 
 def lesson(ctx):
-    teaches = ctx.target.state.teaches or {}
+    teaches = ctx.target.state.teaches
+    if not isinstance(teaches, dict):
+        teaches = {}
     skill = (ctx.params or {}).get("skill")
     if not skill and len(teaches) == 1:
         skill = list(teaches.keys())[0]
@@ -24,7 +26,7 @@ def check(ctx):
     me = ctx.actor
     t = ctx.target
     teaches = t.state.teaches
-    if not teaches:
+    if not teaches or not isinstance(teaches, dict):  # a world's own way of teaching (a pilot's list) is not train's
         return t.name + " teaches nothing"
     if t.id == me.id:
         return "a teacher teaches someone else"

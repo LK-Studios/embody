@@ -194,6 +194,10 @@ def test_past_self_taught_use_banks_and_a_teacher_turns_it_into_a_rank_for_a_pri
     with pytest.raises(Rejected) as r:
         ada.act("train", "Bel")
     assert "teaches nothing" in r.value.reason and teachers() == []
+    gm.patch("Bel", {"teaches": ["climb"]})  # a world's own list of what one teaches (a pilot's) is not train's
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")
+    assert "teaches nothing" in r.value.reason and teachers() == []
     gm.patch("Bel", {"teaches": lesson})
     with pytest.raises(Rejected) as r:
         ada.act("train", "Bel")  # a teacher teaches only below its own rank: Bel has no climb
