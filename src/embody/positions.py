@@ -270,6 +270,78 @@ def resolve_at(w: "World", parent: str, spec: Any, skip: str | None = None) -> t
                    "{\"the gate\": {\"at\": [x, y, z], \"radius\": 3}}}]) names its spots, or give at=[x, y, z]")
 
 
+def walk(w: "World", eid: str, to: Any, budget: float | None,
+         spread: bool = False) -> tuple[list[float], bool, str | None]:
+    """A body's short move inside the place it stands in, toward `to` ([x, y] in the place's frame, or a landmark's or
+    a thing's name there): at most `budget` metres (None: as far as it goes), stopping short of the place's edge and of
+    anything solid. A body with no spot of its own here takes one at `to` (with spread, the nearest free one: half a
+    metre from anyone, out of anything solid).
+    Returns (at, clipped, blocked): where it ends, whether it stopped short, and what stopped it, or None. Writes
+    nothing; `stepped` does."""
+    from .world import Rejected
+    here = w.need(w.need(eid)["parent_id"])
+    room = _room(w, here["id"])
+    cur = resolve(w, eid)
+    z = float(cur["at"][2]) if cur["at"] and len(cur["at"]) > 2 else \
+        (geo.z_range(room) or (0.0, 0.0))[0] if room.get("at") else 0.0
+    if isinstance(to, (list, tuple)):
+        v = geo._vec(to, "to", 2, 3)
+        want = [v[0], v[1], z]
+    else:
+        want, _ = resolve_at(w, here["id"], to, skip=eid)
+        want = [want[0], want[1], z]
+    start = cur["at"] if cur["at"] and cur["how"] in ("own", "grid") else None
+    clipped, blocked = False, None
+    if start is None:
+        at = find_spot(w, here["id"], want, skip=eid) if spread else want
+    else:
+        start = [float(start[0]), float(start[1]), z]
+        dist = geo.ground(start, want)
+        if budget is not None and dist > budget:
+            f = budget / dist
+            want = [start[0] + (want[0] - start[0]) * f, start[1] + (want[1] - start[1]) * f, z]
+            dist, clipped = budget, True
+        at, n = start, max(1, math.ceil(dist / 0.25))
+        for k in range(1, n + 1):
+            p = [start[0] + (want[0] - start[0]) * k / n, start[1] + (want[1] - start[1]) * k / n, z]
+            if (g := ground(w, here["id"], p)) is not None:
+                p[2] = g
+            if room.get("at") and geo.contains(room, p[:2]) is False:
+                clipped, blocked = True, "the edge of " + (here["name"] or "this place")
+                break
+            hit = solid_at(w, here["id"], p, skip=eid)
+            if hit is not None:
+                clipped, blocked = True, hit["name"] or hit["id"]
+                break
+            at = p
+    if (g := ground(w, here["id"], at)) is not None:
+        at = [at[0], at[1], g]  # on terrain a body stands on the ground; z elsewhere is advisory
+    at = [round(x, 2) for x in at]
+    if room.get("at") and geo.contains(room, at[:2]) is False:
+        raise Rejected(f"{at[:2]} is outside {here['name']}", hint="perceive(layout=true) shows the place's extent")
+    if solid_at(w, here["id"], at, skip=eid) is not None:
+        raise Rejected(f"{at[:2]} is inside something solid", hint="step to a clear spot beside it")
+    return at, clipped, blocked
+
+
+def stepped(w: "World", eid: str, change: dict[str, Any], caused_by: int | None = None) -> tuple[dict[str, Any], str]:
+    """Write a step or a turn ({at?, heading?}) to a body's own layout and tell its place: a quiet `stepped {at, frame,
+    heading?}` to everyone there. Returns the event and the frame. No transaction of its own."""
+    w.patch(eid, {"layout": geo.merge(dict(_layout(w, eid)), change)}, actor=eid, replace=True, caused_by=caused_by)
+    frame = frame_of(w, eid)
+    lay = _layout(w, eid)
+    pay = {"at": lay.get("at"), "frame": frame, **({"heading": lay["heading"]} if lay.get("heading") is not None else {})}
+    return w.emit("stepped", actor=eid, target=eid, reach=1, payload=pay, caused_by=caused_by), frame
+
+
+def heading_of(a: list[float], b: list[float]) -> float | None:
+    """The compass heading from a to b (0 north, 90 east), or None when they are the same spot."""
+    dx, dy = float(b[0]) - float(a[0]), float(b[1]) - float(a[1])
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return None
+    return round(math.degrees(math.atan2(dx, dy)) % 360.0, 1)
+
+
 def spot_words(w: "World", place: str | None, at: list[float] | None) -> str | None:
     """Where in a place a point is, by its landmarks: "at the cistern" inside one's radius, "by the cistern" within
     three times it, else nothing."""

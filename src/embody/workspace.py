@@ -365,11 +365,14 @@ def load_world(session: "Session", ref: str | Path, upgrade: bool = False, works
                 mod.define(session)
             if hasattr(mod, "upgrade"):
                 mod.upgrade(session)
+            ticks = standing_ticks(session.world)
             log_folder_rules(session, mod, "world")
             if hosted and hasattr(mod, "host"):
                 mod.host(session)
             r = session.summary()
             r.update(upgraded=True, hosted=hosted, folder=str(folder), packs=[p["pack"] for p in packs], scripts=scripts)
+            if ticks:
+                r["ticks_added"] = ticks
             return r
         if manifest is None:
             if not hasattr(mod, "build"):
@@ -416,6 +419,29 @@ def replay_changes(session: "Session", ws: Workspace, world_id: str) -> tuple[in
         except Exception as e:  # a bad line never stops the build
             errors.append(f"{op}: {type(e).__name__}: {e}")
     return n, errors
+
+
+def standing_ticks(w: Any) -> int:
+    """Every behavior a body's schema names, standing for that body: spawn schedules the ones its schema had then, so
+    a pack that adds a behavior reaches the bodies already in a world here, on its next upgrade. The new tick fires
+    one beat from now (the world's pace, else the schema's `every`). The dead get none. Returns how many were added."""
+    have = {(i["entity_id"], (i["payload"] or {}).get("script")) for i in w.pending() if i["kind"] == "tick"}
+    pace = w._row["meta"].get("pace") or {}
+    wants: dict[str, list[dict[str, Any]]] = {}
+    n = 0
+    for e in w.find(limit=None):
+        if e["type"] not in wants:
+            wants[e["type"]] = w.schema_components(e["type"], "behaviors")
+        if not wants[e["type"]] or e["state"].get("dead"):
+            continue
+        for b in wants[e["type"]]:
+            if (e["id"], b["script"]) in have:
+                continue
+            every = float(pace.get(b["script"], b.get("every", 10)))
+            w.schedule(every, "tick", entity=e["id"], payload={"script": b["script"], "always": bool(b.get("always"))},
+                       every=every, log=False)
+            n += 1
+    return n
 
 
 def _load_legacy(session: "Session", path: Path, upgrade: bool) -> dict[str, Any]:

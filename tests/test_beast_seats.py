@@ -106,3 +106,27 @@ def test_a_step_moves_a_little_stays_in_the_place_and_out_of_solids():
     gm.patch("Nan", {"verbs_only": ["bleat"]})
     with pytest.raises(Rejected, match="a goat cannot step"):
         sam.step([24, 2])
+
+
+
+def test_a_script_steps_a_body_about_its_place():
+    from embody.world import Ctx
+    eng, w, i = engine_with_two_rooms()
+    gm = owner(eng)
+    gm.layout(frame={"units": "m"}, placements=[
+        {"entity": "Hall", "at": [20, 0, 0], "size": [12, 8], "landmarks": {"the gate": {"at": [25, 3, 0], "radius": 1}}},
+        {"entity": "Guard", "at": [20, 0, 0]}])
+    guard = i["Guard"]
+    seq = w.store.next_seq(w.id) - 1
+    ctx = Ctx(w, actor=guard, target=None, owner=guard, params=None, event=None, verb=None, caused_by=None, seed=1)
+    assert ctx.step(guard, to=[23, 0]) == {"at": [23, 0, 0], "heading": 90.0}  # it faces the way it walked: east
+    b = ctx.step(guard, to=[40, 0], max_m=50)
+    assert b["clipped"] and b["blocked_by"] == "the edge of Hall" and b["at"][0] <= 26
+    assert ctx.step(guard, heading=180) == {"heading": 180.0}  # a turn where it stands
+    d = ctx.step(guard, to="the gate", max_m=1)
+    assert d["clipped"] and "blocked_by" not in d  # a short budget stops it on the way
+    assert [e["kind"] for e in w.store.query("event", "world_id=? AND seq>?", (w.id, seq))].count("stepped") == 4
+    with pytest.raises(Rejected, match="needs to= .* or heading="):
+        ctx.step(guard)
+    with pytest.raises(Rejected, match="not standing in one"):
+        ctx.step(i["Hall"], to=[0, 0])

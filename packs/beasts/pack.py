@@ -97,6 +97,18 @@ diet, the same forage the day draws on (what it eats, the herd here goes without
 past it), at most once in its `cooldown` (21600 world seconds, six hours; a world that wants another pace puts its own
 `graze` over `BEAST_ACTIONS`). A body with `verbs_only` (docs/SCRIPTING.md) lists `graze` among them.
 
+Ambling. A beast nobody holds moves about its place now and then (the `beast_amble` behavior, a tick every 30 world
+seconds; a world's `pace` changes it): a few steps in some direction, back toward its herd (the middle of the others of
+its species there) when it has strayed, inside the place's extent and out of anything solid, facing the way it goes,
+with ctx.step. Everyone there gets the quiet `stepped {at, frame, heading}` a player's step gives, so a game's client
+draws a living herd. It ambles only where it can be seen: someone holds a body in the place, or the place says
+`amble: true` (a host marks a place a game's client watches); each step writes two events. A beast with no spot of its
+own in a laid-out place takes a free one by its herd on its next tick, wherever it is, so a herd that walks in spreads
+out instead of standing on one point. `amble` on the species or the beast tunes it: {"chance": 0.5 (per tick),
+"step_m": [1, 4], "herd_m": 8}, or false to keep still. A held beast moves only as its holder steps it. A world built
+before ambling gets the tick for its beasts on its next upgrade (`load --upgrade` adds every behavior a body's schema
+names that it lacks).
+
 What a world does not need: no ticks of its own for hunger or growth (the day does it), no follow code (village `go`
 moves whoever `follows` the walker), and no fight code (beasts run d20's `fighter_tick`, so a struck beast or a kept
 guard whose owner is struck fights back). A wild beast a person hurts to half its hp breaks off: it drops its grudge and
@@ -154,7 +166,7 @@ def define(s):
     s.define_schema("beast", extends="creature",
                     doc="An animal: grows, eats, can be tamed and kept, breeds. d20 blows land on it and it fights back.",
                     state=BEAST_STATE, actions=BEAST_ACTIONS,
-                    behaviors=[{"script": "fighter_tick", "every": 6}])
+                    behaviors=[{"script": "fighter_tick", "every": 6}, {"script": "beast_amble", "every": 30}])
 
 
 FUEL = 400_000  # one day's walk: the ninety-day hunters test peaks near 21,000, the Reach at twelve beasts 15,500

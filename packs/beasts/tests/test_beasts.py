@@ -51,15 +51,20 @@ def populate(s):
 
 @pytest.fixture
 def wild(tmp_path):
+    return make_wild(tmp_path)
+
+
+def make_wild(tmp_path, seed=7):
     for p in ("village", "d20", "beasts"):
         shutil.copytree(REPO / "packs" / p, tmp_path / "packs" / p, ignore=shutil.ignore_patterns("tests", "__pycache__"))
     (tmp_path / "worlds" / "wild").mkdir(parents=True)
-    (tmp_path / "worlds" / "wild" / "build.py").write_text(BUILD, encoding="utf-8")
+    (tmp_path / "worlds" / "wild" / "build.py").write_text(BUILD.replace('"seed": 7', f'"seed": {seed}'), encoding="utf-8")
     eng = Engine(workspace=tmp_path, record=False)
     gm = eng.session("gm", capabilities=[AUTHOR])
     load_world(gm, "wild")
     # a day at a time: the bodies' minute ticks would take the test all day
-    gm.world.set_pace({"thirst": 10 * DAY, "quench": 10 * DAY, "mend": 10 * DAY, "fighter_tick": 10 * DAY})
+    gm.world.set_pace({"thirst": 10 * DAY, "quench": 10 * DAY, "mend": 10 * DAY, "fighter_tick": 10 * DAY,
+                       "beast_amble": 10 * DAY})
     gm.schedule(DAY, "dawn", entity=gm.world.root_id, every=DAY)  # on the root, where the rule hears it
     return eng, gm
 
@@ -83,23 +88,29 @@ def living(gm):
     return [e for e in gm.world.find(type="beast", limit=1000) if not e["state"].get("dead")]
 
 
-def test_a_wild_herd_settles_at_what_the_land_carries(wild):
-    eng, gm = wild
-    beast(gm, "Brake", "The boar", sex="m", leader=True, home="Brake")
-    beast(gm, "Brake", "The sow", sex="f", home="Brake")
-    beast(gm, "Brake", "The yearling", sex="f", age=4, stage="young", home="Brake")
-    counts, born = [], 0
-    for _ in range(60):
-        dawn(gm)
-        counts.append(len(living(gm)))
-    born = len([e for e in gm.world.find(type="beast", limit=1000) if e["state"].get("mother")])
-    # the brake regrows 4 roots a day: the herd grows to about that and no further, and never dies out
-    assert born >= 2 and min(counts) >= 2
-    assert max(counts) <= 7, counts
-    assert 2 <= sum(counts[-20:]) / 20 <= 6, counts
-    grown = [e for e in gm.world.find(type="beast", limit=1000) if e["state"].get("mother") and e["state"].get("stage") == "adult"]
-    assert grown and grown[0]["name"].startswith(("Thornback boar", "Thornback sow"))
-    assert any(c["name"] == "Snout" for c in gm.world.children(grown[0]["id"]))
+def test_a_wild_herd_settles_at_what_the_land_carries(tmp_path):
+    # the brake regrows 4 roots a day: each herd grows to about that and no further, and never dies out. A herd's
+    # fortunes are the dice's, and any new event shifts every later roll, so the claim is held over four worlds
+    # (seeds 1 to 4) and not one: a small herd that loses its old and breeds late can thin to one for a while.
+    settled, grown = [], []
+    for seed in (1, 2, 3, 4):
+        eng, gm = make_wild(tmp_path / str(seed), seed=seed)
+        beast(gm, "Brake", "The boar", sex="m", leader=True, home="Brake")
+        beast(gm, "Brake", "The sow", sex="f", home="Brake")
+        beast(gm, "Brake", "The yearling", sex="f", age=4, stage="young", home="Brake")
+        counts = []
+        for _ in range(60):
+            dawn(gm)
+            counts.append(len(living(gm)))
+        born = len([e for e in gm.world.find(type="beast", limit=1000) if e["state"].get("mother")])
+        assert born >= 2 and min(counts) >= 1 and max(counts) <= 7, (seed, counts)
+        settled.append(sum(counts[-20:]) / 20)
+        grown += [(gm, e) for e in gm.world.find(type="beast", limit=1000)
+                  if e["state"].get("mother") and e["state"].get("stage") == "adult"]
+    assert 2.5 <= sum(settled) / len(settled) <= 6, settled
+    gm, young = grown[0]  # a beast born here grows up into its stage's name and parts
+    assert young["name"].startswith(("Thornback boar", "Thornback sow"))
+    assert any(c["name"] == "Snout" for c in gm.world.children(young["id"]))
 
 
 def test_taming_a_young_beast_takes_days_of_feeding_by_hand(wild):

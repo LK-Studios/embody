@@ -313,7 +313,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
-        "may_write_sheet", "mark", "unmark", "regrow",
+        "may_write_sheet", "mark", "unmark", "regrow", "step",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -751,6 +751,46 @@ class Ctx(ScriptObject):
     def set_pos(self, id: Any, pos: Any) -> None:
         self._hold(id)
         self._w.set_pos(_ev(self._w, id), pos, actor=self._actor, caused_by=self._caused_by)
+
+    def step(self, id: Any, to: Any = None, heading: Any = None, max_m: float = 25.0, face: bool = True) -> dict[str, Any]:
+        """A short move inside the place a body stands in (an animal's amble, a guard pacing a wall): toward to=[x, y]
+        in the place's frame, or a landmark's or a thing's name there, at most max_m metres, stopping short of the
+        place's edge and of anything solid. A body with no spot of its own there takes the nearest free one. It faces
+        the way it walked (face=False keeps its heading); heading= sets it, and with no `to` it only turns. Everyone
+        there gets a quiet `stepped {at, frame, heading?}`, as from a player's step. Returns {at, heading, clipped,
+        blocked_by}, each only when it applies."""
+        from . import positions as posn
+        self._hold(id)
+        w = self._w
+        eid = _ev(w, id)
+        par = w.get(w.need(eid)["parent_id"] or "")
+        if par is None or not posn.is_place(w, par):
+            raise Rejected("ctx.step moves a body inside a place, and this one is not standing in one",
+                           hint="ctx.move(x, place) puts it in one")
+        if heading is not None:
+            if isinstance(heading, bool) or not isinstance(heading, (int, float)) or heading != heading:
+                raise Rejected("heading is compass degrees: 0 north, 90 east", hint="ctx.step(x, heading=90)")
+            heading = round(float(heading) % 360.0, 1)
+        if to is None and heading is None:
+            raise Rejected("ctx.step needs to= (where to go) or heading= (which way to face)",
+                           hint="ctx.step(x, to=[x, y]) or ctx.step(x, heading=90)")
+        change: dict[str, Any] = {}
+        out: dict[str, Any] = {}
+        if to is not None:
+            cur = posn.resolve(w, eid)
+            before = cur["at"] if cur["at"] and cur["how"] in ("own", "grid") else None
+            at, clipped, blocked = posn.walk(w, eid, to, max(0.0, float(max_m)), spread=True)
+            change["at"] = out["at"] = at
+            if clipped:
+                out["clipped"] = True
+                if blocked:
+                    out["blocked_by"] = blocked
+            if heading is None and face and before:
+                heading = posn.heading_of(before, at)
+        if heading is not None:
+            change["heading"] = out["heading"] = heading
+        posn.stepped(w, eid, change, caused_by=self._caused_by)
+        return out
 
     def destroy(self, id: Any) -> None:
         self._hold(id)

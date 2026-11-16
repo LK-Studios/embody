@@ -2988,10 +2988,7 @@ class Session:
         if here is None or not posn.is_place(w, here):
             raise Rejected("step moves you inside a place; you are not standing in one",
                            hint="get out of what holds you first")
-        room = posn._room(w, here["id"])
         cur = posn.resolve(w, me)
-        z = float(cur["at"][2]) if cur["at"] and len(cur["at"]) > 2 else \
-            (geo.z_range(room) or (0.0, 0.0))[0] if room.get("at") else 0.0
         if heading is not None:
             if isinstance(heading, bool) or not isinstance(heading, (int, float)) or not math.isfinite(heading):
                 raise Rejected("heading is compass degrees: 0 north, 90 east", hint="step(heading=90) faces east")
@@ -3001,12 +2998,6 @@ class Session:
                 raise Rejected("step needs to= (where to go) or heading= (which way to face)",
                                hint="step(to=[x, y]), step(to='the gate'), or step(heading=90) to turn in place")
             return self._turn_in_place(me, here, cur, heading)
-        if isinstance(to, (list, tuple)):
-            v = geo._vec(to, "to", 2, 3)
-            want = [v[0], v[1], z]
-        else:
-            want, _ = posn.resolve_at(w, here["id"], to, skip=me)
-            want = [want[0], want[1], z]
         speed = w._own(me, "speed_mps")
         if not isinstance(speed, (int, float)) or speed <= 0:
             speed = w.need(w.root_id)["state"].get("walk_mps")
@@ -3014,38 +3005,7 @@ class Session:
         ck = w.clock()
         last = self.engine._stepped.get((w.id, me))
         secs = 1.0 if (last is None or not ck["running"] or ck["rate"] <= 0) else min(max(w.t - last, 0.0), _STEP_MAX_S)
-        budget = speed * secs
-        start = cur["at"] if cur["at"] and cur["how"] in ("own", "grid") else None
-        clipped, blocked = False, None
-        if start is None:
-            at = want  # the first step sets a spot: the body had none of its own here
-        else:
-            start = [float(start[0]), float(start[1]), z]
-            dist = geo.ground(start, want)
-            if dist > budget:
-                f = budget / dist
-                want = [start[0] + (want[0] - start[0]) * f, start[1] + (want[1] - start[1]) * f, z]
-                dist, clipped = budget, True
-            at, n = start, max(1, math.ceil(dist / 0.25))
-            for k in range(1, n + 1):
-                p = [start[0] + (want[0] - start[0]) * k / n, start[1] + (want[1] - start[1]) * k / n, z]
-                if (g := posn.ground(w, here["id"], p)) is not None:
-                    p[2] = g
-                if room.get("at") and geo.contains(room, p[:2]) is False:
-                    clipped, blocked = True, "the edge of " + (here["name"] or "this place")
-                    break
-                hit = posn.solid_at(w, here["id"], p, skip=me)
-                if hit is not None:
-                    clipped, blocked = True, hit["name"] or hit["id"]
-                    break
-                at = p
-        if (g := posn.ground(w, here["id"], at)) is not None:
-            at = [at[0], at[1], g]  # on terrain a body stands on the ground; z elsewhere is advisory
-        at = [round(x, 2) for x in at]
-        if room.get("at") and geo.contains(room, at[:2]) is False:
-            raise Rejected(f"{at[:2]} is outside {here['name']}", hint="perceive(layout=true) shows the place's extent")
-        if posn.solid_at(w, here["id"], at, skip=me) is not None:
-            raise Rejected(f"{at[:2]} is inside something solid", hint="step to a clear spot beside it")
+        at, clipped, blocked = posn.walk(w, me, to, speed * secs)  # the first step sets a spot where it had none
         self._acted()
         ev, frame, facing = self._stepped(me, {"at": at, **({"heading": heading} if heading is not None else {})})
         self.engine._stepped[(w.id, me)] = w.t
@@ -3065,12 +3025,8 @@ class Session:
         w = self.world
         w.store.begin()
         try:
-            w.patch(me, {"layout": geo.merge(self._own_layout(me), change)}, actor=me, replace=True)
-            frame = posn.frame_of(w, me)
-            lay = w.need(me)["state"].get("layout") or {}
-            facing = lay.get("heading")
-            pay = {"at": lay.get("at"), "frame": frame, **({"heading": facing} if facing is not None else {})}
-            ev = w.emit("stepped", actor=me, target=me, reach=1, payload=pay)
+            ev, frame = posn.stepped(w, me, change)
+            facing = self._own_layout(me).get("heading")
             w.store.commit()
         except Exception:
             w.store.rollback()

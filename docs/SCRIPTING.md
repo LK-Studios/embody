@@ -101,6 +101,7 @@ Mutations (each one is logged as an event):
 - `ctx.patch(x, {...})` or `view.state.key = value`. A dict value merges into the existing dict (add one dialog topic without resending the rest), `None` deletes the key; the op-level `patch(..., replace=True)` sets whole
 - `ctx.spawn(type, parent, name="", state=None, pos=None)` returns the new view
 - `ctx.move(x, parent, pos=None)`, `ctx.set_pos(x, pos)`, `ctx.destroy(x)`
+- `ctx.step(x, to=None, heading=None, max_m=25, face=True)`: a short move inside the place a body stands in (an animal's amble, a guard pacing a wall), toward `to=[x, y]` in the place's frame or a landmark's or a thing's name there, at most `max_m` metres, stopping short of the place's edge and of anything solid, as a player's `step` does. A body with no spot of its own there takes the nearest free one. It faces the way it walked (`face=False` keeps its heading); `heading=` sets it, and with no `to` it only turns. Everyone there gets a quiet `stepped {at, frame, heading?}`. Returns `{at, heading, clipped, blocked_by}`, each only when it applies
 - `ctx.link(a, b, relation, data=None)`, `ctx.unlink(a, b, relation)`
 - `ctx.relate(relation, [participants], data=None)`, `ctx.unrelate(id)`
 - `ctx.set_rule(entity, script, kinds=None, fuel=None)`, `ctx.clear_rule(entity, script)`
