@@ -114,6 +114,8 @@ body.past main { outline:2px solid var(--warn); outline-offset:-2px; }
 .area.k-thing { stroke:var(--thing); fill:rgba(25,158,112,.10); }
 .area.k-other { stroke:var(--other); fill:rgba(141,154,158,.06); stroke-dasharray:5 4; }
 .area.focus { fill:rgba(255,255,255,.015); stroke:var(--line2); stroke-dasharray:2 4; cursor:default; }
+.contour { fill:none; stroke:var(--dim); stroke-opacity:.26; stroke-width:1; vector-effect:non-scaling-stroke; pointer-events:none; }
+.contour.idx { stroke-opacity:.5; stroke-width:1.3; }
 .area.deep { fill-opacity:.4; stroke-opacity:.7; }
 .area.sel, .mark.sel { stroke:var(--accent) !important; stroke-width:2.6; }
 .area.hit { stroke:var(--accent) !important; stroke-width:2.4; fill:var(--accent-bg); }
@@ -825,6 +827,40 @@ function zLevel(e) { const lay = ((e && e.state) || {}).layout || {}; return Num
 function startsFrame(e) { return !!e && (e.id === W.info.root || !!(e.state && e.state.tier && e.state.frame && typeof e.state.frame === "object")); }
 function frameOf(id) { const e = ent(id); let p = e && e.parent ? ent(e.parent) : null, g = 0; while (p && g++ < 64) { if (startsFrame(p)) return p.id; p = p.parent ? ent(p.parent) : null; } return W.info.root; }
 function innerFrame(id) { return startsFrame(ent(id)) ? id : frameOf(id); }
+// a place's terrain (a height grid on its layout) as contour lines, by marching squares; every fifth level heavier
+const contourMemo = new Map();
+function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); return [1, 2, 5, 10].map(m => m * p).find(v => v >= x) || p; }
+function contours(e) {
+  const t = ((e.state || {}).layout || {}).terrain;
+  if (!t || !Array.isArray(t.z)) return "";
+  const key = e.id + ":" + (e.version || 0);
+  if (contourMemo.has(key)) return contourMemo.get(key);
+  const { cols, rows, z } = t, cell = Number(t.cell_m), ox = t.origin[0], oy = t.origin[1];
+  let lo = Infinity, hi = -Infinity; for (const v of z) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  let out = "";
+  if (hi > lo) {
+    const step = niceStep((hi - lo) / 10), at = (i, j) => z[j * cols + i];
+    for (let L = Math.ceil(lo / step) * step, n = 0; L <= hi && n < 40; L += step, n++) {
+      let d = "";
+      for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
+        const c = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]], v = c.map(([a, b]) => at(a, b)), hit = [];
+        for (let s = 0; s < 4; s++) {
+          const a = v[s], b = v[(s + 1) % 4];
+          if ((a < L) !== (b < L)) {
+            const f = (L - a) / (b - a), p = c[s], q = c[(s + 1) % 4];
+            hit.push([ox + (p[0] + (q[0] - p[0]) * f) * cell, oy + (p[1] + (q[1] - p[1]) * f) * cell]);
+          }
+        }
+        for (let s = 0; s + 1 < hit.length; s += 2) d += `M${hit[s][0].toFixed(1)},${(-hit[s][1]).toFixed(1)}L${hit[s + 1][0].toFixed(1)},${(-hit[s + 1][1]).toFixed(1)}`;
+      }
+      const major = Math.abs(Math.round(L / step)) % 5 === 0;
+      if (d) out += `<path class="contour${major ? " idx" : ""}" d="${d}"><title>${esc(fmt(L))}</title></path>`;
+    }
+  }
+  if (contourMemo.size > 64) contourMemo.clear();
+  contourMemo.set(key, out);
+  return out;
+}
 let mapTrays = [], mapStacks = [], mapFrame = null;
 function drawMap() {
   atMemo.clear();
@@ -863,6 +899,8 @@ function drawMap() {
   const P = ([x, y]) => x.toFixed(2) + "," + (-y).toFixed(2);
   let out = "";
   if (topLine) out += `<polygon class="area focus" points="${topLine.map(P).join(" ")}"/>`;
+  if (topE && !startsFrame(topE) && frameOf(top) === mapFrame) out += contours(topE);   // the ground, under everything on it
+  for (const it of items) if (it.lvl <= 2) out += contours(it.e);
   // ways between what is in view, on their drawn route or straight
   const ids = new Set(items.map(i => i.id)), seen = new Set();
   for (const ed of W.edges) {

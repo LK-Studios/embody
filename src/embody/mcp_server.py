@@ -715,7 +715,9 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         says how the story moves; a layout says where things are, and neither bends the other. placements:
         [{entity, at: [x, y, z], heading (degrees from north), one extent: radius | size [w, d, h] | footprint
         [[x, y], ...], floor, ceiling, mesh (a reference for clients), note, solid (false: others may stand in its
-        extent), landmarks {name: {at, radius}} (a place's named spots; None deletes one)}]; at may be a landmark's
+        extent), landmarks {name: {at, radius}} (a place's named spots; None deletes one), terrain {origin: the
+        grid's south-west corner [x, y], cell_m, cols, rows, z: rows*cols absolute heights row by row from the south,
+        version, source} (a place's ground, at most 16384 heights, inside its extent)}]; at may be a landmark's
         name or the name of something beside it in the same container. paths: [{a, b, route: [[x, y, z], ...],
         length}] on the connects_to edge between two places. frame: {units, bounds, geo: {lat, lon}} on the root; a
         placement's `frame` puts one on a tier (a place whose state names its `tier`: region, planet, system), and
@@ -726,11 +728,13 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def map(under: str | None = None, depth: int = 1, sketch: bool = True, width: int = 64) -> dict[str, Any]:
+    def map(under: str | None = None, depth: int = 1, sketch: bool = True, width: int = 64,
+            terrain: bool = False) -> dict[str, Any]:
         """(author, narrator, observer) The layout of a subtree, level by level: every entity under `under` (default
         the world) to `depth` levels with its position (own or inherited) and extent, the paths between the places
-        with their lengths and bearings, what is not laid out yet, warnings, and a top-down text sketch (north up)."""
-        return s.map(under=under, depth=depth, sketch=sketch, width=width)
+        with their lengths and bearings, what is not laid out yet, warnings, and a top-down text sketch (north up).
+        A place's terrain (a height grid) shows as a summary; terrain=true adds its heights."""
+        return s.map(under=under, depth=depth, sketch=sketch, width=width, terrain=terrain)
 
     @tool()
     @_wrap
@@ -956,6 +960,10 @@ class Bearer:
         sess = self._session(scope)
         if sess is None:
             await _reply(send, 401, _NO_GRANT, extra=((b"www-authenticate", b"Bearer"),))
+            return
+        if sess._reader():
+            await _reply(send, 403, {"ok": False, "reason": "the viewer shows the whole world; this grant reads one part",
+                                     "hint": "read it with map, inspect, find and perceive(from_entity=...)"})
             return
         if sess.role not in WATCH_ROLES:
             await _reply(send, 403, {"ok": False,

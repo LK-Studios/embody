@@ -13,7 +13,7 @@ Clone it, open it with Claude Code (or any MCP-capable agent), and start buildin
 - Every change is an action. Every action emits events that bubble up the tree. Rules cascade down it.
 - Humans and agents join by embodying an entity. What you embody and what capabilities you hold decide what you can do.
 - Logic is code: small Python-syntax scripts the engine runs itself, deterministically, with no imports and a fuel limit. Monsters tick, doors open paths, storylines wait for their trigger.
-- Places can have a space (0, 1, 2 or 3 dimensions), so a text room and a tactical grid are the same thing with a number changed.
+- Places can have a space (0, 1, 2 or 3 dimensions), so a text room and a tactical grid are the same thing with a number changed. A layout gives places frames, landmarks and true spots in metres, so a body sees what is in sight far off and steps across the room it stands in.
 - There is no LLM inside. Narration, roleplay and world building belong to whoever is connected.
 
 ## How it works, in seven pictures
@@ -75,7 +75,7 @@ A world is a folder under `worlds/`: `build.py`, `scripts/`, notes, tests, and a
 
 ## Watching a world
 
-`uv run python tools/watch.py` serves a read-only live graph of the database at http://127.0.0.1:8765/: containment as a tree, passages between places as arcs, who embodies what, the event feed, and each entity's state on click. Wheel to zoom, drag to pan, double-click or `fit` to see it all. The world switcher in the header defaults to the newest world (a fresh fork shows up on its own, with its lineage), and `#world-id` in the URL pins one. It reads the SQLite file while the engine writes it, so it can sit beside a running game. `.claude/launch.json` registers it as the `watch` preview. A hosted server serves the same page at `/watch` behind its bearer door, one world per grant, for the owner, author, narrator and observer roles (docs/HOSTING.md).
+`uv run python tools/watch.py` serves a read-only live view of the database at http://127.0.0.1:8765/: the world as a tree, or as a map of each place's layout with a depth dial, search with a type filter that highlights and fits what it finds, each entity's state, the event feed and who holds which seat, and a history scrubber that rebuilds the world at any past moment from its log. It works with a mouse or with taps and pinches on a phone. The world switcher in the header defaults to the newest world (a fresh fork shows up on its own, with its lineage), and `#world-id` in the URL pins one. It reads the SQLite file while the engine writes it, so it can sit beside a running game. `.claude/launch.json` registers it as the `watch` preview. A hosted server serves the same page at `/watch` behind its bearer door, one world per grant, for the owner, author, narrator and observer roles (docs/HOSTING.md).
 
 Players make their own. [embody-viewer](https://github.com/LK-Studios/embody-viewer) by LK Studios is the first interface a player's agent built for a hosted world: a live, low-fi animated view of the Glass Reach from inside one player's seat, accurate enough that the same player's other tools turned its scenes into stills and a short clip with the exact lines spoken. The engine keeps the world; anything that reads it can show it.
 
@@ -85,12 +85,14 @@ CHANGELOG.md says what changed in the engine, by date. ROADMAP.md tracks what ex
 
 ## Layout
 
-- `src/embody/` the engine: `script.py` interpreter, `store.py` SQLite, `world.py` graph, events, actions, clock, `ops.py` sessions and capabilities, `workspace.py` worlds as folders, `mirror.py`, `cli.py`, `mcp_server.py`
+- `src/embody/` the engine: `script.py` interpreter, `store.py` SQLite, `world.py` graph, events, actions, clock, `ops.py` sessions and capabilities, `layout.py` and `positions.py` frames and true spots, `far.py` what is in sight far off, `looks.py` appearance, `grants.py` and `access.py` roles and modes, `workspace.py` worlds as folders, `mirror.py`, `cli.py`, `mcp_server.py` (with `site.py` and `watch.py` for the hosted pages)
 - `examples/` sample worlds, one folder each (`ferry-at-dusk/`, `two-rooms/`): `build.py`, `scripts/`, `notes/`, `tests/`. Load one by its path (`load examples/ferry-at-dusk`), or copy it into `worlds/` to make it your own
 - `worlds/` your own worlds, the workspace's folder (git ignores it, all but `glass-reach/`, the hosted world)
-- `packs/` shared verbs and rules a world `requires` (`village/`, `d20/`, `locks/`, `works/`, `vehicles/`, `ledgers/`, `beasts/`)
+- `packs/` shared verbs and rules a world `requires` (`village/`, `d20/`, `locks/`, `works/`, `vehicles/`, `ledgers/`, `beasts/`, `sheet/`)
 - `docs/SCRIPTING.md` the scripting reference (also `guide('scripting')`)
 - `docs/ACCESS.md` owners, groups and modes on things (`chmod`, `chown`), and what a limited grant reads
+- `docs/HOSTING.md` serving a world to others: invites, roles, tokens, minds and the hosted viewer
+- `docs/WORKS.md` works: things people build over time, where others can stop them
 - `DESIGN.md` the design, authoritative
 - `tests/` run with `uv run pytest -q` (the worlds' and packs' own tests run with it)
 

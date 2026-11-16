@@ -279,6 +279,8 @@ class Session:
         self.scope = list(scope or [])
         self.grant = grant
         self.limits: dict[str, Any] = dict((grant or {}).get("limits") or {})
+        if self._reader():
+            self.capabilities = []  # a read-only grant on one part reads it as anyone would, never in full
         self.default_fuel = 20_000
         self._building = False
 
@@ -535,7 +537,32 @@ class Session:
                 if isinstance(a, dict) and "script" in a:
                     named(a["script"], "scripts")
 
+    def _reader(self) -> bool:
+        """An observer grant with limits.under: a game's read-only hand on one part of the world. It reads what lies
+        under its `under` as anyone there would (no hidden thing, no brief, memory or secret key) and writes nothing."""
+        return self.role == OBSERVER_ROLE and bool(self.limits.get("under"))
+
+    def _reader_sees(self, eid: str) -> bool:
+        """A read-only grant reads an entity under its `under` that nothing hides: neither it nor what holds it there."""
+        w = self.world
+        under = self.limits["under"]
+        if eid == under:
+            return w.get(eid) is not None
+        if not w.within(eid, under):
+            return False
+        cur, hops = w.get(eid), 0
+        while cur is not None and cur["id"] != under and hops < 64:
+            if cur["state"].get("hidden"):
+                return False
+            cur, hops = (w.get(cur["parent_id"]) if cur["parent_id"] else None), hops + 1
+        return True
+
     def _allow(self, op: str) -> None:
+        if self._reader() and op not in _READER_OPS:
+            w = self.world if self.world_id else None
+            where = (w.get(self.limits["under"]) or {}).get("name") if w else None
+            raise Rejected(f"{op} is not open to a read-only grant: it reads {', '.join(sorted(_READER_OPS - _ANYONE_OPS))}"
+                           f" under {where or 'its part of the world'}", hint="map(under=...) and inspect(entity) first")
         if allowed(self.role, op):
             return
         who = [r for r in ROLES if allowed(r, op)]
@@ -1107,7 +1134,8 @@ class Session:
         seat kept for this invite (player) or the NPC it holds (mind; scope=[...] for more). template: the character
         it may make. expires: hours. brief: the host's word to this guest alone (their orders, their first goal); it
         rides the page and the briefing join() returns. limits (builder, narrator, author): under=<entity>, the part
-        of the world it may change; types=[...], what it may spawn; scripts=<prefix>, how its scripts and schemas are
+        of the world it may change (an observer's limits={"under": ...}: a read-only hand on that part alone, as anyone
+        there sees it, for a game's client); types=[...], what it may spawn; scripts=<prefix>, how its scripts and schemas are
         named (default: from the principal). A builder needs under. slots: how many seats the world may hand this
         guest (claim_seat), over the root's `seat_slots`. vouched: the owner vouches for this hand (see vouch). Returns the token once, the link whose page carries it (good
         once, for a day) and the paste: the link with a line for the friend. Without a public URL the paste is the page."""
@@ -1202,7 +1230,7 @@ class Session:
         link = link_for(url, code)
         lim = g.get("limits")
         stored = self._page(g["role"], g.get("entity_id"), list(g.get("scope") or []), g.get("brief"), g.get("template"),
-                            self._limits_note(lim) if lim else "", url, token, bool(link))
+                            self._limits_note(lim, g["role"]) if lim else "", url, token, bool(link))
         text = stored.replace(HOST_MARK, url.removesuffix("/mcp"))
         exp = g.get("expires")
         code_exp = min(now + LINK_HOURS * 3600.0, float(exp)) if exp else now + LINK_HOURS * 3600.0
@@ -1215,10 +1243,13 @@ class Session:
                 "paste": paste(w.name, g["role"], link, text, label=label), "page": text,
                 "hint": "the old token no longer works; send them the paste: the link works once and for a day"}
 
-    def _limits_note(self, lim: dict[str, Any]) -> str:
+    def _limits_note(self, lim: dict[str, Any], role: str | None = None) -> str:
         """The line on an invite's page that says a limited grant's reach."""
         w = self.world
         where = w.need(lim["under"])["name"] if lim.get("under") and w.get(lim["under"]) else "the whole world"
+        if role == OBSERVER_ROLE:
+            return (f"   Your grant reads only under {where}, as anyone standing there would see it: map, inspect, find, "
+                    f"perceive(from_entity=<a place>), measure and looks. Nothing hidden, no one's notes, and no writes.")
         return (f"   Your hand reaches {('under ' + where) if lim.get('under') else where} and what it holds; the rest you "
                 f"may read. You may spawn {', '.join(lim['types']) if lim.get('types') is not None else 'any type'}"
                 f" and the schemas you define. Your scripts, schemas and event kinds start with {lim.get('scripts')}, and "
@@ -1234,9 +1265,16 @@ class Session:
         if bad:
             raise Rejected(f"limits know under, types and scripts, not {bad}",
                            hint="limits={'under': 'The Market Row', 'types': ['thing'], 'scripts': 'mara_'}")
+        if role == OBSERVER_ROLE:
+            # a game's read-only hand on one part of the world (Session._reader)
+            if set(lim) != {"under"}:
+                raise Rejected("an observer's limits are under=<entity> alone: the part of the world it reads",
+                               hint="limits={'under': 'The Reach'}")
+            lim["under"] = self._resolve(lim["under"])
+            return lim, self._limits_note(lim, role)
         if role not in (AUTHOR_ROLE, BUILDER, NARRATOR_ROLE):
-            raise Rejected(f"limits narrow a role that writes (builder, narrator, author), not a {role}",
-                           hint="a player or a mind is already held to its seat")
+            raise Rejected(f"limits narrow a role that writes (builder, narrator, author) or an observer's reading, "
+                           f"not a {role}", hint="a player or a mind is already held to its seat")
         if role == BUILDER and not lim.get("under"):
             raise Rejected("a builder builds under something", hint="limits={'under': 'The Market Row'}")
         if lim.get("under"):
@@ -1273,6 +1311,8 @@ class Session:
             raise Rejected(f"{e['name']} is not a body: only a body has looks", hint="looks(entity) takes a creature")
         band = self._band(eid)
         full = band == "self" or (self._privileged() and self._sees(eid))
+        if self._reader():  # what anyone standing there sees
+            return looks_mod.view(w, e, "near", w.t, float(w.meta().get("day_seconds") or 86400), full=False)
         if not full:
             p = self._principal()
             me = p["entity_id"] if p else None
@@ -1386,8 +1426,14 @@ class Session:
         """An id, or a unique name (case-insensitive)."""
         w = self.world
         if w.get(ref):
+            if self._reader() and not self._reader_sees(ref):
+                raise Rejected(f"nothing called {ref!r} in what your grant reads", hint="map() lists what it reads")
             return ref
         hits = [e for e in w.find(name=ref, limit=10) if e["name"].lower() == ref.lower()]
+        if self._reader():
+            hits = [e for e in hits if self._reader_sees(e["id"])]
+            if not hits:
+                raise Rejected(f"nothing called {ref!r} in what your grant reads", hint="map() lists what it reads")
         if len(hits) == 1:
             return hits[0]["id"]
         if not hits:
@@ -1423,6 +1469,8 @@ class Session:
                  layout: bool = False, far: bool = False) -> dict[str, Any]:
         self._tick()
         w = self.world
+        if self._reader():
+            return self._reader_place(from_entity)
         if from_entity is not None:
             if not self._privileged():
                 raise Rejected("perceiving from another entity needs the author, narrator or observer role")
@@ -1589,6 +1637,12 @@ class Session:
                                f"({geo.edge_distance(pl, at):.0f} {frame.get('units', 'm')} beyond its edge)")
             if at and bounds and not all(bounds[0][i] <= at[i] <= bounds[1][i] for i in range(2)):
                 out.append(f"{e['name']} is outside the frame's bounds")
+            if lay.get("terrain"):
+                for name, lm in (lay.get("landmarks") or {}).items():
+                    g = geo.height(lay["terrain"], lm["at"][0], lm["at"][1])
+                    if g is not None and len(lm["at"]) > 2 and abs(g - lm["at"][2]) > 2:
+                        out.append(f"{e['name']}'s terrain stands at {g:.1f} under {name}, which is at "
+                                   f"{lm['at'][2]:g}: one of them is off by {abs(g - lm['at'][2]):.1f}")
             if w.is_a(e["type"], "place"):
                 for ed in w.edges(eid, "connects_to", "out"):
                     other, route = ed["target"], ed["data"].get("route")
@@ -1614,7 +1668,7 @@ class Session:
         here = w.need(me)["parent_id"]
         hl = self._own_layout(here) if here else {}
         out: dict[str, Any] = {"frame": self._frame(me) or dict(geo.DEFAULT_FRAME), "you": mine,
-                               "here": {k: v for k, v in hl.items() if k != "note"} or None}
+                               "here": _brief_layout({k: v for k, v in hl.items() if k != "note"}) or None}
         if mine is None:
             out["note"] = "nothing here is laid out yet"
             return out
@@ -1675,6 +1729,10 @@ class Session:
                     continue
             if isinstance(new.get("at"), str):  # a landmark's name, or beside something in the same container
                 new["at"] = posn.resolve_at(w, w.need(eid)["parent_id"], new["at"], skip=eid)[0]
+            elif isinstance(new.get("at"), (list, tuple)) and len(new["at"]) == 2:
+                g = posn.ground(w, w.need(eid)["parent_id"], list(new["at"]))  # on terrain, [x, y] stands on the ground
+                if g is not None:
+                    new["at"] = [*new["at"], round(g, 2)]
             checked[eid] = (geo.merge(checked[eid], new) if eid in checked
                             else geo.merge(self._own_layout(eid), new, replace=replace))
         for eid, lay in checked.items():
@@ -1711,18 +1769,23 @@ class Session:
         return {"ok": True, "laid_out": len(checked), "paths": len(paths or []), "frame": self._frame(),
                 "warnings": self._layout_warnings(sorted(set(touched)))}
 
-    def map(self, under: str | None = None, depth: int = 1, sketch: bool = True, width: int = 64) -> dict[str, Any]:
+    def map(self, under: str | None = None, depth: int = 1, sketch: bool = True, width: int = 64,
+            terrain: bool = False) -> dict[str, Any]:
         """The layout of a subtree: the frame, every entity under `under` (default the root) to `depth` levels with its
         position (its own, or inherited from its container) and extent, the paths between the places, what is not
-        laid out yet, warnings, and a top-down text sketch (north up). Read it level by level as you lay a world out."""
+        laid out yet, warnings, and a top-down text sketch (north up). Read it level by level as you lay a world out.
+        A place's terrain shows as its summary (origin, cell_m, cols, rows, z_min, z_max); terrain=true gives the
+        heights too."""
         self._tick()
         w = self.world
-        top = self._resolve(under) if under else w.root_id
+        top = self._resolve(under) if under else self.limits["under"] if self._reader() else w.root_id
         depth = max(1, min(int(depth), 6))
         rows, frontier = [], [(top, 0)]
         while frontier and len(rows) < 300:
             eid, d = frontier.pop(0)
             for c in w.children(eid):
+                if self._reader() and not self._reader_sees(c["id"]):
+                    continue  # hidden, and all it holds
                 rows.append((c, d + 1))
                 if d + 1 < depth:
                     frontier.append((c["id"], d + 1))
@@ -1736,7 +1799,7 @@ class Session:
             if at and (spot := posn.spot_words(w, (posn._places_up(w, c["parent_id"]) or [None])[0], at)):
                 row["spot"] = spot
             if lay:
-                row["layout"] = lay
+                row["layout"] = lay if terrain else _brief_layout(lay)
                 if geo.area(lay):
                     row["area"] = round(geo.area(lay), 1)
             if c["state"].get("hidden"):
@@ -1754,7 +1817,7 @@ class Session:
         places = {r["id"] for r in items if w.is_a(r["type"], "place") and not r.get("frame")}
         tl = {} if posn.starts_frame(w, w.get(top)) else self._own_layout(top)
         out: dict[str, Any] = {"frame": posn.frame_def(w, fid) or None, "under": {"id": top, "name": w.need(top)["name"],
-                               "layout": tl or None}, "entities": items, "paths": self._path_rows(places),
+                               "layout": (tl if terrain else _brief_layout(tl)) or None}, "entities": items, "paths": self._path_rows(places),
                                "not_laid_out": unplaced, "warnings": self._layout_warnings([r["id"] for r in items])}
         if no_spot:
             out["no_spot"] = {"count": len(no_spot), "names": no_spot[:40],
@@ -1971,6 +2034,8 @@ class Session:
         for k, v in e["state"].items():
             if k in ("rules", "secret", "space") or (k == "layout" and not full):
                 continue
+            if k == "layout" and isinstance(v, dict):
+                v = _brief_layout(v)  # a terrain's heights come from map(terrain=true), not every card
             if not full and k in secret:
                 continue
             if not full and k == "sheet" and isinstance(v, dict):
@@ -2007,7 +2072,7 @@ class Session:
         """How near this reader is to a body, for its looks: self, close (within looks.CLOSE_M, both laid out in one
         frame) or near (the same place, or no spots to measure)."""
         w = self.world
-        p = self._principal() if self.world_id else None
+        p = w.principal(self.pid) if self.world_id else None  # a reader that never joined has no body to be near
         me = p["entity_id"] if p else None
         if me == eid:
             return "self"
@@ -2081,6 +2146,20 @@ class Session:
             out["fading"] = int(st["fading"])  # world days it has lain dry; thirst kills in a few
         return out
 
+    def _reader_place(self, ref: str | None) -> dict[str, Any]:
+        """perceive for a read-only grant: one place as anyone standing there sees it, with no one's own view (no
+        events, notes or goals): its card, the ambient, what is in it in plain sight and its ways out."""
+        w = self.world
+        pid = self._resolve(ref or self.limits["under"])
+        here = w.need(pid)
+        if not posn.is_place(w, here):
+            raise Rejected(f"{here['name']} is not a place", hint="perceive(from_entity=<a place>); inspect(entity) reads a thing")
+        card = self._place_card(here)
+        card["breadcrumb"] = [b for b in card["breadcrumb"] if self._reader_sees(b["id"])]
+        return {"world": w.id, "t": w.t, "ambient": self._ambient(here), "here": card,
+                "present": [self._card(c) for c in w.children(pid) if self._reader_sees(c["id"])],
+                "exits": [x for x in self._exits(pid) if self._reader_sees(x["to"])]}
+
     def _place_card(self, e: dict[str, Any]) -> dict[str, Any]:
         w = self.world
         card = self._card(e)
@@ -2134,7 +2213,7 @@ class Session:
         priv = self._privileged()
         full = priv and self._sees(eid)  # a limited grant reads its own plot in full, the rest as anyone would
         me = None
-        if not priv:
+        if not priv and not self._reader():
             me = self._me()
             ok, why = w.reachable(me, eid)
             if not ok and eid not in w.ancestors(me):
@@ -2180,7 +2259,9 @@ class Session:
                                 "parent= or state=")
         self._tick()
         w = self.world
-        if not self._privileged():
+        if self._reader():
+            under = under or self.limits["under"]
+        elif not self._privileged():
             # an embodied principal searches what it can see: its place and its holdings
             me = self._me()
             scope = w.need(me)["parent_id"] or me
@@ -2189,6 +2270,10 @@ class Session:
                       parent=self._resolve(parent) if parent else None, state=state, limit=None)
         plot = self._plot()
         rows = [r for r in rows if not r["state"].get("hidden") or (self._privileged() and self._sees(r["id"], plot))]
+        if self._reader():
+            # what anyone may read, and a state filter only on keys anyone reads: never an oracle on a secret
+            rows = [r for r in rows if self._reader_sees(r["id"])
+                    and all(k in self._visible_state(r) for k in (state or {}))]
         return [self._card(r) for r in rows[offset:offset + limit]]
 
     def history(self, since: int = 0, until: int | None = None, kinds: list[str] | None = None,
@@ -2846,7 +2931,9 @@ class Session:
             at, n = start, max(1, math.ceil(dist / 0.25))
             for k in range(1, n + 1):
                 p = [start[0] + (want[0] - start[0]) * k / n, start[1] + (want[1] - start[1]) * k / n, z]
-                if room.get("at") and geo.contains(room, p) is False:
+                if (g := posn.ground(w, here["id"], p)) is not None:
+                    p[2] = g
+                if room.get("at") and geo.contains(room, p[:2]) is False:
                     clipped, blocked = True, "the edge of " + (here["name"] or "this place")
                     break
                 hit = posn.solid_at(w, here["id"], p, skip=me)
@@ -2854,8 +2941,10 @@ class Session:
                     clipped, blocked = True, hit["name"] or hit["id"]
                     break
                 at = p
+        if (g := posn.ground(w, here["id"], at)) is not None:
+            at = [at[0], at[1], g]  # on terrain a body stands on the ground; z elsewhere is advisory
         at = [round(x, 2) for x in at]
-        if room.get("at") and geo.contains(room, at) is False:
+        if room.get("at") and geo.contains(room, at[:2]) is False:
             raise Rejected(f"{at[:2]} is outside {here['name']}", hint="perceive(layout=true) shows the place's extent")
         if posn.solid_at(w, here["id"], at, skip=me) is not None:
             raise Rejected(f"{at[:2]} is inside something solid", hint="step to a clear spot beside it")
@@ -3846,6 +3935,10 @@ class Session:
         return None
 
 
+# What a read-only grant on one part of the world may call (Session._reader): reads that show it as anyone sees it.
+_ANYONE_OPS = frozenset({"worlds", "use", "guide", "clock", "report_flaw", "leave"})
+_READER_OPS = _ANYONE_OPS | {"map", "inspect", "find", "perceive", "measure", "looks"}
+
 # Events that carry words: one who does not understand (World.understands) hears their tone, not their text.
 _WORD_KINDS = frozenset({"say", "talked"})
 
@@ -3853,6 +3946,13 @@ _WORD_KINDS = frozenset({"say", "talked"})
 def _unworded(p: dict[str, Any]) -> dict[str, Any]:
     """A spoken line as a beast hears it: who it was to and how it sounded, no words."""
     return {"to": p.get("to"), "tone": p.get("tone") or "calm", "heard": False}
+
+
+def _brief_layout(lay: dict[str, Any]) -> dict[str, Any]:
+    """A layout with its terrain's heights left out (geo.terrain_summary)."""
+    if not lay or not isinstance(lay.get("terrain"), dict):
+        return lay
+    return {**lay, "terrain": geo.terrain_summary(lay["terrain"])}
 
 
 def _exchange(x: dict[str, Any], words: bool) -> dict[str, Any]:

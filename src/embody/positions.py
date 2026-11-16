@@ -172,6 +172,12 @@ def landmark_names(w: "World", where: str) -> list[str]:
     return seen
 
 
+def ground(w: "World", place: str | None, p: list[float]) -> float | None:
+    """The ground's height at p in a place with `terrain` on its own layout, for what stands directly in that place
+    (not in a place inside it: a cellar under the ridge keeps its own floor); None where it has no terrain there."""
+    return geo.height(_layout(w, place).get("terrain"), p[0], p[1]) if place else None
+
+
 def solid(lay: dict[str, Any]) -> bool:
     """A thing with an extent is solid (you stand beside the cistern, not in it) unless its layout says solid: false."""
     return bool(lay.get("at")) and any(lay.get(k) for k in ("radius", "size", "footprint")) and lay.get("solid") is not False
@@ -215,6 +221,9 @@ def find_spot(w: "World", parent: str, near: list[float], within: float | None =
             break
         a = k * 2.399963  # the golden angle: the spiral fills the disc evenly
         p = [round(near[0] + r * math.cos(a), 2), round(near[1] + r * math.sin(a), 2), z]
+        g = ground(w, parent, p)
+        if g is not None:
+            p[2] = round(g, 2)  # on a place's terrain a spot stands on its ground
         if pl.get("at") and geo.contains(pl, p) is False:
             continue
         if solid_at(w, parent, p, skip) is not None:
@@ -224,7 +233,8 @@ def find_spot(w: "World", parent: str, near: list[float], within: float | None =
         if reserved is not None:
             reserved.setdefault(parent, []).append(p)
         return p
-    return [round(near[0], 2), round(near[1], 2), z]
+    g = ground(w, parent, near)
+    return [round(near[0], 2), round(near[1], 2), round(g, 2) if g is not None else z]
 
 
 def resolve_at(w: "World", parent: str, spec: Any, skip: str | None = None) -> tuple[list[float], str]:
@@ -234,7 +244,10 @@ def resolve_at(w: "World", parent: str, spec: Any, skip: str | None = None) -> t
     from .world import Rejected
     if isinstance(spec, (list, tuple)):
         v = geo._vec(spec, "at", 2, 3)
-        return (v if len(v) == 3 else v + [0.0]), "coordinates"
+        if len(v) == 2:  # no height: the ground's, where the place has terrain
+            g = ground(w, parent, v)
+            return v + [round(g, 2) if g is not None else 0.0], "coordinates"
+        return v, "coordinates"
     if not isinstance(spec, str) or not spec.strip():
         raise Rejected("at is [x, y, z] or a landmark's name", hint='at=[12, -4, 0] or at="the cistern"')
     lm = find_landmark(w, parent, spec)

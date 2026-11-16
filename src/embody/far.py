@@ -160,6 +160,30 @@ def blocked(eye_at: list[float], eye_m: float, at: list[float], top_m: float, la
     return any(occ_top > eye_m + (top_m - eye_m) * t for t in ts)
 
 
+def under_ground(t: dict[str, Any], eye_at: list[float], eye_m: float, at: list[float], top_m: float,
+                 unit: float) -> bool:
+    """Whether a terrain grid's ground rises above the sight line anywhere between the eye and the target's top,
+    sampled about a cell apart where the line runs over the grid."""
+    d = geo.ground(eye_at, at)
+    n = max(2, math.ceil(d / float(t["cell_m"])))
+    for k in range(1, n):
+        s = k / n
+        g = geo.height(t, eye_at[0] + (at[0] - eye_at[0]) * s, eye_at[1] + (at[1] - eye_at[1]) * s)
+        if g is not None and g * unit > eye_m + (top_m - eye_m) * s + 0.01:
+            return True
+    return False
+
+
+def _viewpoint(w: "World", place: str, body: str | None) -> list[float] | None:
+    """Where a body stands to look, when it stands directly on its place's terrain: its own spot, else None (the
+    place's spot is the viewpoint, as before)."""
+    e = w.get(body) if body else None
+    if e is None or e["parent_id"] != place or not (posn._layout(w, place).get("terrain")):
+        return None
+    p = posn.resolve(w, body)
+    return list(p["at"]) + [0.0] * (3 - len(p["at"])) if p["at"] and p["how"] in ("own", "grid") else None
+
+
 def _up(w: "World", eid: str, key: str) -> Any:
     cur, hops = w.get(eid), 0
     while cur is not None and hops < 64:
@@ -202,6 +226,11 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
     at = list(spot["at"]) + [0.0] * (3 - len(spot["at"]))
     zr = geo.z_range(lay_here)
     eye = (zr[0] if zr is not None else at[2]) * unit + EYE_M
+    stand = _viewpoint(w, place, body)
+    if stand is not None:  # on the ground of a place with terrain: from where the body stands, its eye over that ground
+        at = stand
+        g = geo.height(lay_here.get("terrain"), at[0], at[1])
+        eye = (g if g is not None else at[2]) * unit + EYE_M
     root = w.get(w.root_id)
     rs = root["state"] if root else {}
     k = float(rs.get("far_k") or FAR_K)
@@ -220,6 +249,11 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
         if o["state"].get("occludes") is True and isinstance(lay, dict) and lay.get("at") and \
                 posn.frame_of(w, o["id"]) in frames and geo.z_range(lay) is not None:
             walls.append((o["id"], lay, top(lay, lay["at"], unit)))
+    grounds = []  # every place's terrain in this ruler: a ridge's own ground hides what lies behind it
+    for o in w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"terrain"%')):
+        t = (o["state"].get("layout") or {}).get("terrain") if isinstance(o["state"].get("layout"), dict) else None
+        if isinstance(t, dict) and posn.frame_of(w, o["id"]) in frames:
+            grounds.append((o["id"], t))
     rows = w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"far"%'))
     seen: dict[str, dict[str, Any]] = {}
     for e in rows:
@@ -251,6 +285,8 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
         tip = top(lay, p["at"], unit)
         if any(blocked(at, eye, p["at"], tip, wl, wt) for oid, wl, wt in walls
                if oid != e["id"] and oid not in up and e["id"] not in w.ancestors(oid)):
+            continue
+        if any(under_ground(t, at, eye, p["at"], tip, unit) for gid, t in grounds if gid != e["id"] and gid not in up):
             continue
         band = "far" if d > reach / 2 else "mid"
         line = lit["line"] if lit else (f.get("mid") or f.get("far")) if band == "mid" else (f.get("far") or f.get("mid"))
@@ -319,4 +355,5 @@ def carried(w: "World", place: str, body: str | None, at: list[float], unit: flo
 
 
 def _key(w: "World", place: str, body: str | None) -> str:
-    return json.dumps([w.id, place, body, int(w.t // 3600)])
+    stand = _viewpoint(w, place, body)  # on terrain, where it stands counts too, to ten metres
+    return json.dumps([w.id, place, body, int(w.t // 3600), [round(x / 10) for x in stand[:2]] if stand else None])

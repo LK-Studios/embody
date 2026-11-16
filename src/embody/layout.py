@@ -13,7 +13,10 @@ from typing import Any
 from .world import Rejected
 
 FRAME_KEYS = {"units", "up", "north", "bounds", "geo", "note", "aligned_with"}
-LAYOUT_KEYS = {"at", "heading", "radius", "size", "footprint", "floor", "ceiling", "mesh", "note", "landmarks", "solid"}
+LAYOUT_KEYS = {"at", "heading", "radius", "size", "footprint", "floor", "ceiling", "mesh", "note", "landmarks", "solid",
+               "terrain"}
+TERRAIN_KEYS = {"origin", "cell_m", "cols", "rows", "z", "version", "source"}
+TERRAIN_MAX_CELLS = 16384  # 64 x 256: a ridge at 20 m cells, a valley at 50
 COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 DEFAULT_FRAME = {"units": "m", "up": "z", "north": "y"}
 
@@ -107,7 +110,77 @@ def check_layout(lay: dict[str, Any]) -> dict[str, Any]:
     if out.get("footprint") and "at" not in out:
         c = centroid(out["footprint"])
         out["at"] = [c[0], c[1], out.get("floor", 0.0)]
+    if lay.get("terrain") is not None:
+        out["terrain"] = check_terrain(lay["terrain"], out)
     return out
+
+
+def check_terrain(t: Any, lay: dict[str, Any]) -> dict[str, Any]:
+    """A place's ground as a height grid in the frame its own spot is in: {origin: its south-west corner [x, y],
+    cell_m, cols, rows, z: rows*cols absolute heights row by row from the south, west to east, version, source}. It
+    must lie within the place's extent's bounding box, give or take a cell."""
+    if not isinstance(t, dict):
+        raise Rejected("terrain is a dict", hint='{"origin": [x, y], "cell_m": 20, "cols": 62, "rows": 124, '
+                                                 '"z": [...rows*cols heights...], "version": 1, "source": "..."}')
+    bad = set(t) - TERRAIN_KEYS
+    if bad:
+        raise Rejected(f"terrain does not know {sorted(bad)}", hint=f"terrain keys: {sorted(TERRAIN_KEYS)}")
+    origin = _vec(t.get("origin"), "terrain.origin", 2, 2)
+    cell = _num(t.get("cell_m"), "terrain.cell_m")
+    if cell <= 0:
+        raise Rejected("terrain.cell_m must be above zero")
+    cols, rows = t.get("cols"), t.get("rows")
+    if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 2 for n in (cols, rows)):
+        raise Rejected("terrain.cols and terrain.rows are whole numbers, 2 or more")
+    if cols * rows > TERRAIN_MAX_CELLS:
+        raise Rejected(f"terrain is at most {TERRAIN_MAX_CELLS} heights; {cols} x {rows} is {cols * rows}",
+                       hint="use a coarser cell_m")
+    z = t.get("z")
+    if not isinstance(z, (list, tuple)) or len(z) != cols * rows:
+        raise Rejected(f"terrain.z is {cols * rows} heights (rows x cols, row by row from the south), "
+                       f"got {len(z) if isinstance(z, (list, tuple)) else z!r}")
+    zs = [_num(v, "terrain.z") for v in z]
+    out: dict[str, Any] = {"origin": origin, "cell_m": cell, "cols": cols, "rows": rows, "z": zs}
+    if t.get("version") is not None:
+        if not isinstance(t["version"], int) or isinstance(t["version"], bool):
+            raise Rejected("terrain.version is a whole number")
+        out["version"] = t["version"]
+    if t.get("source") is not None:
+        if not isinstance(t["source"], str) or len(t["source"]) > 200:
+            raise Rejected("terrain.source is text, at most 200 characters")
+        out["source"] = t["source"]
+    poly = outline(lay)
+    if poly is not None:
+        lo = [min(p[0] for p in poly) - cell, min(p[1] for p in poly) - cell]
+        hi = [max(p[0] for p in poly) + cell, max(p[1] for p in poly) + cell]
+        far_x, far_y = origin[0] + (cols - 1) * cell, origin[1] + (rows - 1) * cell
+        if origin[0] < lo[0] or origin[1] < lo[1] or far_x > hi[0] or far_y > hi[1]:
+            raise Rejected(f"terrain runs from {origin} to {[far_x, far_y]}, outside the place's extent "
+                           f"({[round(v + cell, 1) for v in lo]} to {[round(v - cell, 1) for v in hi]})",
+                           hint="origin is the grid's south-west corner in the frame the place's own spot is in")
+    return out
+
+
+def height(t: dict[str, Any] | None, x: float, y: float) -> float | None:
+    """The ground's height at (x, y) from a terrain grid, by bilinear interpolation; None off the grid."""
+    if not t:
+        return None
+    cell, cols, rows = float(t["cell_m"]), int(t["cols"]), int(t["rows"])
+    fx, fy = (x - t["origin"][0]) / cell, (y - t["origin"][1]) / cell
+    if fx < 0 or fy < 0 or fx > cols - 1 or fy > rows - 1:
+        return None
+    i, j = min(int(fx), cols - 2), min(int(fy), rows - 2)
+    dx, dy = fx - i, fy - j
+    z = t["z"]
+    a, b = z[j * cols + i], z[j * cols + i + 1]
+    c, d = z[(j + 1) * cols + i], z[(j + 1) * cols + i + 1]
+    return (a * (1 - dx) + b * dx) * (1 - dy) + (c * (1 - dx) + d * dx) * dy
+
+
+def terrain_summary(t: dict[str, Any]) -> dict[str, Any]:
+    """A terrain grid without its heights: what an agent's map needs; terrain=true asks for the grid."""
+    zs = t.get("z") or [0.0]
+    return {**{k: v for k, v in t.items() if k != "z"}, "z_min": min(zs), "z_max": max(zs)}
 
 
 def check_landmarks(lms: Any) -> dict[str, dict[str, Any]]:
