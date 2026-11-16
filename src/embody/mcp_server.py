@@ -854,12 +854,15 @@ class Bearer:
     401 in the engine's own refusal shape. The grant's session rides the request's context into the tools.
     Three paths stand outside the MCP door: GET /health (the platform's probe, no grant), /watch (the live
     viewer: its page is public, its data needs a grant that may read everything, and shows that grant's world) and
-    GET /i/<code> (an invite link's page: the token and the brief for the agent that reads it, while the link is good)."""
+    GET /i/<code> (an invite link's page: the token and the brief for the agent that reads it, while the link is good).
+    GET /openapi.json and GET /docs describe the door's ops and need no grant either: they hold no world data."""
 
-    def __init__(self, app: Any, hub: Hub, site: Any = None):
+    def __init__(self, app: Any, hub: Hub, site: Any = None, srv: Any = None):
         self.app = app
         self.hub = hub
         self.site = site  # site.Site: the world's public page and feeds, or None
+        self.srv = srv  # the MCP server, whose tools /openapi.json describes
+        self._tools: list[dict[str, Any]] | None = None
 
     def _session(self, scope: dict[str, Any]) -> Session | None:
         auth = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin-1")
@@ -887,6 +890,9 @@ class Bearer:
         if path.startswith("/i/"):
             await self._invite(scope, path[len("/i/"):], send)
             return
+        if path in ("/openapi.json", "/docs") and scope.get("method") == "GET" and self.srv is not None:
+            await self._api(scope, path, send)
+            return
         if self.site is not None and path != "/mcp" and not path.startswith("/op") \
                 and await self.site.handle(scope, receive, send, path):
             return
@@ -902,6 +908,23 @@ class Bearer:
             await self.app(scope, receive, send)
         finally:
             _current.reset(tok)
+
+    async def _api(self, scope: dict[str, Any], path: str, send: Any) -> None:
+        """GET /openapi.json (?role=...): the door's ops as OpenAPI 3.1, from the MCP tools' own docs and schemas.
+        GET /docs: a page to read them and try them with a token. Public: they describe the engine, not a world."""
+        from .openapi import DOCS_HTML, ORDER, spec
+        if path == "/docs":
+            await _reply(send, 200, DOCS_HTML.encode("utf-8"), ctype="text/html; charset=utf-8")
+            return
+        role = (parse_qs((scope.get("query_string") or b"").decode("latin-1")).get("role") or [""])[0].strip().lower()
+        if role and role not in ORDER:
+            await _reply(send, 400, {"ok": False, "reason": f"no role {role!r}", "hint": "/openapi.json?role=player",
+                                     "alternatives": list(ORDER)})
+            return
+        if self._tools is None:
+            self._tools = [{"name": t.name, "description": t.description, "input_schema": t.input_schema}
+                           for t in await self.srv.list_tools()]
+        await _reply(send, 200, spec(self._tools, origin=request_origin.get(), role=role or None))
 
     async def _op(self, scope: dict[str, Any], receive: Any, sess: Session, op: str, send: Any) -> None:
         """The door as plain HTTPS, for an agent whose harness has not loaded the MCP server yet (most load one only
@@ -1003,7 +1026,7 @@ def http_app(srv: Any, host: str = "127.0.0.1", site: Any = None) -> Bearer:
     from mcp.server.transport_security import TransportSecuritySettings
     app = srv.streamable_http_app(streamable_http_path="/mcp", json_response=True, stateless_http=True, host=host,
                                   transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
-    return Bearer(app, srv.hub, site)
+    return Bearer(app, srv.hub, site, srv=srv)
 
 
 def ticker(engine: Engine, stop: threading.Event, period: float = 1.0) -> threading.Thread:

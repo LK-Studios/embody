@@ -67,7 +67,7 @@ A world is a folder under `worlds/`: `build.py`, `scripts/`, notes, tests, and a
 
 - **Any agent, any harness**: `AGENTS.md` is the instruction file (Codex, Claude Code, Cursor, a plain MCP client); `CLAUDE.md` points at it.
 - **MCP**: `uv run embody serve --as <principal> [--author] [--observer]` on stdio. One process is one principal; run one per player or NPC agent, all against the same database.
-- **Hosted**: `uv run embody serve --http --url https://your.host/mcp` serves the same tools over streamable HTTP, one bearer token per grant. `embody invite player --entity reeve --label Sam` prints a link a friend pastes into their agent; the agent reads the page at the link, adds the server, calls `join()`, and they are the reeve. Roles (owner, author, narrator, player, mind, observer) are checked by the engine on every op. docs/HOSTING.md has the path.
+- **Hosted**: `uv run embody serve --http --url https://your.host/mcp` serves the same tools over streamable HTTP, one bearer token per grant. `embody invite player --entity reeve --label Sam` prints a link a friend pastes into their agent; the agent reads the page at the link, adds the server, calls `join()`, and they are the reeve. Roles (owner, author, narrator, player, mind, observer) are checked by the engine on every op. The same ops answer as plain HTTPS at `POST /op/<name>`, described at `/openapi.json` and readable at `/docs`. docs/HOSTING.md has the path.
 - **Watch**: `embody watch --door .mcp.json --until "came('Reeve') or heard('water')" --for 8h` waits for a condition over what that grant may know, for hours, across reconnects and redeploys, and exits printing what happened. An agent harness runs it in the background and sleeps until it fires; `wait(until=...)` is the same oracle as one tool call.
 - **CLI**: every op, `uv run embody --help`.
 - **Python**: `from embody.ops import Engine`, `Engine("embody.db").session("me", capabilities=["author"])`.
@@ -85,7 +85,7 @@ CHANGELOG.md says what changed in the engine, by date. ROADMAP.md tracks what ex
 
 ## Layout
 
-- `src/embody/` the engine: `script.py` interpreter, `store.py` SQLite, `world.py` graph, events, actions, clock, `ops.py` sessions and capabilities, `layout.py` and `positions.py` frames and true spots, `far.py` what is in sight far off, `looks.py` appearance, `grants.py` and `access.py` roles and modes, `workspace.py` worlds as folders, `mirror.py`, `cli.py`, `mcp_server.py` (with `site.py` and `watch.py` for the hosted pages)
+- `src/embody/` the engine: `script.py` interpreter, `store.py` SQLite, `world.py` graph, events, actions, clock, `ops.py` sessions and capabilities, `layout.py` and `positions.py` frames and true spots, `far.py` what is in sight far off, `looks.py` appearance, `grants.py` and `access.py` roles and modes, `workspace.py` worlds as folders, `mirror.py`, `cli.py`, `mcp_server.py` (with `site.py` and `watch.py` for the hosted pages, `openapi.py` for the API description)
 - `examples/` sample worlds, one folder each (`ferry-at-dusk/`, `two-rooms/`): `build.py`, `scripts/`, `notes/`, `tests/`. Load one by its path (`load examples/ferry-at-dusk`), or copy it into `worlds/` to make it your own
 - `worlds/` your own worlds, the workspace's folder (git ignores it, all but `glass-reach/`, the hosted world)
 - `packs/` shared verbs and rules a world `requires` (`village/`, `d20/`, `locks/`, `works/`, `vehicles/`, `ledgers/`, `beasts/`, `sheet/`)
