@@ -230,6 +230,9 @@ def test_thirst_on_the_open_road_and_water_from_a_skin_or_a_source():
     with pytest.raises(Rejected) as ex:  # a full skin takes no draw
         you.act("fill", "Waterskin")
     assert "already full" in str(ex.value) and state(gm, "The cistern")["left"] == 11
+    with pytest.raises(Rejected) as ex:  # fill on the source itself points at the skin in hand
+        you.act("fill", "The cistern")
+    assert "fill Waterskin here, or drink from The cistern" in str(ex.value)
     gm.patch("Reeve Ansel Varrick", {"water": 10})
     with pytest.raises(Rejected) as ex:  # a full body takes no draw either: the water is not poured away
         you.act("drink", "The cistern")

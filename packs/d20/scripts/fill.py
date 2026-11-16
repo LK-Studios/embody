@@ -4,7 +4,13 @@ def source_here(ctx):
 
 def check(ctx):
     if ctx.target.parent.id != ctx.actor.id:
-        return "you are not holding it"
+        # players tried fill on the well's cups: point at the skin they carry, or at drinking
+        skin = held(ctx.actor, "capacity")
+        if ctx.target.state.water_source or ctx.target.state.left is not None:
+            if skin is None:
+                return "fill takes a skin you carry, and you carry none: drink from " + ctx.target.name + " instead"
+            return "fill takes the skin you carry: fill " + skin.name + " here, or drink from " + ctx.target.name
+        return "you are not holding it: fill takes a skin in your hands"
     if ctx.target.state.capacity is None:
         return "it holds no water"
     if ctx.target.state.left is not None and int(ctx.target.state.left) >= int(ctx.target.state.capacity):
