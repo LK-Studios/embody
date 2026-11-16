@@ -640,6 +640,42 @@ class Ctx(ScriptObject):
                             actor=self._actor, caused_by=self._caused_by)
         return EntityView(self._w, eid)
 
+    def _frame_lifts(self, id: Any, to: Any, count: Any = None) -> bool:
+        """A frame's machine lifts stone (Nate 2026-11-16, Bram's crane on a hauler): its code may move into the machine
+        a thing the world marks `stone` that lies loose where the machine stands (a direct child of that place, not
+        held or inside anything), portable, not a body, not canon, nobody's but the caller's, and only as far as the
+        machine's `cargo` allows. True when this is such a lift; a lift that breaks one of those says which; anything
+        else is False, for _hold to judge."""
+        lim, w = self._limits or {}, self._w
+        if not lim.get("frame") or lim.get("under") != "self":
+            return False
+        under = self._under()
+        e, t = w.get(_ev(w, id)), w.get(_ev(w, to))
+        if not e or not t or not under or not w.within(t["id"], under) or w.within(e["id"], under):
+            return False
+        machine = w.need(under)
+        if e["parent_id"] != machine["parent_id"]:
+            return False
+        st = e["state"]
+        why = None
+        if st.get("stone") is not True:  # marked true; a rubble pile's `stone` is a count of what is left
+            why = f"{e['name']} is not stone: a machine's code lifts only what the world marks stone"
+        elif not st.get("portable") or w.is_a(e["type"], "creature"):
+            why = f"{e['name']} is not a load to lift"
+        elif st.get("canon"):
+            why = f"{e['name']} is canon"
+        elif (acl.of(e) or {}).get("owner") and str(acl.of(e)["owner"]) != self._actor:
+            why = f"{e['name']} is someone's: a machine lifts only loose stone nobody owns"
+        cap = machine["state"].get("cargo")
+        if why is None and cap is not None:
+            load = sum(_bulk(c) for c in w.children(under) if not w.is_a(c["type"], "creature"))
+            part = _bulk(e) if count is None else _bulk(e) * min(1.0, float(count) / max(1, _units(e)))
+            if load + part > float(cap):
+                why = f"{machine['name']} is full ({_num(load)} of {cap} cargo)"
+        if why:
+            raise Rejected(why, hint="a machine's code lifts loose stone lying where it stands into itself")
+        return True
+
     def _frame_hands(self, to: Any, id: Any, count: Any = None) -> None:
         """A frame's code hands things to the one who chose its verb only into their hands and only as their `carry`
         allows, as take and give do (a playtest's hauler unloaded 24 things onto a body that carries 20)."""
@@ -660,7 +696,10 @@ class Ctx(ScriptObject):
                            hint="hand over less, or let them put something down first")
 
     def move(self, id: Any, parent: Any, pos: Any = None) -> None:
-        self._hold(id, parent)
+        if self._frame_lifts(id, parent):
+            self._hold(parent)
+        else:
+            self._hold(id, parent)
         if (self._limits or {}).get("frame"):
             self._frame_hands(parent, id)
         self._w.move(_ev(self._w, id), _ev(self._w, parent), pos=pos, actor=self._actor, caused_by=self._caused_by)
@@ -687,7 +726,10 @@ class Ctx(ScriptObject):
     def transfer(self, id: Any, to: Any, count: Any = None) -> EntityView:
         """Move a thing, or `count` units of a stack, into `to`, joining a like stack there; returns what holds the
         moved units now (a new stack, the old one it joined, or the thing itself)."""
-        self._hold(id, to)
+        if self._frame_lifts(id, to, count):
+            self._hold(to)
+        else:
+            self._hold(id, to)
         if (self._limits or {}).get("frame"):
             self._frame_hands(to, id, count)
         return EntityView(self._w, self._w.transfer(_ev(self._w, id), _ev(self._w, to), count=count,

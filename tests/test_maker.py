@@ -299,3 +299,44 @@ def test_a_bodys_own_verb_with_targets_reaches_others_and_only_the_owner_gives_o
     assert "no schema" in call(gm, "program", thing="Guard", verb="burn", source=ICE, targets="dragon")["reason"]
     sam.act("take", "Wright's frame")
     assert "owner's and author's" in call(sam, "program", thing="Cart", verb="zap", source=ICE, targets="any")["reason"]
+
+
+# Bram's crane on a hauler (Nate 2026-11-16, "yes on the stone lifting crane"): loose stone where it stands, into itself
+CRANE = """
+def apply(ctx):
+    p = ctx.params or {}
+    it = ctx.get(p.get('id')) if p.get('id') else None
+    if it is None:
+        for c in ctx.self.parent.children():
+            if c.name == p.get('name'):
+                it = c
+    ctx.transfer(it, ctx.self, p.get('count'))
+    return [c.name for c in ctx.self.children()]
+"""
+
+
+def test_a_frames_machine_lifts_loose_stone_where_it_stands_and_nothing_else():
+    eng, w, gm, sam, nate = yard()
+    gm.patch("Cart", {"cargo": 4})
+    gm.spawn("thing", "Hall", name="Rubble", state={"portable": True, "stone": True, "count": 6})
+    gm.spawn("thing", "Hall", name="Lantern", state={"portable": True})
+    gm.spawn("thing", "Hall", name="Spoil heap", state={"portable": True, "stone": 5})  # a count, not the mark
+    gm.spawn("thing", "Hall", name="Marked block", state={"portable": True, "stone": True})
+    gm.chown("Marked block", owner="Guard")
+    pebble = gm.spawn("thing", "Old cart", name="Pebble", state={"portable": True, "stone": True})["id"]
+    far = gm.spawn("thing", "Cell", name="Far rubble", state={"portable": True, "stone": True})["id"]
+    gm.program("Cart", "crane", CRANE, frame="Wright's frame")
+    assert "Rubble" in nate.act("crane", "Cart", {"name": "Rubble", "count": 2})["result"]
+    rubble = [e for e in w.find(name="Rubble") if e["parent_id"] == w.find(name="Cart")[0]["id"]]
+    assert [e["state"]["count"] for e in rubble] == [2]
+    for name, why in (("Lantern", "is not stone"), ("Spoil heap", "is not stone"), ("Marked block", "is someone's")):
+        with pytest.raises(Rejected) as r:
+            nate.act("crane", "Cart", {"name": name})
+        assert why in r.value.reason
+    with pytest.raises(Rejected) as r:  # 2 rubble aboard (riders are not cargo): 3 more is past 4
+        nate.act("crane", "Cart", {"name": "Rubble", "count": 3})
+    assert "is full" in r.value.reason
+    for thing in (pebble, far):  # stone inside something else, and stone in another place, are not the machine's to lift
+        with pytest.raises(Rejected) as r:
+            nate.act("crane", "Cart", {"id": thing})
+        assert "reaches only the thing it runs on" in r.value.reason or "not here" in r.value.reason or "nothing" in r.value.reason

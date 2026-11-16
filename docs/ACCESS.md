@@ -122,6 +122,10 @@ How the code runs: it carries `# limits: {"under": "self", "frame": ..., "script
   it may move and give things to, but it changes them, or what they carry, only on the keys the frame's
   `maker.actor_keys` names (none by default), and never a body's make: stats, skills, sheet, hp, water, carry,
   faction, memory and every key the body's schema gives it. It ties them to nothing (no link or relation on them).
+- It lifts stone (Nate 2026-11-16, a hauler's crane): it may move into its machine a thing the world marks
+  `stone: true` that lies loose where the machine stands (a direct child of that place, not held or inside anything),
+  portable, not a body, not canon, nobody's but the caller's, within the machine's `cargo` when it has one. Anything
+  else out there stays out of its hand; the refusal names which of these it broke.
 - It reads the machine and its load in full; the one who chose its verb as their own card (no secrets); a body riding
   in the machine, and what that body holds, are not its load. Of everything else it reads only what lies in plain
   sight (description, portable, count, kind, bulk, locked, open, lit), and a hidden thing out there is not there for
