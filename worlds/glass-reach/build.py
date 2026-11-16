@@ -681,14 +681,14 @@ ROUTES = [
     {"a": "The Gate Yard", "b": "The Salt Road", "route": [[55, 0], [70, 0], [70, 40]]},
     {"a": "The Salt Road", "b": "The Carriers' Landing", "route": [[80, 3400], [160, 3470]]},
     {"a": "The Salt Road", "b": "The Glass Flats", "route": [[80, 700], [400, 700]]},
-    {"a": "The Glass Flats", "b": "Red Ridge", "route": [[400, 700], [1500, 800], [2800, 1000], [3900, 1100]]},
+    {"a": "The Glass Flats", "b": "Red Ridge", "route": [[400, 700], [1500, 800], [2800, 1000], [3900, 1100], [4153.6, 1114.6, 10]]},  # to the pen gate (Ridge Kid, canon ledger 2)
     {"a": "The Glass Flats", "b": "The Bone Field", "route": [[1800, 400], [2450, -1600]]},
     {"a": "Red Ridge", "b": "The Deepwell", "route": [[4100, 1050, 0], [4150, 1000, -25]]},
     {"a": "The Bone Field", "b": "The Dry Camp", "route": [[2600, -2100], [2550, -2900], [2500, -3300, -4]]},
     {"a": "The Salt Road", "b": "The Crawler's Lee", "route": [[80, 1800], [96, 1800, 0]]},
     {"a": "The Salt Road", "b": "The Old Salt Works", "route": [[60, 5600], [-300, 5600, -2]]},
     {"a": "The Glass Flats", "b": "The Low Well", "route": [[2800, 1000], [3600, 100], [3950, -250, -6]]},
-    {"a": "Red Ridge", "b": "The Low Well", "route": [[4050, 100, 0], [3950, -250, -6]]},
+    {"a": "Red Ridge", "b": "The Low Well", "route": [[4153.6, 1114.6, 10], [4274, 973], [4196, 683], [4118, 394], [4054, 152], [4050, 100, 0], [3950, -250, -6]]},  # from the pen gate (Ridge Kid, canon ledger 3)
     {"a": "The Carriers' Landing", "b": "The Guild Yard", "route": [[450, 3500], [460, 3500]]},
     {"a": "The Guild Yard", "b": "The Yard Bunkhouse", "route": [[540, 3530], [560, 3550]]},
     {"a": "The Guild Yard", "b": "The Counting House", "route": [[540, 3470], [560, 3450]]},
