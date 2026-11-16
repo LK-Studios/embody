@@ -1359,6 +1359,10 @@ class Session:
         if len(hits) == 1:
             return hits[0]["id"]
         if not hits:
+            if re.search(r"^\s*(\d+|a few|some|all|several)\s|\sto\s", ref, re.I):
+                raise Rejected(f"nothing called {ref!r}",
+                               hint="a target is one thing's id or name: a count goes in params (take <id> with count=N), "
+                                    "and give takes the person as the target (give <who> with item=<id>, count=N)")
             raise Rejected(f"nothing called {ref!r}", hint="use an id from perceive or find(name=...)")
         raise Rejected(f"{len(hits)} entities are called {ref!r}: " + ", ".join(h["id"] for h in hits),
                        hint="use the id")
@@ -2445,19 +2449,62 @@ class Session:
         p = self._principal()
         since = p["cursor_seq"] if p else self.world.store.next_seq(self.world.id) - 1
         tid = None
+        said = (target, params)
         try:
+            target, params, read = self._read_words(me, verb, target, params)
             tid = self._resolve_for(me, target, verb, params) if target else None
             self._stray_params(me, verb, tid, params)
             r = self.world.act(me, verb, tid, params, principal_id=self.pid)
         except Rejected as why:
-            self._refused(me, verb, target, tid, params, why)
+            self._refused(me, verb, said[0], tid, said[1], why)
             raise
+        if read:
+            r["read_as"] = {"target": target, "params": params}
         r = self._turn(r)
         w = self.world
         r["events"] = self._events_for(me, w.events(since=since, touching=me, limit=200))
         r["cursor"] = w.store.next_seq(w.id) - 1
         w.set_cursor(self.pid, r["cursor"])
         return r
+
+    def _names_something(self, ref: str) -> bool:
+        w = self.world
+        return bool(w.get(ref)) or any(e["name"].lower() == ref.lower() for e in w.find(name=ref, limit=10))
+
+    def _declares(self, me: str, verb: str, tid: str | None, key: str) -> bool:
+        try:
+            adef, _ = self.world.resolve_action(me, verb, tid)
+        except Rejected:
+            return False
+        return key in (adef.get("params") or {})
+
+    def _read_words(self, me: str, verb: str, target: str | None,
+                    params: dict[str, Any] | None) -> tuple[str | None, dict[str, Any] | None, bool]:
+        """A target written the way a player says it, read into params, only when the words as written name nothing:
+        "5 Crown arrows" is count 5 (a verb that takes count), and "5 Crown arrows to Rin" or "e485 to e422" is the
+        person as the target and the thing as `item` (a verb that takes item, as give). Anything else goes on as
+        written, so its refusal says why. Returns (target, params, read)."""
+        if not target or self._names_something(target):
+            return target, params, False
+        p = dict(params or {})
+        t = target.strip()
+        to = re.match(r"^(.+?)\s+to\s+(.+)$", t, re.I)
+        if to and "item" not in p and self._names_something(to.group(2).strip()):
+            who = self._resolve_for(me, to.group(2).strip(), verb, params)
+            if self._declares(me, verb, who, "item"):
+                t, thing = to.group(2).strip(), to.group(1).strip()
+                n = re.match(r"^(\d+)\s+(.+)$", thing)
+                if n and "count" not in p and self._declares(me, verb, who, "count"):
+                    p["count"], thing = int(n.group(1)), n.group(2).strip()
+                p["item"] = thing
+                return t, p, True
+        n = re.match(r"^(\d+)\s+(.+)$", t)
+        if n and "count" not in p and self._names_something(n.group(2).strip()):
+            tid = self._resolve_for(me, n.group(2).strip(), verb, params)
+            if self._declares(me, verb, tid, "count"):
+                p["count"] = int(n.group(1))
+                return n.group(2).strip(), p, True
+        return target, params, False
 
     def _stray_params(self, me: str, verb: str, tid: str | None, params: dict[str, Any] | None) -> None:
         """A param nothing reads is dropped without a word and the deed goes out empty (talk with `topic` for `about`

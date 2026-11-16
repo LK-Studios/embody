@@ -180,3 +180,19 @@ def test_what_weighs_nothing_fits_in_hands_already_over_their_carry(yard):
     with pytest.raises(Rejected) as r:
         bel.act("give", "Ada", params={"item": "Emberglass", "count": 1})
     assert "hands are full" in r.value.reason
+
+
+def test_a_target_said_as_words_reads_into_count_and_item(yard):
+    eng, gm, ada, bel = yard
+    r = ada.act("take", "12 Emberglass")
+    assert r["read_as"] == {"target": "Emberglass", "params": {"count": 12}}
+    assert [n for _, n in glass(eng, "Ada")] == [12]
+    r = ada.act("give", "5 Emberglass to Bel")
+    assert r["read_as"] == {"target": "Bel", "params": {"item": "Emberglass", "count": 5}}
+    assert [n for _, n in glass(eng, "Ada")] == [7]
+    ada.act("give", glass(eng, "Ada")[0][0] + " to bel")  # an id to a name, any case
+    assert glass(eng, "Ada") == []
+    assert "read_as" not in ada.act("take", "Rope", params={"count": 1})  # a name as written is never read
+    with pytest.raises(Rejected) as r:
+        ada.act("take", "a few Emberglass")
+    assert "count=N" in r.value.hint and "item=<id>" in r.value.hint
