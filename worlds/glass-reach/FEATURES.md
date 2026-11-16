@@ -55,6 +55,8 @@ and fires can be lit, and dark places look different with a light in hand.
 
 ## 2026-11-12: The Keeper's book
 
+credit: Comparing two hands under the Keeper's glass and asking witnesses the right way were Wizard's ideas.
+
 The Hold's Keeper keeps a book that can set two written papers side by side and tell whether the same hand wrote them.
 A charge laid in it goes before the Hold. Some people who saw things will now tell what they saw, to those who ask
 the right way.

@@ -2735,10 +2735,12 @@ def host(s):
     s.clock(run=True, rate=HOSTED["rate"], turn=0)
     # the landing page (worlds/glass-reach/site when deployed) reads the feeds; the board is the owner's to keep true
     s.world.set_meta({"public_feed": True, "seat_sides": ["hold", "keth", "guild", "dreyer", "any"]})
-    if "public_board" not in s.world.meta():
+    # the board is the owner's once written; a board still showing the dry cistern (fixed on day 22) is brought up to date
+    board = s.world.meta().get("public_board")
+    if board is None or any(r.get("text") == "Cracked and dry. The Hold drinks what is carried in." for r in board):
         s.world.set_meta({"public_board": [
             {"label": "The wall", "text": "Eight men. It wants twenty.", "have": 8, "want": 20},
-            {"label": "The cistern", "text": "Cracked and dry. The Hold drinks what is carried in."},
+            {"label": "The cistern", "text": "Mended at the seam. It holds what the Keth pour."},
             {"label": "The water", "text": "Carried up by the Keth at dusk, while the terms hold.", "wet": True}]})
     if s.world.meta().get("hosted"):
         keep_routines(s, root)
