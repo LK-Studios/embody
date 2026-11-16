@@ -67,7 +67,9 @@ class StateView(ScriptObject):
         ctx = self._w._running[-1] if self._w._running else None
         if ctx is not None and ctx._limits:
             ctx._hold(self._id)
-            ctx._caller_keys(self._id, [name])
+            ctx._caller_keys(self._id, [name])  # a frame's own words first: they name the keys its frame allows
+        if ctx is not None:
+            ctx._rules_only(self._id, [name])
             if name == "canon":
                 raise Rejected("canon is the owner's mark", hint="only the world's owner marks or lifts canon")
             if name in (acl.KEY, acl.GROUPS):
@@ -95,6 +97,14 @@ def _programmed(prog: dict[str, Any]) -> dict[str, Any]:
     default fuel."""
     return {"script": prog["script"], "doc": prog.get("doc", ""), "params": prog.get("params") or {}, "reach": "near",
             "targets": prog.get("targets")}
+
+
+def rules_only_keys(world: "World", eid: str | None, keys: Any) -> list[str]:
+    """The keys among these that only the world's rules write on this entity (RULES_ONLY anywhere, BODY_RULES_ONLY on a
+    body)."""
+    e = world.get(eid) if eid else None
+    body = bool(e and world.is_a(e["type"], "creature"))
+    return sorted(k for k in keys if k in RULES_ONLY or (body and k in BODY_RULES_ONLY))
 
 
 def _shown(world: "World", ids: list[str]) -> list[str]:
@@ -142,6 +152,14 @@ FRAME_SEES = frozenset({"description", "portable", "count", "kind", "bulk", "loc
 # What a frame's code never writes on anything, its own machine included: verbs, frames, canon and access are the
 # owner's (a frame writing `programmed` would skip review; one writing `maker` would make a frame of any reach)
 FRAME_NEVER = frozenset({"programmed", "maker", "canon", "access", "access_groups", "scripts_pending"})
+
+# What only a world's rules write: a body's sheet and skills (a pack's rules, such as d20's learn, the owner's own world
+# scripts, the owner's hand). A guest's script, a frame's code and a verb programmed on one thing never do: a playtest's
+# hauler trained its rider's skills by hand, so growth goes by use and by a teacher (d20's train) only
+RULES_ONLY = frozenset({"sheet", "skills", "xp", "attributes"})
+# and on a body (a creature), what it is made of and how it grows: a world's own progression (`progress`), its stats,
+# its health and what it carries
+BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp", "carry"})
 
 # What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
 BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
@@ -293,6 +311,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
+        "may_write_sheet",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -310,12 +329,14 @@ class Ctx(ScriptObject):
         self.logs: list[str] = []
         self.stopped = False
         self._limits: dict[str, Any] | None = None  # set from the script before it runs
+        self._script = ""  # the running script's id, set with the limits
         self._consent = False  # a verb someone chose: its script may touch them and what they carry
 
     def run(self, s: Script, fn: str, args: list[Any], fuel: int) -> Any:
         """Run one of a script's functions with this context. The script's limits ride the context, and the world
         knows which context is running, so a write through an entity's state is held too."""
         self._limits = s.limits
+        self._script = s.name
         self._w._running.append(self)
         try:
             return s.call(fn, args, fuel=fuel)
@@ -367,6 +388,20 @@ class Ctx(ScriptObject):
         if not w.within(i, self._actor):
             return False
         return not (under and w.within(i, under)) or w.within(self._actor, under)
+
+    def may_write_sheet(self) -> bool:
+        """Whether the running code is the world's rules, which alone write a sheet and skills: a pack's or the owner's
+        world script, not a guest's script, a frame's code or a verb programmed on one thing."""
+        return not self._limits and not str(self._script).startswith("program_")
+
+    def _rules_only(self, i: Any, keys: Any) -> None:
+        if self.may_write_sheet():
+            return
+        hit = rules_only_keys(self._w, _ev(self._w, i), keys)
+        if hit:
+            raise Rejected(f"a body's skills grow only by the world's rules: this code may not write {', '.join(hit)}",
+                           hint="skills grow by use against the world's difficulties and by a teacher; the owner "
+                                "sets anything else")
 
     def _in_body(self, i: str) -> bool:
         """Whether i is a body, or something a body holds, inside the machine (a rider and the rider's things)."""
@@ -582,6 +617,7 @@ class Ctx(ScriptObject):
         ch.update(kw)
         self._hold(id)
         self._caller_keys(id, ch)
+        self._rules_only(id, ch)
         if self._limits and "canon" in ch:
             raise Rejected("canon is the owner's mark", hint="only the world's owner marks or lifts canon")
         if self._limits and (acl.KEY in ch or acl.GROUPS in ch):
@@ -736,6 +772,8 @@ class Ctx(ScriptObject):
 
     def say(self, text: str, reach: int = 1, to: Any = None) -> int:
         who = self._owner or self._actor
+        if not str(text or "").strip():
+            return 0  # an empty line says nothing and makes no event
         frame = (self._limits or {}).get("frame")
         return self._w.say(who, text, reach=reach, to=_ev(self._w, to) if to is not None else None,
                            caused_by=self._caused_by, mark={"maker": frame} if frame else None)["seq"]

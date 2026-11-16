@@ -265,3 +265,16 @@ def test_introduce_after_is_news_now_and_an_arrival_later():
     assert not w.find(name="Crate")
     with pytest.raises(Rejected):
         gm.introduce("thing", "Hall", "Crate", how="always_there", after=60, known_by={})
+
+
+def test_an_empty_line_says_nothing():
+    # an idle seat's fallback said "" after each answer: an event nobody could read
+    eng, w, i = engine_with_two_rooms()
+    s = eng.session("nate")
+    s.join("two-rooms", "Prisoner")
+    seq = w.store.next_seq(w.id)
+    for text in ("", "   "):
+        r = s.say(text)
+        assert r["event"] is None and "empty" in r["note"]
+    assert w.store.next_seq(w.id) == seq
+    assert s.say("Hm.")["event"]["payload"]["text"] == "Hm."

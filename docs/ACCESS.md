@@ -135,6 +135,12 @@ How the code runs: it carries `# limits: {"under": "self", "frame": ..., "script
 A thing's own verbs (its `programmed` state) show in `perceive` and `inspect` like its schema's, and its access applies
 to them as to any of its own verbs (`x`, per-verb rules).
 
+Only the world's rules write `sheet`, `skills`, `xp` or `attributes` on anything, and on a body `progress`, `body`,
+`wits`, `will`, `hp`, `max_hp` or `carry`: a pack's scripts (d20's learn and train) and the owner's own world scripts,
+rules included. A verb programmed on one thing (by anyone, the owner included), a frame's code, a guest's script and a
+guest's own `patch` are refused ("a body's skills grow only by the world's rules"), and learn under them teaches
+nothing (`ctx.may_write_sheet()` says which code may). The owner's hand sets anything.
+
 ### Phase 3: packs
 
 In-world things that use phases 0 to 2: a charter that adds its holder to a group, a key that is a verb rule, a seal

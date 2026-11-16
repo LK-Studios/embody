@@ -139,3 +139,15 @@ def test_a_builders_script_reads_the_log_of_its_own_plot_only():
     guard.join("two-rooms", "Guard")
     assert guard.act("peek", "Glass", {"seq": inside})["result"] == "rang"
     assert guard.act("peek", "Glass", {"seq": outside})["result"] is None
+
+
+def test_a_guest_writes_no_sheet_or_skills():
+    eng, w, i = engine_with_two_rooms()
+    gm = owner(eng)
+    b, inv = builder(eng, gm)
+    b.use("two-rooms")
+    b.spawn("thing", "Hall", name="Dummy")
+    for key in ("skills", "sheet", "xp"):
+        with pytest.raises(Rejected) as r:
+            b.patch("Dummy", {key: {"blade": 9}})
+        assert f"may not write {key}" in r.value.reason

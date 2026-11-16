@@ -21,7 +21,8 @@ def bonus(who, skill, ctx=None):
 # the world's skillbook names each skill's attributes, and `sheet_rules` on the root holds every number. Every other
 # body rolls body/wits/will plus a skill, as before. These are only the fallbacks when the root says nothing.
 SHEET_RULES = {"earn": [[7, 0], [12, 1], [16, 2], [20, 3]], "success_x": 2, "rank_cost": 10, "max_rank": 15,
-               "per_target_day": 3, "related_div": 3, "untrained": "acuity", "min_score": 1, "max_score": 20}
+               "per_target_day": 3, "related_div": 3, "untrained": "acuity", "min_score": 1, "max_score": 20,
+               "self_taught": None}
 
 def sheet_rules(ctx):
     rules = dict(SHEET_RULES)
@@ -107,10 +108,12 @@ def learn(ctx, who, skill, dc, success, against=None):
     # a world verb's dc, an opposed roll), never a check whose dc the caller chose. The roll it needed is dc less its
     # natural bonus (no grants, no conditions); sheet_rules' `earn` bands turn that into experience, a success times
     # `success_x`; rank r to r + 1 costs rank_cost x (r + 1), up to max_rank. At most `per_target_day` teaching rolls
-    # a skill, a target, a world day. Every award is a `learned` event on the body. Returns what it earned.
+    # a skill, a target, a world day. Past `self_taught` (when the root sets it) use banks experience up to the next
+    # rank and a teacher's train turns it into one. Every award is a `learned` event on the body. Returns what it
+    # earned. Only the world's rules teach: under a guest's script, a frame or a programmed verb it teaches nothing.
     st = who.state
     sheet = st.sheet
-    if not sheet or not skill or st.dead:
+    if not sheet or not skill or st.dead or not ctx.may_write_sheet():
         return 0
     rules = sheet_rules(ctx)
     need = int(dc) - natural(ctx, who, skill)
@@ -138,11 +141,16 @@ def learn(ctx, who, skill, dc, success, against=None):
     rank = int(ranks.get(skill) or 0)
     xp = int(xps.get(skill) or 0) + earned
     was = rank
-    while rank < int(rules["max_rank"]) and xp >= int(rules["rank_cost"]) * (rank + 1):
+    top = int(rules["max_rank"])
+    if rules.get("self_taught") is not None:
+        top = min(top, int(rules["self_taught"]))
+    while rank < top and xp >= int(rules["rank_cost"]) * (rank + 1):
         xp = xp - int(rules["rank_cost"]) * (rank + 1)
         rank = rank + 1
     if rank >= int(rules["max_rank"]):
         xp = 0
+    elif rank >= top:
+        xp = min(xp, int(rules["rank_cost"]) * (rank + 1))  # banked to the next rank, for a teacher
     new = {"taught": taught}
     if earned:
         new["skills"] = {skill: rank}
@@ -151,7 +159,7 @@ def learn(ctx, who, skill, dc, success, against=None):
     if earned:
         ctx.emit("learned", target=who, reach=0, skill=skill, need=need, earned=earned, success=bool(success), dc=dc,
                  against=against.id if against is not None else None, xp=xp, rank=rank, next=int(rules["rank_cost"]) * (rank + 1),
-                 ranked_up=rank > was)
+                 ranked_up=rank > was, teacher=rank >= top and rank < int(rules["max_rank"]) and xp >= int(rules["rank_cost"]) * (rank + 1))
     return earned
 
 def weapon_skill(who, weapon, old):

@@ -45,6 +45,7 @@ read and person_on come from packs/village, the rules from packs/d20), define(s)
 """
 
 from packs.d20.pack import install_rules, keep_behaviors
+from packs.sheet.pack import to_sheet
 from packs.beasts.pack import BEAST_STATE, BEAST_ACTIONS, install_rules as install_beasts
 
 WORLD = {
@@ -52,7 +53,7 @@ WORLD = {
     "name": "The Glass Reach",
     "seed": 23,
     "description": "A desert fief, a cracked cistern, a people with the water, a blade left behind. Rules on the table.",
-    "requires": ["d20", "village", "works", "locks", "vehicles", "ledgers", "beasts"],
+    "requires": ["d20", "village", "works", "locks", "vehicles", "ledgers", "beasts", "sheet"],
 }
 
 # ---- what there is ---------------------------------------------------------------------
@@ -552,6 +553,7 @@ def populate(s):
     keep_faction_stores(s, names_of(s))  # last, so everyone made above learns the word
     lay_out(s)
     keep_tiers(s)
+    keep_sheets(s)
     s.clock(run=False, turn=3)
     return s.summary()
 
@@ -623,6 +625,7 @@ def upgrade(s):
     keep_faction_stores(s, names_of(s))  # last, so everyone made above learns the word
     lay_out(s)
     keep_tiers(s)
+    keep_sheets(s)
 
 
 # Where the Reach lies, from the canon: metres, north up, the Hold in the gap of the Scar at x = y = 0. The Salt Road
@@ -1062,6 +1065,36 @@ def keep_wardens(s, names):
         w = s.spawn("fighter", road, name, state={**WARDEN, "description": look, "default_line": line,
                                                     "dialog": dict(WARDEN_WORK), "post": road})["id"]
         s.spawn("thing", w, "Warden's spear" if arm == "spear" else "Warden's bow", state=dict(SPEAR if arm == "spear" else BOW))
+
+
+# Players grow (Nate 2026-11-15): a newcomer's body carries a sheet (packs/sheet) that rolls exactly what its body,
+# wits and will rolled, and its skills rise with use against the world's difficulties. NPCs keep flat skills. Use
+# raises a skill to rank 2; ranks 3 to 5 need a teacher (`teaches` on a body, the owner's call), at most one teaching
+# roll a skill, a target, a world day.
+SHEET_RULES = {"per_target_day": 1, "rank_cost": 15, "max_rank": 5, "self_taught": 2}
+# the Reach's own finding skills, on wits' attributes as d20 rolled them
+REACH_SKILLS = {"search": {"primary": "acuity", "secondary": "cognition", "scope": "going over a place or a body for what is hidden", "related": []},
+                "track": {"primary": "comprehension", "secondary": "acuity", "scope": "reading tracks and following them", "related": ["survival"]}}
+for _t in TEMPLATES.values():
+    _t["state"]["sheet"] = to_sheet(_t["state"])
+
+
+def keep_sheets(s):
+    """The Reach's numbers on the root, and a sheet for every newcomer made before sheets, from its own state, so it
+    keeps its ranks and rolls what it rolled. Checks before every write."""
+    root = s.summary()["root"]
+    rules = dict(s.world.get(root)["state"].get("sheet_rules") or {})
+    if any(rules.get(k) != v for k, v in SHEET_RULES.items()):
+        s.patch(root, {"sheet_rules": {**rules, **SHEET_RULES}})
+    book = s.world.find(type="skillbook", limit=1)
+    if book:
+        have = s.world.get(book[0]["id"])["state"].get("skills") or {}
+        if any(k not in have for k in REACH_SKILLS):
+            s.patch(book[0]["id"], {"skills": {**have, **{k: v for k, v in REACH_SKILLS.items() if k not in have}}})
+    for e in s.world.find(type="person", limit=None):
+        st = s.world.get(e["id"])["state"]
+        if st.get("template") in TEMPLATES and not st.get("sheet") and not st.get("progress_pilot"):  # one way to grow
+            s.patch(e["id"], {"sheet": to_sheet(st)})
 
 
 def keep_carry(s):

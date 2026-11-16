@@ -166,3 +166,83 @@ def test_a_world_without_the_pack_has_no_skillbook(tmp_path):
     with pytest.raises(Rejected) as r:
         gm.guide("skills")
     assert "no skillbook" in str(r.value)
+
+
+def test_past_self_taught_use_banks_and_a_teacher_turns_it_into_a_rank_for_a_price(drill):
+    eng, gm, ada = drill
+    root = gm.summary()["root"]
+    gm.patch(root, {"sheet_rules": {**gm.inspect(root)["state"]["sheet_rules"], "self_taught": 1}})
+    sheet = to_sheet(gm.inspect("Ada")["state"])
+    gm.patch("Ada", {"sheet": {**sheet, "skills": {**sheet["skills"], "climb": 1}, "xp": {"climb": 18}}, "water": 10})
+    # climb +3 at rank 1: dc 19 needs 16, 2 doubled on a success; 22 is past the 20 rank 2 costs, so it banks at 20
+    got = learned(ada.act("train", "North Post", params={"skill": "climb", "dc": 19, "success": True}))[0]
+    assert (got["rank"], got["xp"], got["ranked_up"], got["teacher"]) == (1, 20, False, True)
+    gm.spawn("thing", "Ada", "Emberglass", state={"kind": "ember", "count": 3, "portable": True})
+    lesson = {"climb": {"up_to": 3, "price": {"water": 2, "ember": 1}, "every_days": 1}}
+    def teachers():  # the drill's posts have a train verb of their own
+        return [a["target_name"] for a in ada.perceive()["affordances"] if a["verb"] == "train" and "Post" not in a["target_name"]]
+
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")
+    assert "teaches nothing" in r.value.reason and teachers() == []
+    gm.patch("Bel", {"teaches": lesson})
+    assert teachers() == ["Bel"]
+    r = ada.act("train", "Bel")  # the one skill Bel teaches, no params needed
+    assert r["result"] == {"skill": "climb", "rank": 2, "xp": 0, "paid": {"water": 2, "ember": 1}}
+    assert any(e["kind"] == "trained" for e in r["events"])
+    st = gm.inspect("Ada")["state"]
+    assert st["sheet"]["skills"]["climb"] == 2 and st["water"] == 8
+    def ember(who):
+        return sum(c["state"]["count"] for c in gm.find(name="Emberglass", parent=gm.inspect(who)["id"]))
+
+    assert (ember("Ada"), ember("Bel")) == (2, 1)
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")
+    assert "earn it by use first" in r.value.reason
+    gm.patch("Ada", {"sheet": {"xp": {"climb": 30}}})
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")
+    assert "later day" in r.value.reason
+    gm.patch("Bel", {"teaches": {"climb": {"up_to": 2}}})
+    with pytest.raises(Rejected) as r:
+        ada.act("train", "Bel")
+    assert "all they know" in r.value.reason
+
+
+CHEAT = '''
+def apply(ctx):
+    how = ctx.params.get("how")
+    if how == "patch":
+        ctx.patch(ctx.actor, {"skills": {"blade": 9}})
+    if how == "set":
+        ctx.actor.state.sheet = {"skills": {"blade": 9}}
+    if how in ("hp", "progress", "will"):
+        ctx.patch(ctx.actor, {how: 9})
+'''
+
+# a world's own progression, a rule on the root (as a pilot's reach_progress is): it writes skills and progress
+PROGRESS = '''
+def on(ctx, event):
+    if event.kind == "act" and event.payload.get("verb") == "cheat":
+        a = ctx.get(event.actor)
+        ctx.patch(a, {"progress": int(a.state.progress or 0) + 1, "skills": {"brawl": 1}})
+'''
+
+
+def test_only_the_worlds_rules_write_a_sheet(drill):
+    eng, gm, ada = drill
+    gm.patch("Ada", {"sheet": to_sheet(gm.inspect("Ada")["state"])})
+    gm.program("North Post", "cheat", CHEAT)
+    for how, key in (("patch", "skills"), ("set", "sheet"), ("hp", "hp"), ("progress", "progress"), ("will", "will")):
+        with pytest.raises(Rejected) as r:
+            ada.act("cheat", "North Post", params={"how": how})
+        assert f"a body's skills grow only by the world's rules: this code may not write {key}" in r.value.reason
+    # a rule the world set writes them, even when a programmed verb's act sets it off
+    gm.define_script("drill_progress", PROGRESS)
+    gm.set_rule(gm.summary()["root"], "drill_progress", kinds=["act"])
+    ada.act("cheat", "North Post", params={"how": "none"})
+    st = gm.inspect("Ada")["state"]
+    assert st["progress"] == 1 and st["skills"]["brawl"] == 1
+    assert gm.inspect("Ada")["state"]["sheet"]["skills"]["blade"] == 2
+    # the world's own scripts are its rules: they teach
+    assert learned(ada.act("train", "North Post", params={"skill": "climb", "dc": 19, "success": True}))

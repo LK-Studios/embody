@@ -797,7 +797,7 @@ def test_hidden_things_turn_up_for_the_right_look_and_the_place_says_where_to_lo
     gm.patch(gm.world.root_id, {"check_again_after": 0})  # this test re-rolls a skill in one place on purpose
     ash = newcomer(eng, gm, "guard", "Ash")
     assert "finger proud" in gm.inspect("The Gate Yard")["state"]["description"]
-    gm.patch("Ash", {"skills": {"search": 30, "blade": 30}})
+    gm.patch("Ash", {"skills": {"search": 30, "blade": 30}, "sheet": {"skills": {"search": 30, "blade": 30}}})  # a newcomer rolls by its sheet
     seen = lambda: {c["name"] for c in ash.perceive()["present"]}
     assert "Hollis's count" not in seen()
     ash.act("check", params={"skill": "blade", "dc": 14})  # a pass with the wrong eye finds nothing
@@ -943,7 +943,7 @@ def test_pitch_mends_the_cistern_once_the_wedge_is_out_and_the_mended_cistern_co
     gm.patch(gm.world.root_id, {"check_again_after": 0})  # this test re-rolls a skill in one place on purpose
     chapter_two_now(gm)
     me = newcomer(eng, gm, "guard", "Bram")
-    gm.patch("Bram", {"skills": {"search": 30, "lore": 30}})
+    gm.patch("Bram", {"skills": {"search": 30, "lore": 30}, "sheet": {"skills": {"search": 30, "lore": 30}}})  # a newcomer rolls by its sheet
     gm.move("Bram", "Scar Gate, the Hold")
     pot = next(e["id"] for e in gm.find(name="Pot of Guild pitch") if e["name"] == "Pot of Guild pitch")
     gm.move(pot, "Bram")
@@ -972,8 +972,8 @@ def test_a_knife_in_the_soft_pitch_undoes_the_mend():
     chapter_two_now(gm)
     me = newcomer(eng, gm, "guard", "Bram")
     spy = newcomer(eng, gm, "dreyer", "Vey")
-    gm.patch("Bram", {"skills": {"lore": 30}})
-    gm.patch("Vey", {"skills": {"stealth": 30}})
+    gm.patch("Bram", {"skills": {"lore": 30}, "sheet": {"skills": {"lore": 30}}})  # a newcomer rolls by its sheet
+    gm.patch("Vey", {"skills": {"stealth": 30}, "sheet": {"skills": {"stealth": 30}}})
     gm.move("Bram", "Scar Gate, the Hold")
     gm.move("Vey", "Scar Gate, the Hold")
     gm.move("Bronze wedge", "The Gate Yard")

@@ -207,6 +207,9 @@ COMBATANT_ACTIONS = {
                                         "easy prey. Your next deed wakes you; so do a blow, a word to you, a noise and thirst", "duration": 2},
     "wake": {"script": "wake", "doc": "Wake someone asleep here with a shake and a word", "targets": "creature", "scope": "here",
              "duration": 1},
+    "train": {"script": "train_with", "doc": "Learn from a teacher here: past what you reach alone, they turn the experience "
+                                            "you earned by use into a rank, for their price", "targets": "creature",
+              "scope": "here", "listed": "ok", "duration": 60, "params": {"skill": "the skill to learn (default: the one they teach)"}},
     "tend": {"script": "tend", "doc": "See to someone hurt here (or yourself): medicine in hand heals a dose's worth, bare hands "
                                       "(survival vs 12) get a downed body up at 1", "targets": "creature", "scope": "here", "duration": 10},
 }

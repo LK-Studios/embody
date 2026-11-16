@@ -29,7 +29,7 @@ from . import positions as posn
 from .script import Script, ScriptError
 from .store import Store
 from . import access as acl
-from .world import ALWAYS_SECRET, LIMITS_HEAD, Rejected, World, _HOST_KINDS, _INTERNAL_KINDS, _PRIVATE_KINDS, _public_event, own_verbs
+from .world import ALWAYS_SECRET, LIMITS_HEAD, Rejected, World, rules_only_keys, _HOST_KINDS, _INTERNAL_KINDS, _PRIVATE_KINDS, _public_event, own_verbs
 from .workspace import USE_LINE, Workspace, read_scripts, resolve_uses, restore_world, save_world
 
 AUTHOR = "author"
@@ -449,6 +449,10 @@ class Session:
         lim = self.limits
         if not lim:
             return
+        hit = rules_only_keys(w, self._resolve(args["entity"]), args.get("changes") or {}) if op == "patch" else []
+        if hit:
+            raise Rejected(f"a body's skills grow only by the world's rules: your grant may not write {', '.join(hit)}",
+                           hint="skills grow by use and by a teacher; the owner sets anything else")
         under, pre = lim.get("under"), lim.get("scripts") or ""
         where = w.need(under)["name"] if under and w.get(under) else "nowhere"
 
@@ -2631,6 +2635,9 @@ class Session:
         me = self._me()
         if self.world.need(me)["state"].get("dead"):
             raise Rejected("you are dead", hint="the dead say nothing; perceive still shows the world to you")
+        if not str(text or "").strip():
+            # an idle seat's fallback said "" after each answer, an event nobody could read; nothing said is nothing
+            return {"ok": True, "event": None, "note": "an empty line says nothing: nothing was said"}
         self._acted()
         if not self._privileged():
             if len(text) > _SAY_MAX:
@@ -2668,6 +2675,8 @@ class Session:
         """Author only: a free line from any entity. How a narrator gives an NPC words its table does not have."""
         self._need(AUTHOR)
         self._tick()
+        if not str(text or "").strip():
+            return {"ok": True, "event": None, "note": "an empty line says nothing: nothing was said"}
         ev = self.world.say(self._resolve(entity), text, reach=reach, to=self._resolve(to) if to else None)
         return {"ok": True, "event": _public_event(ev)}
 

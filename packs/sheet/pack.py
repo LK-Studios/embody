@@ -25,10 +25,19 @@ The numbers, so a narrator can explain a roll:
   needed 1 to 7 earns 0, 8 to 12 earns 1, 13 to 16 earns 2, 17 to 20 earns 3, and nothing past 20 (out of reach) or
   below 1. A success doubles it. Rank r to r + 1 costs 10 x (r + 1). At most 3 teaching rolls a skill, a target, a
   world day. Every award is a `learned` event on the body (reach 0: its own feed), with the skill, what it needed,
-  what it earned, its xp and rank; the event log is the ledger. A world's own verbs teach with
+  what it earned, its xp and rank; the event log is the ledger. Only the world's rules teach and write a sheet or
+  skills: a guest's script, a frame's code and a verb programmed on one thing never do (refused, and learn under
+  them teaches nothing).
+- Teachers: with `self_taught` on the root's `sheet_rules` (none by default), use raises a skill only to that rank;
+  past it, use banks experience up to the next rank (`learned` says `teacher`: true when it is full) and a teacher
+  turns it into the rank. A teacher is any body with `teaches`: {skill: {up_to, price, every_days}}. `train` (d20,
+  on the teacher, params `skill`) spends the experience, pays the `price` (`water` from your own, any other key a
+  stack of that kind you hold, such as ember, handed to the teacher), and emits `trained`; `every_days` keeps a
+  teacher to one lesson a student in that many world days. A teacher teaches up to its `up_to` (max_rank when none). A world's own verbs teach with
   `learn(ctx, who, skill, dc, success, against)` from d20's common.
 - Every number above lives on the world root as `sheet_rules` (the pack writes the defaults once; the world's DM tunes
-  them there): earn, success_x, rank_cost, max_rank, per_target_day, related_div, untrained, min_score, max_score.
+  them there): earn, success_x, rank_cost, max_rank, per_target_day, related_div, untrained, min_score, max_score,
+  self_taught.
 - `perceive` shows a sheet as its attributes and the skills that have a rank (and, on your own card, the xp toward the
   next). guide('skills') has the skillbook and the rules.
 - A d20 body moves across with `to_sheet(state)`: body to force, poise, endurance; wits to acuity, cognition,
@@ -40,6 +49,14 @@ The numbers, so a narrator can explain a roll:
 PACK = {"name": "sheet", "description": "Twelve attributes, skills that grow with use, and grants: an opt-in character sheet on top of d20."}
 
 RULES = [
+    {"id": "teachers", "date": "2026-11-15",
+     "was": "Use raised a skill's rank all the way to max_rank, and a world's own verbs could write a sheet.",
+     "now": "A world may set `self_taught` in its sheet_rules: use raises a skill to that rank only, then banks "
+            "experience for the next one, and a teacher (a body that `teaches` the skill) turns it into the rank with "
+            "train, for a price. Only the world's rules write a sheet or skills: a guest's script, a frame and a verb "
+            "programmed on one thing are refused.",
+     "recheck": ["plans that grind one skill past its self-taught rank", "notes that write your own skills"],
+     "guide": ["player", "mind"]},
     {"id": "sheet", "date": "2026-11-14",
      "was": "Every body rolled d20 + body, wits or will + a skill of 0 to 3.",
      "now": "A body with a sheet rolls d20 + an attribute modifier ((score - 10) // 2, two attributes averaged down) + a "
@@ -74,7 +91,8 @@ CATALOGUE = {
 }
 
 SHEET_RULES = {"earn": [[7, 0], [12, 1], [16, 2], [20, 3]], "success_x": 2, "rank_cost": 10, "max_rank": 15,
-               "per_target_day": 3, "related_div": 3, "untrained": "acuity", "min_score": 1, "max_score": 20}
+               "per_target_day": 3, "related_div": 3, "untrained": "acuity", "min_score": 1, "max_score": 20,
+               "self_taught": None}
 
 
 def to_sheet(state: dict) -> dict:
