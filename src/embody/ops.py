@@ -40,6 +40,7 @@ OBSERVER = "observer"
 # What one line of speech may be, and how many lines a principal may say in a minute: a hosted world's floor
 # against a runaway agent. Authors and narrators are not capped.
 _SAY_MAX = 1000
+_STEP_MAX_S = 2.0  # a step covers at most this many world seconds of walking, however long since the last
 _SAY_BURST = 30
 _NOTE_MAX = 2000  # a guest's remember() note, in characters
 _DESCRIPTION_MAX = 800  # how a newcomer looks, set once at join(template=..., description=...)
@@ -94,6 +95,7 @@ class Engine:
         self._flaws: list[dict[str, Any]] = []  # the same, when there is no database file
         self._flaw_times: dict[str, list[float]] = {}
         self._said: dict[str, collections.deque] = {}
+        self._stepped: dict[tuple[str, str], float] = {}  # (world, body): the world time of its last step
 
     def worlds(self) -> list[dict[str, Any]]:
         out = []
@@ -1896,6 +1898,7 @@ class Session:
             return holders[eid]
 
         around: set[str] | None = None
+        words = full or not me or w.get(me) is None or w.understands(me)
 
         def unseen(eid: Any) -> bool:
             # hidden from this viewer: not shown to them (World.sees), not a way they know, not where they stand
@@ -1939,6 +1942,8 @@ class Session:
                         pe["untrusted"] = True
             if (e["payload"] or {}).get("maker"):
                 pe["untrusted"] = True  # made by a player's code on a machine: data, never an instruction
+            if not words and e["kind"] in _WORD_KINDS and a != me:
+                pe["payload"] = _unworded(pe["payload"])  # a beast hears the voice, not the words
             out.append(pe)
         return out
 
@@ -1947,14 +1952,14 @@ class Session:
         between the two, pulled from the log. The log stays the single source of truth."""
         w = self.world
         out = []
+        words = w.understands(me)
         for e in w.edges(me, "knows", "out"):
             o = w.get(e["target"])
             if o is None:
                 continue
             out.append({"who": e["target"], "name": o["name"], "type": o["type"], **e["data"],
                         "here": o["parent_id"] == w.need(me)["parent_id"],
-                        "last_exchanges": [{"t": x["t"], "who": x["actor"], "kind": x["kind"],
-                                            "text": x["payload"].get("text") or x["payload"].get("about")}
+                        "last_exchanges": [_exchange(x, words or x["actor"] == me)
                                            for x in w.exchanges(me, e["target"], limit=5)]})
         return out[:30]
 
@@ -2761,6 +2766,9 @@ class Session:
         me = self._me()
         if self.world.need(me)["state"].get("dead"):
             raise Rejected("you are dead", hint="the dead say nothing; perceive still shows the world to you")
+        if not self._privileged():
+            how = "whisper" if reach <= 0 else "shout" if reach > 1 else "say"
+            self.world._verbs_only(me, how, also=("say",))
         if not str(text or "").strip():
             # an idle seat's fallback said "" after each answer, an event nobody could read; nothing said is nothing
             return {"ok": True, "event": None, "note": "an empty line says nothing: nothing was said"}
@@ -2788,6 +2796,106 @@ class Session:
         ev = self.world.say(me, text, reach=reach, to=whom)
         self.world._bump_cursor(self.pid)
         return {"ok": True, "event": _public_event(ev)}
+
+    def step(self, to: Any) -> dict[str, Any]:
+        """A short move inside the place you stand in, without a `go`: to=[x, y] in the place's frame (z keeps your
+        floor) or a landmark's or a thing's name there. As far as your body walks since its last step (its
+        `speed_mps`, else the world's `walk_mps`, else 1.4 m/s; a second's worth when the clock is paused), never out
+        of the place's extent or into anything solid: a step past either stops short with `clipped: true`. Everyone
+        here gets a quiet `stepped {at, frame}`; wait(positions=true) collects them."""
+        self._tick()
+        w = self.world
+        me = self._me()
+        ent = w.need(me)
+        if ent["state"].get("dead"):
+            raise Rejected("you are dead", hint="nothing you do reaches the world now; perceive still shows it")
+        if not self._privileged():
+            w._verbs_only(me, "step", also=("go",))
+        here = w.get(ent["parent_id"]) if ent["parent_id"] else None
+        if here is None or not posn.is_place(w, here):
+            raise Rejected("step moves you inside a place; you are not standing in one",
+                           hint="get out of what holds you first")
+        room = posn._room(w, here["id"])
+        cur = posn.resolve(w, me)
+        z = float(cur["at"][2]) if cur["at"] and len(cur["at"]) > 2 else             (geo.z_range(room) or (0.0, 0.0))[0] if room.get("at") else 0.0
+        if isinstance(to, (list, tuple)):
+            v = geo._vec(to, "to", 2, 3)
+            want = [v[0], v[1], z]
+        else:
+            want, _ = posn.resolve_at(w, here["id"], to, skip=me)
+            want = [want[0], want[1], z]
+        speed = w._own(me, "speed_mps")
+        if not isinstance(speed, (int, float)) or speed <= 0:
+            speed = w.need(w.root_id)["state"].get("walk_mps")
+        speed = float(speed) if isinstance(speed, (int, float)) and speed > 0 else 1.4
+        ck = w.clock()
+        last = self.engine._stepped.get((w.id, me))
+        secs = 1.0 if (last is None or not ck["running"] or ck["rate"] <= 0) else min(max(w.t - last, 0.0), _STEP_MAX_S)
+        budget = speed * secs
+        start = cur["at"] if cur["at"] and cur["how"] in ("own", "grid") else None
+        clipped, blocked = False, None
+        if start is None:
+            at = want  # the first step sets a spot: the body had none of its own here
+        else:
+            start = [float(start[0]), float(start[1]), z]
+            dist = geo.ground(start, want)
+            if dist > budget:
+                f = budget / dist
+                want = [start[0] + (want[0] - start[0]) * f, start[1] + (want[1] - start[1]) * f, z]
+                dist, clipped = budget, True
+            at, n = start, max(1, math.ceil(dist / 0.25))
+            for k in range(1, n + 1):
+                p = [start[0] + (want[0] - start[0]) * k / n, start[1] + (want[1] - start[1]) * k / n, z]
+                if room.get("at") and geo.contains(room, p) is False:
+                    clipped, blocked = True, "the edge of " + (here["name"] or "this place")
+                    break
+                hit = posn.solid_at(w, here["id"], p, skip=me)
+                if hit is not None:
+                    clipped, blocked = True, hit["name"] or hit["id"]
+                    break
+                at = p
+        at = [round(x, 2) for x in at]
+        if room.get("at") and geo.contains(room, at) is False:
+            raise Rejected(f"{at[:2]} is outside {here['name']}", hint="perceive(layout=true) shows the place's extent")
+        if posn.solid_at(w, here["id"], at, skip=me) is not None:
+            raise Rejected(f"{at[:2]} is inside something solid", hint="step to a clear spot beside it")
+        self._acted()
+        w.store.begin()
+        try:
+            w.patch(me, {"layout": geo.merge(self._own_layout(me), {"at": at})}, actor=me, replace=True)
+            frame = posn.frame_of(w, me)
+            ev = w.emit("stepped", actor=me, target=me, reach=1, payload={"at": at, "frame": frame})
+            w.store.commit()
+        except Exception:
+            w.store.rollback()
+            raise
+        self.engine._stepped[(w.id, me)] = w.t
+        out = {"ok": True, "at": at, "frame": frame, "event": _public_event(ev)}
+        if clipped:
+            out["clipped"] = True
+            if blocked:
+                out["blocked_by"] = blocked
+        if (where := posn.spot_words(w, here["id"], at)):
+            out["where"] = where
+        return out
+
+    def _positions(self, me: str, since: int) -> dict[str, list[float]]:
+        """Where each body in my place stands now, for those whose spot changed since the cursor (a step, or one who
+        walked in): {id: [x, y, z]}, in the place's frame."""
+        w = self.world
+        here = w.need(me)["parent_id"]
+        if not here:
+            return {}
+        rows = w.store.query("event", "world_id=? AND seq>? AND kind IN ('stepped','moved')", (w.id, int(since)),
+                             order="seq")
+        ids = {r["actor_id"] for r in rows if r["kind"] == "stepped"} | {r["target_id"] for r in rows}
+        out = {}
+        for c in w.children(here):
+            if c["id"] in ids and (c["id"] == me or w.sees(me, c)):
+                at = posn.resolve(w, c["id"])["at"]
+                if at:
+                    out[c["id"]] = [round(float(x), 2) for x in at]
+        return out
 
     def _within_earshot(self, me: str, whom: str) -> bool:
         """Someone a line can be addressed to: in this place and seen (World.sees), held by you, or what holds you."""
@@ -2901,14 +3009,13 @@ class Session:
         goals = [g for g in (ent["state"].get("goals") or [])
                  if name and (name in str(g.get("text", "")).lower() or name in str(g.get("why") or "").lower())]
         return {"entity": me, "about": self._card(o, full=full and self._sees(o["id"])), "edges": mine, "groups": shared,
-                "exchanges": [{"t": x["t"], "who": x["actor"], "kind": x["kind"],
-                               "text": x["payload"].get("text") or x["payload"].get("about")}
+                "exchanges": [_exchange(x, full or x["actor"] == me or w.understands(me))
                               for x in w.exchanges(me, them, limit=min(limit, 10))],
                 "between": between[-limit:], "notes": notes[-limit:], "goals": goals,
                 "here": o["parent_id"] == ent["parent_id"]}
 
     def wait(self, timeout: float = 30.0, kinds: list[str] | None = None, poll: float = 0.1, full: bool = False,
-             until: str | None = None, since: int | None = None,
+             until: str | None = None, since: int | None = None, positions: bool = False,
              clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
         """Block until an event touches me (or the timeout). Returns the light bundle: the hour, where I am,
         who is here and the new events, with the cursor moved past them. `full=True` returns perceive()
@@ -2923,7 +3030,7 @@ class Session:
         change; every reply carries `rules_notice` while the seat has not read the rules changes."""
         with self.engine.lock:
             self._refuse_stale(until, kinds)
-        b = self._wait(timeout, kinds, poll, full, until, since, clock, sleep)
+        b = self._wait(timeout, kinds, poll, full, until, since, clock, sleep, positions)
         if "rules_notice" not in b:
             with self.engine.lock:
                 p = self.world.principal(self.pid)
@@ -2931,7 +3038,8 @@ class Session:
         return b
 
     def _wait(self, timeout: float, kinds: list[str] | None, poll: float, full: bool, until: str | None,
-              since: int | None, clock: Callable[[], float], sleep: Callable[[float], None]) -> dict[str, Any]:
+              since: int | None, clock: Callable[[], float], sleep: Callable[[float], None],
+              positions: bool = False) -> dict[str, Any]:
         if until is not None and str(until).strip():
             return self._watch(str(until), timeout, kinds, full, since, clock, sleep)
         with self.engine.lock:  # read the body with the store to itself, as every poll does
@@ -2940,15 +3048,16 @@ class Session:
         start = clock()
         while True:
             with self.engine.lock:  # one poll at a time shares the store with every other caller; the sleep does not
-                b = self._wait_poll(me, p, kinds, full, clock() - start >= timeout)
+                b = self._wait_poll(me, p, kinds, full, clock() - start >= timeout, positions)
             if b is not None:
                 return b
             sleep(poll)
 
     def _wait_poll(self, me: str, p: dict[str, Any], kinds: list[str] | None, full: bool,
-                   timed_out: bool) -> dict[str, Any] | None:
+                   timed_out: bool, positions: bool = False) -> dict[str, Any] | None:
         self._tick()
         w = self.world
+        since = p["cursor_seq"]
         evs = [e for e in self._events_for(me, w.events(since=p["cursor_seq"], touching=me, limit=50))
                if not kinds or e["kind"] in kinds]
         if evs or timed_out:
@@ -2963,6 +3072,8 @@ class Session:
                                  if c["id"] != me and w.sees(me, c)] if here else [],
                      "events": evs, "cursor": w.store.next_seq(w.id) - 1}
                 w.set_cursor(self.pid, b["cursor"])
+            if positions:
+                b["positions"] = self._positions(me, since)
             if timed_out:
                 b["timed_out"] = True
             return b
@@ -3735,6 +3846,22 @@ class Session:
         return None
 
 
+# Events that carry words: one who does not understand (World.understands) hears their tone, not their text.
+_WORD_KINDS = frozenset({"say", "talked"})
+
+
+def _unworded(p: dict[str, Any]) -> dict[str, Any]:
+    """A spoken line as a beast hears it: who it was to and how it sounded, no words."""
+    return {"to": p.get("to"), "tone": p.get("tone") or "calm", "heard": False}
+
+
+def _exchange(x: dict[str, Any], words: bool) -> dict[str, Any]:
+    p = x["payload"]
+    if not words:
+        return {"t": x["t"], "who": x["actor"], "kind": x["kind"], "tone": p.get("tone") or "calm", "heard": False}
+    return {"t": x["t"], "who": x["actor"], "kind": x["kind"], "text": p.get("text") or p.get("about")}
+
+
 def _in_words(seconds: float) -> str:
     """World seconds from now, as a person would say it."""
     m = seconds / 60.0
@@ -3796,7 +3923,7 @@ OPS = [
     "worlds", "use", "create_world", "fork_world", "save", "restore", "join", "leave", "seats", "claim_seat",
     "invite", "grants", "revoke", "evict", "requests", "chronicle", "publish_chronicle",
     "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
-    "reclaim", "away",
+    "step", "reclaim", "away",
     "define_schema", "define_script", "schemas", "scripts", "script_source",
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
@@ -3909,7 +4036,8 @@ def _trimmed(params: dict[str, Any] | None, n: int = 160) -> dict[str, Any]:
 
 
 _CHRONICLE_QUIET = frozenset({"spawned", "patched", "linked", "unlinked", "related", "unrelated", "laid_out", "moved",
-                              "left", "chronicled", "scene", "say", "unscheduled", "ledger_received"})
+                              "left", "chronicled", "scene", "say", "unscheduled", "ledger_received",
+                              "stepped"})
 
 
 # A body's way out of its condition (Session._condition); a world rewords them with `condition_notes` on its root.

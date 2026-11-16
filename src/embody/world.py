@@ -160,7 +160,8 @@ FRAME_NEVER = frozenset({"programmed", "maker", "canon", "access", "access_group
 RULES_ONLY = frozenset({"sheet", "skills", "xp", "attributes"})
 # and on a body (a creature), what it is made of and how it grows: a world's own progression (`progress`), its stats,
 # its health and what it carries
-BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp", "carry", "looks"})
+BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp", "carry", "looks", "verbs_only",
+                             "understands", "understands_until", "beast"})
 
 # What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
 BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
@@ -2130,6 +2131,7 @@ class World:
             # first, before any other reason: a mind that hears "the door is shut" never learns it has died
             raise Rejected("you are dead", hint="nothing you do reaches the world now; perceive still shows it. A guest "
                                                 "whose invite makes characters may join(template=...) for a new one")
+        self._verbs_only(actor_id, verb)
         adef, owner = self.resolve_action(actor_id, verb, target_id)
         if owner != actor_id:
             me = self.need(actor_id)
@@ -2155,6 +2157,11 @@ class World:
                 name = self.need(target_id)["name"] or target_id
                 raise Rejected(f"you can strike {name} again in about {self._real_s(wait)} s",
                                hint="a blow takes its time: do something else, or wait (it shows in perceive)")
+        if adef.get("cooldown"):
+            wait = self.verb_wait(actor_id, verb)
+            if wait > 0:
+                raise Rejected(f"you can {verb} again in about {self._real_s(wait)} s",
+                               hint="that takes its time: do something else, or wait")
         for k, n in (adef.get("cost") or {}).items():
             have = self.need(actor_id)["state"].get(k)
             if not isinstance(have, (int, float)) or have < n:
@@ -2223,6 +2230,8 @@ class World:
                 if isinstance(result, dict) and isinstance(result.get("cooldown_x"), (int, float)):
                     x = x * float(result["cooldown_x"])
                 self.mark_strike(actor_id, target_id, x, actor=actor_id, caused_by=ev["seq"])
+            if adef.get("cooldown"):
+                self.mark_verb(actor_id, verb, float(adef["cooldown"]), caused_by=ev["seq"])
             if adef.get("cost"):
                 st = self.need(actor_id)["state"]
                 self.patch(actor_id, {k: st.get(k, 0) - n for k, n in adef["cost"].items()}, actor=actor_id,
@@ -2283,6 +2292,54 @@ class World:
         cds["*"] = max(float(cds.get("*") or 0), self.t + cd / 2)
         self.patch(actor_id, {"cooldowns": cds}, actor=actor, caused_by=caused_by)
         return cd
+
+    # ---- what a body may do and what it understands (docs/SCRIPTING.md, Beasts and seats) -------------------------
+
+    def _own(self, eid: str, key: str) -> Any:
+        """A body's own value for a key, else its schema's default."""
+        e = self.need(eid)
+        return e["state"][key] if key in e["state"] else self.schema_defaults(e["type"]).get(key)
+
+    def verbs_only(self, eid: str) -> list[str] | None:
+        """The only verbs a body may use (`verbs_only` on it or its schema), None when it may use any."""
+        vo = self._own(eid, "verbs_only")
+        return [str(v) for v in vo] if isinstance(vo, list) else None
+
+    def _verbs_only(self, eid: str, verb: str, also: tuple[str, ...] = ()) -> None:
+        vo = self.verbs_only(eid)
+        if vo is None or verb in vo or any(a in vo for a in also):
+            return
+        e = self.need(eid)
+        kind = e["state"].get("species") if isinstance(e["state"].get("species"), str) else e["type"]
+        raise Rejected(f"a {kind} cannot {verb}: it can {', '.join(vo) or 'do nothing'}",
+                       hint="this body's verbs are all it has; perceive lists them")
+
+    def understands(self, eid: str) -> bool:
+        """Whether a body follows words: `understands` on it or its schema (a `beast` does not, unless it says so),
+        and `understands_until` (world time, a herb's while) over both."""
+        until = self._own(eid, "understands_until")
+        if isinstance(until, (int, float)) and self.t < until:
+            return True
+        u = self._own(eid, "understands")
+        if u is not None:
+            return bool(u)
+        return not self._own(eid, "beast")
+
+    def verb_wait(self, actor_id: str, verb: str) -> float:
+        """World seconds until actor may use a verb with a `cooldown` again, 0 when it may now."""
+        cd = self.need(actor_id)["state"].get("cooldowns") or {}
+        return max(0.0, float(cd.get("verb:" + verb) or 0) - self.t)
+
+    def mark_verb(self, actor_id: str, verb: str, world_s: float, caused_by: int | None = None) -> None:
+        """Start a verb's cooldown (secret `cooldowns`, key `verb:<verb>`), in world seconds. A paused clock has
+        none, as with strikes: its turns are the pace."""
+        ck = self.clock()
+        if world_s <= 0 or not ck["running"] or ck["rate"] <= 0:
+            return
+        st = self.need(actor_id)["state"]
+        cds = {k: v for k, v in (st.get("cooldowns") or {}).items() if float(v) > self.t}
+        cds["verb:" + verb] = self.t + world_s
+        self.patch(actor_id, {"cooldowns": cds}, actor=actor_id, caused_by=caused_by)
 
     def _real_s(self, world_s: float) -> int:
         """World seconds as the real seconds a player waits."""
@@ -2520,7 +2577,7 @@ class World:
         """Speech. Addressed speech targets the listener so it shows in both their logs; the room still hears it.
         Unaddressed speech targets the room the speaker stands in (reach counts from there), never the speaker."""
         e = self.need(who)
-        payload: dict[str, Any] = {"text": str(text), **(mark or {})}
+        payload: dict[str, Any] = {"text": str(text), "tone": tone(str(text), reach), **(mark or {})}
         if to:
             self.need(to)
             payload["to"] = to
@@ -2991,6 +3048,20 @@ def _num(x: float) -> float | int:
 
 # Kinds that never wake a sleeper: the deed's own envelope (its verb's events decide) and sleep itself.
 _NO_WAKE = frozenset({"act", "slept", "woke"})
+
+
+def tone(text: str, reach: int = 1) -> str:
+    """How a line sounds to one who hears no words: a whisper (reach 0), a shout (reach past 1, all capitals, or
+    "!"), sharp (three words or fewer ending in ? or !), else calm."""
+    t = text.strip()
+    if reach <= 0:
+        return "whisper"
+    letters = [c for c in t if c.isalpha()]
+    if reach > 1 or (len(letters) > 1 and all(c.isupper() for c in letters)) or ("!" in t and len(t.split()) > 3):
+        return "shout"
+    if len(t.split()) <= 3 and t[-1:] in "?!" and t:
+        return "sharp"
+    return "calm"
 
 
 def _loud(ev: dict[str, Any]) -> bool:

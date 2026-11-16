@@ -89,7 +89,13 @@ an old pair is no longer a grown pair, and kids are fair game, so a herd can sti
 Events: `beast_grew`, `beast_hungry`, `beast_tamed`, `beast_trust`, `beast_bit`, `beast_shied`, `beast_feral`,
 `beast_carrying`, `beast_born`, `beast_died` {why: hunger, age}, `beast_yielded`, `beast_stays`, `beast_comes`,
 `beast_released`, `growled`, `fed`, `beast_hunts`, `beast_fled`, `beast_hunt_failed`, `killed` {by, why: hunt},
-`beast_wandered_in`, `butchered`, `beast_broke_off` {beast, by, to, hp}. Walks arrive `quiet`.
+`beast_wandered_in`, `butchered`, `beast_broke_off` {beast, by, to, hp}, `grazed` {by, place, left, fed}. Walks arrive
+`quiet`.
+
+Grazing. A beast someone plays (a seat, a mind) eats when it likes: `graze` takes a meal off its place's forage of its
+diet, the same forage the day draws on (what it eats, the herd here goes without), up to `fed_max` ("not hungry"
+past it), at most once in its `cooldown` (21600 world seconds, six hours; a world that wants another pace puts its own
+`graze` over `BEAST_ACTIONS`). A body with `verbs_only` (docs/SCRIPTING.md) lists `graze` among them.
 
 What a world does not need: no ticks of its own for hunger or growth (the day does it), no follow code (village `go`
 moves whoever `follows` the walker), and no fight code (beasts run d20's `fighter_tick`, so a struck beast or a kept
@@ -112,6 +118,11 @@ RULES = [
      "now": "A wild beast a person hurts to half its hp breaks off and runs one way out (home first, else a place with "
             "nobody in it), and its grudge goes with it (beast_broke_off). Cornered, it fights on.",
      "recheck": ["hunting plans that count on a beast standing to the end"], "guide": ["player", "mind"]},
+    {"id": "beasts-graze", "date": "2026-11-16",
+     "was": "A beast ate only at the day, from what its place grew.",
+     "now": "A beast someone plays can graze: a meal off its place's forage when it likes, up to fed_max, once in "
+            "six world hours (grazed). What it eats, the herd there goes without.",
+     "recheck": ["notes that say a played beast can only eat at dawn"], "guide": ["player", "mind"]},
 ]
 
 BEAST_STATE = {"beast": True, "species": None, "sex": None, "age": 0, "stage": None, "fed": 3, "hungry": False,
@@ -130,6 +141,8 @@ BEAST_ACTIONS = {
     "release": {"script": "beast_release", "doc": "Let your beast go wild"},
     "butcher": {"script": "beast_butcher", "duration": 30,
                 "doc": "Cut a meal of meat from a dead beast here, to carry and feed by hand"},
+    "graze": {"script": "beast_graze", "reach": "self", "duration": 600, "cooldown": 21600,
+              "doc": "(a beast's own) Eat a meal off what grows here, the herd's own forage; once in six hours"},
 }
 
 

@@ -404,3 +404,29 @@ def test_a_wild_beast_a_person_hurts_to_half_breaks_off_and_takes_no_ring(wild):
     assert st(gm, boar).get("attacked_by") is None and st(gm, boar)["hp"] == 3 and not st(gm, boar)["down"]
     off = [e["payload"] for e in gm.world.events(0, kinds=["beast_broke_off"], limit=50)]
     assert off and off[0]["by"] == gm.inspect("Ada")["id"] and off[0]["to"] == gm.inspect("Den")["id"]
+
+
+def test_a_played_goat_grazes_the_herds_forage_once_in_six_hours(wild):
+    eng, gm = wild
+    nan = goat(gm, "Nan", "f")
+    gm.patch(nan, {"fed": 1, "playable": True})
+    gm.clock(run=True, rate=60)
+    kid = eng.session("kid")
+    kid.join("wild", "Nan")
+    r = kid.act("graze")
+    ev = next(e for e in r["events"] if e["kind"] == "grazed")
+    assert ev["payload"]["left"] == 5 and ev["payload"]["fed"] == 2 and r["duration"] == 600
+    assert st(gm, "Ridge")["forage"]["graze"]["left"] == 5  # the herd's own forage
+    with pytest.raises(Rejected, match="you can graze again in about 360 s"):  # six world hours at 60x
+        kid.act("graze")
+    gm.clock(step=6 * 3600 + 1)
+    kid.act("graze")
+    gm.clock(step=6 * 3600 + 1)
+    with pytest.raises(Rejected, match="Nan is not hungry"):
+        kid.act("graze")
+    with pytest.raises(Rejected):
+        gm.act_as("Ada", "graze", "Nan")  # a person cannot graze a goat for it
+    gm.patch(nan, {"fed": 0})
+    gm.move("Nan", "Yard")
+    with pytest.raises(Rejected, match="nothing grows here that Nan eats"):
+        kid.act("graze")

@@ -417,6 +417,14 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def step(to: Any, principal: str | None = None) -> dict[str, Any]:
+        """A short move inside your place without a go: to=[x, y] in the place's frame, or a landmark's name. At most
+        as far as you walk since your last step; past the place's edge or into something solid it stops short with
+        clipped=true. Returns {at, frame}; everyone here gets a quiet `stepped`."""
+        return S(principal).step(to)
+
+    @tool()
+    @_wrap
     def reclaim(thing: str, principal: str | None = None) -> dict[str, Any]:
         """Take back from an idle body where you stand what is yours (taken from you, or you are its owner) or what
         its standing orders give you. perceive() lists what you may reclaim under `reclaim`."""
@@ -485,7 +493,7 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     async def wait(timeout: float = 30.0, kinds: list[str] | None = None, full: bool = False,
-                   until: str | None = None, since: int | None = None,
+                   until: str | None = None, since: int | None = None, positions: bool = False,
                    principal: str | None = None) -> dict[str, Any]:
         """Block until an event touches you or your place (or the timeout, max 120 s). Returns the light bundle
         (t, ambient, here, who is present, the new events, cursor); `full=true` returns perceive() instead.
@@ -494,12 +502,14 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         (is here now: already true fires at once, with already=true), heard('water', by='Ruhl'),
         me.get('hp', 0) < 3, t >= 43200, ambient.get('time_of_day') == 'dusk'. It returns with fired=true and the
         events since it began, or timed_out with nothing moved: call again (pass back `since` if you are not
-        embodied). For hours of waiting, run `embody watch` from a shell instead; it loops this for you."""
+        embodied). For hours of waiting, run `embody watch` from a shell instead; it loops this for you.
+        positions=true adds {id: [x, y, z]} for each body here whose spot changed (a step, or walking in)."""
         import anyio
         sess = S(principal)
         try:
             return await anyio.to_thread.run_sync(
-                lambda: sess.wait(timeout=min(float(timeout), 120.0), kinds=kinds, full=full, until=until, since=since))
+                lambda: sess.wait(timeout=min(float(timeout), 120.0), kinds=kinds, full=full, until=until, since=since,
+                                  positions=positions))
         except Rejected as r:
             return r.to_dict()
 
