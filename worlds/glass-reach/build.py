@@ -2739,7 +2739,7 @@ def host(s):
     board = s.world.meta().get("public_board")
     if board is None or any(r.get("text") == "Cracked and dry. The Hold drinks what is carried in." for r in board):
         s.world.set_meta({"public_board": [
-            {"label": "The wall", "text": "Eight men. It wants twenty.", "have": 8, "want": 20},
+            {"label": "The wall", "text": "Ten men. It wants twenty.", "have": 10, "want": 20},
             {"label": "The cistern", "text": "Mended at the seam. It holds what the Keth pour."},
             {"label": "The water", "text": "Carried up by the Keth at dusk, while the terms hold.", "wet": True}]})
     if s.world.meta().get("hosted"):
