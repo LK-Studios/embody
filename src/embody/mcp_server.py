@@ -348,7 +348,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         Authors and observers may pass from_entity to perceive as any entity (the NPC context bundle). layout=true
         adds where you stand in the world's frame, and the distance and bearing to what is here and to each exit.
         far=true adds `in_sight`: up to 8 things seen far off (a city, a tower, a ridge), each with bearing, distance in
-        words, band (far or mid) and the line it shows from there."""
+        words, band (far or mid) and the line it shows from there, plus `heard` and `smelled` when a sound or a smell
+        reaches you from afar."""
         return S(principal).perceive(cursor=cursor, from_entity=from_entity, events=events, layout=layout, far=far)
 
     @tool()

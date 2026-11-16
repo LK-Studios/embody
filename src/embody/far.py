@@ -15,6 +15,13 @@ its description, in ordinary perceive. Only what carries `far` is ever in sight,
 - Line of sight, 2.5D: a thing with `occludes: true` and a top (a ridge, a wall, the Scar) blocks what lies behind it
   when its top stands above the line from the viewer's eye to the target's top where that line crosses it. One you
   stand on blocks nothing.
+- Night (the viewer's ambient `time_of_day` is one of the root's `far_night`, default ["night"]): what has a `glow`
+  ({line, range_m}, or a string) shows its glow line, as far as `range_m` when that is farther; anything else is seen at
+  `far_night_x` (default a tenth) of its day range.
+- Sound and smell: `carries` {"sound": {text, range_m}, "smell": {text, range_m, downwind}} reaches whoever is within
+  range, through any wall, as `heard` and `smelled` (bearing, distance, text; named only as sight would name it). A
+  smell that goes `downwind` (the default) reaches only a viewer the wind blows toward, within 45 degrees, by the
+  ambient `wind_from` at the viewer's place (degrees or a compass point); with no wind it reaches a quarter of its range.
 - Nothing from inside a place that is `indoors`. Both ends are measured in one ruler: one frame, or frames that say
   they are `aligned_with` each other (the same origin and units), in metres or km.
 
@@ -37,6 +44,9 @@ FAR_K = 100.0
 EYE_M = 1.7
 PLANET_R = 6_371_000.0
 MAX_IN_SIGHT = 8
+MAX_CARRIED = 4
+NIGHT_X = 0.1
+STILL_X = 0.25
 UNITS = {"m": 1.0, "km": 1000.0}
 
 
@@ -44,7 +54,32 @@ def lines(e: dict[str, Any]) -> dict[str, Any] | None:
     f = e["state"].get("far")
     if isinstance(f, str) and f.strip():
         return {"far": f.strip()}
-    return f if isinstance(f, dict) and (f.get("far") or f.get("mid")) else None
+    return f if isinstance(f, dict) and (f.get("far") or f.get("mid") or f.get("glow")) else None
+
+
+def glow(f: dict[str, Any]) -> dict[str, Any] | None:
+    g = f.get("glow")
+    if isinstance(g, str) and g.strip():
+        return {"line": g.strip()}
+    return g if isinstance(g, dict) and g.get("line") else None
+
+
+def ambient(w: "World", place: str) -> dict[str, Any]:
+    """The air at a place as perceive reads it: the root's ambient, each place's above, then its own."""
+    root = w.get(w.root_id)
+    out = dict((root["state"].get("ambient") or {}) if root else {})
+    for a in [x for x in reversed(w.ancestors(place)) if x != w.root_id] + [place]:
+        out.update((w.get(a) or {}).get("state", {}).get("ambient") or {})
+    return out
+
+
+def wind_from(amb: dict[str, Any]) -> float | None:
+    v = amb.get("wind_from")
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v) % 360
+    if isinstance(v, str) and v.strip().upper() in geo.COMPASS:
+        return geo.COMPASS.index(v.strip().upper()) * 22.5
+    return None
 
 
 def size(lay: dict[str, Any], f: dict[str, Any], unit: float) -> float:
@@ -173,6 +208,9 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
     r = float(rs.get("planet_radius_m") or PLANET_R)
     vis = _up(w, place, "visibility_m")
     vis = float(vis) if vis is not None else math.inf
+    amb = ambient(w, place)
+    night = str(amb.get("time_of_day") or "").lower() in [str(x).lower() for x in rs.get("far_night") or ["night"]]
+    dark = float(rs.get("far_night_x") or NIGHT_X)
 
     skip = {place, *w.ancestors(place)}
     frames = ruler(w, frame)
@@ -201,7 +239,12 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
             continue
         gap = geo.edge_distance(lay, at) if lay and (lay.get("radius") or lay.get("footprint") or lay.get("size")) else None
         d = (gap if gap is not None else geo.ground(at, p["at"])) * unit
-        reach = min(k * big, vis, horizon(eye, top(lay, p["at"], unit), r))
+        lit = glow(f) if night else None
+        hz = horizon(eye, top(lay, p["at"], unit), r)
+        if lit:
+            reach = min(max(k * big, float(lit.get("range_m") or 0)), vis, hz)
+        else:
+            reach = min(k * big, vis, hz) * (dark if night else 1.0)  # a dark shape is lost long before the horizon
         if d > reach or d <= 0:
             continue
         up = w.ancestors(e["id"])
@@ -210,7 +253,9 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
                if oid != e["id"] and oid not in up and e["id"] not in w.ancestors(oid)):
             continue
         band = "far" if d > reach / 2 else "mid"
-        line = (f.get("mid") or f.get("far")) if band == "mid" else (f.get("far") or f.get("mid"))
+        line = lit["line"] if lit else (f.get("mid") or f.get("far")) if band == "mid" else (f.get("far") or f.get("mid"))
+        if not line:
+            continue
         deg, compass = geo.bearing(at, p["at"])
         seen[e["id"]] = {"id": e["id"] if how == "named" else None,
                          "name": e["name"] if how == "named" else (f.get("called") or None),
@@ -225,7 +270,52 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
     out.sort(key=lambda x: -x["_size"] / max(x["distance_m"], 1))
     for row in out:
         del row["_size"], row["_merge"]
-    return {"in_sight": out[:MAX_IN_SIGHT]}
+    res: dict[str, Any] = {"in_sight": out[:MAX_IN_SIGHT]}
+    res.update(carried(w, place, body, at, unit, frames, skip, amb))
+    return res
+
+
+def carried(w: "World", place: str, body: str | None, at: list[float], unit: float, frames: set[str],
+            skip: set[str], amb: dict[str, Any]) -> dict[str, Any]:
+    """What a body hears and smells from afar (`carries` on a thing or a place): {heard, smelled}, nearest first."""
+    wind = wind_from(amb)
+    heard, smelled = [], []
+    for e in w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"carries"%')):
+        c = e["state"].get("carries")
+        if not isinstance(c, dict) or e["id"] in skip or place in w.ancestors(e["id"]):
+            continue
+        own_frame = posn.frame_of(w, e["id"])
+        if own_frame not in frames:
+            continue
+        p = posn.resolve(w, e["id"])
+        if p["at"] is None or p["how"] not in ("own", "grid"):
+            continue
+        lay = e["state"].get("layout") if isinstance(e["state"].get("layout"), dict) and p["how"] == "own" else {}
+        gap = geo.edge_distance(lay, at) if lay and (lay.get("radius") or lay.get("footprint") or lay.get("size")) else None
+        d = (gap if gap is not None else geo.ground(at, p["at"])) * unit
+        if d <= 0:
+            continue  # here already: ordinary perceive
+        deg, compass = geo.bearing(at, p["at"])
+        named = _shown(w, e, body, own_frame) == "named"
+        for sense, bucket in (("sound", heard), ("smell", smelled)):
+            s = c.get(sense)
+            if not isinstance(s, dict) or not s.get("text"):
+                continue
+            span = float(s.get("range_m") or 0)
+            if sense == "smell" and s.get("downwind", True):
+                if wind is None:
+                    span *= STILL_X
+                elif abs((deg - wind + 180) % 360 - 180) > 45:
+                    continue  # the wind carries it away from here
+            if d > span:
+                continue
+            bucket.append({"id": e["id"] if named else None, "name": e["name"] if named else None, "bearing": deg,
+                           "compass": compass, "distance_m": round(d), "distance": words(d), "text": s["text"]})
+    out: dict[str, Any] = {}
+    for key, rows in (("heard", heard), ("smelled", smelled)):
+        if rows:
+            out[key] = sorted(rows, key=lambda x: x["distance_m"])[:MAX_CARRIED]
+    return out
 
 
 def _key(w: "World", place: str, body: str | None) -> str:

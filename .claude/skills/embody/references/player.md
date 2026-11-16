@@ -47,7 +47,7 @@ In a world with the sheet pack, a character may carry a `sheet`: twelve attribut
 
 A body may carry `looks` beside its description: marks on its regions (a tattoo, a scar, paint that wears off, a part swapped for another). A card shows them a line a region, only the ones you can see from where you stand: near marks to anyone in the place, close ones within two metres, nothing under a coat or a hood the body wears. `looks(entity)` gives the whole of one body you can see (yours in full) for a picture: regions, marks, what is covered and when worn-on paint fades. You cannot change your looks by asking; a world verb does it (an inker, a barber, a blow that scars), and each change is a `marked` or `unmarked` event.
 
-`perceive(far=true)` adds `in_sight`: what you can see far off from where you stand (a city, a tower, a ridge), each with a bearing, how far in words and the line it shows from there. Something far off that you do not know the way to may show without its name; seeing it tells you nothing more. Indoors you see nothing far.
+`perceive(far=true)` adds `in_sight`: what you can see far off from where you stand (a city, a tower, a ridge), each with a bearing, how far in words and the line it shows from there. Something far off that you do not know the way to may show without its name; seeing it tells you nothing more. Indoors you see nothing far. At night only what burns or shines carries far. The same call adds `heard` and `smelled` when a sound or a smell reaches you from afar (smoke rides the wind).
 
 ## When the rules change
 

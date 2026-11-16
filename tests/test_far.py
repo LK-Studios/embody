@@ -89,3 +89,26 @@ def test_a_ridge_blocks_what_lies_behind_it_and_aligned_frames_share_a_ruler():
     gm.layout(placements=[{"entity": basin, "frame": {"units": "m", "aligned_with": "Two Rooms"}}])
     gm.clock(step=3601)
     assert sight(nate)["Kiln Town"]["compass"] == "E"
+
+
+def test_at_night_a_glow_carries_and_the_dark_shapes_close_in_and_smoke_goes_downwind():
+    eng, w, gm, nate = skyline()
+    gm.patch("Signal Tower", {"far": {"far": "a thin grey stalk", "glow": {"line": "a fire burning on the skyline",
+                                                                          "range_m": 60000}}})
+    gm.patch("Varn", {"carries": {"smell": {"text": "coal smoke, sour and thick", "range_m": 60000},
+                                  "sound": {"text": "a bell, very faint", "range_m": 30000}}})
+    gm.patch(w.root_id, {"ambient": {"time_of_day": "night", "wind_from": "W"}})
+    s = sight(nate)
+    assert s["Signal Tower"]["line"] == "a fire burning on the skyline"
+    assert "Varn" not in s  # 37 km of dark city is gone at night
+    b = nate.perceive(far=True)
+    assert b["smelled"][0]["text"] == "coal smoke, sour and thick" and b["smelled"][0]["compass"] == "W"
+    assert "heard" not in b  # the bell carries 30 km; the city's edge is 37 km off
+    gm.patch(w.root_id, {"ambient": {"time_of_day": "day", "wind_from": "E"}})
+    gm.clock(step=3601)
+    b = nate.perceive(far=True)
+    assert "smelled" not in b and "Varn" in sight(nate)  # the wind takes the smoke away; by day the city is back
+    gm.patch(w.root_id, {"ambient": {"wind_from": None}})
+    gm.patch("Varn", {"carries": {"smell": {"range_m": 160000}}})
+    gm.clock(step=3601)
+    assert nate.perceive(far=True)["smelled"][0]["distance_m"] == 37000  # still air: a quarter of its range
