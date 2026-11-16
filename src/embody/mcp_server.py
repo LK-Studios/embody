@@ -341,13 +341,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def perceive(cursor: int | None = None, from_entity: str | None = None, events: int = 30,
-                 principal: str | None = None, layout: bool = False) -> dict[str, Any]:
+                 principal: str | None = None, layout: bool = False, far: bool = False) -> dict[str, Any]:
         """Everything you sense from where you are: place, who and what is here, exits, what you hold, who you know
         (with standing and the last exchanges), places you have been, the verbs you could try (with the reason when
         one is not possible), and events since your cursor. Your own card includes your secret memory and brief.
         Authors and observers may pass from_entity to perceive as any entity (the NPC context bundle). layout=true
-        adds where you stand in the world's frame, and the distance and bearing to what is here and to each exit."""
-        return S(principal).perceive(cursor=cursor, from_entity=from_entity, events=events, layout=layout)
+        adds where you stand in the world's frame, and the distance and bearing to what is here and to each exit.
+        far=true adds `in_sight`: up to 8 things seen far off (a city, a tower, a ridge), each with bearing, distance in
+        words, band (far or mid) and the line it shows from there."""
+        return S(principal).perceive(cursor=cursor, from_entity=from_entity, events=events, layout=layout, far=far)
 
     @tool()
     @_wrap

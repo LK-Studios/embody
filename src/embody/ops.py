@@ -29,6 +29,7 @@ from . import positions as posn
 from .script import Script, ScriptError
 from .store import Store
 from . import access as acl
+from . import far as far_mod
 from . import looks as looks_mod
 from .world import ALWAYS_SECRET, LIMITS_HEAD, Rejected, World, rules_only_keys, _HOST_KINDS, _INTERNAL_KINDS, _PRIVATE_KINDS, _public_event, own_verbs
 from .workspace import USE_LINE, Workspace, read_scripts, resolve_uses, restore_world, save_world
@@ -1417,7 +1418,7 @@ class Session:
     # ---- perception --------------------------------------------------------------
 
     def perceive(self, cursor: int | None = None, from_entity: str | None = None, events: int = 30,
-                 layout: bool = False) -> dict[str, Any]:
+                 layout: bool = False, far: bool = False) -> dict[str, Any]:
         self._tick()
         w = self.world
         if from_entity is not None:
@@ -1461,6 +1462,8 @@ class Session:
         }
         if layout:
             bundle["layout"] = self._layout_view(me, bundle)
+        if far:
+            bundle.update(self._in_sight(me, here_id))
         if here_id and posn.landmarks(w, here_id):
             for card in [bundle["you"], *bundle["present"]]:
                 if (spot := posn.spot_words(w, here_id, posn.resolve(w, card["id"])["at"])):
@@ -1471,6 +1474,18 @@ class Session:
         else:
             w.set_entity_cursor(me, bundle["cursor"])
         return bundle
+
+    def _in_sight(self, me: str, here_id: str | None) -> dict[str, Any]:
+        """What this body sees far off from where it stands (far.py), cached per place and body per world hour."""
+        if not here_id:
+            return {"in_sight": [], "note": "nowhere to look from"}
+        cache = self.engine.__dict__.setdefault("_far_cache", {})
+        key = far_mod._key(self.world, here_id, me)
+        if key not in cache:
+            if len(cache) > 512:
+                cache.clear()
+            cache[key] = far_mod.in_sight(self.world, here_id, me)
+        return json.loads(json.dumps(cache[key]))
 
     # ---- layout: one frame over the tree (DESIGN.md section 8, Layout; geometry in layout.py) --------------------------
 

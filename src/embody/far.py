@@ -1,0 +1,176 @@
+"""Far views: what a body sees of the world past its own place (Nate 2026-11-16).
+
+An entity may carry `far`: lines by band, {"far": "...", "mid": "..."} (a bare string is its far line); its near look is
+its description, in ordinary perceive. Only what carries `far` is ever in sight, so a world says what its skyline is.
+
+- Range from size: an entity is seen as far as `far_k` (the root's, default 100) times its largest dimension (its
+  extent, or its height from floor to ceiling; `far.size_m` when it has no extent), capped by the horizon from the
+  viewer's eye and the target's top on a planet of the root's `planet_radius_m` (default the Earth's), and by the
+  nearest `visibility_m` up from the viewer's place (haze, dust).
+- Bands: past half its range it is far, inside it mid (the mid line when it has one, else the far line).
+- Merging up the tree: a thing whose container is also in sight shows only if it is larger than the container's merge
+  size (`far.merge_m`, default a quarter of the container's size); otherwise the container's line stands for it.
+- Hidden stays hidden: a hidden thing never shows; a hidden place shows only to one who knows the way to it, or when
+  its `far` says `seen: true`, and then without its name or id (`far.called`, if any, is what it looks like).
+- Nothing from inside a place that is `indoors`. Both ends are measured in one frame, in metres or km.
+
+Read on demand only (`perceive(far=true)`), cached per place and body per world hour.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from typing import TYPE_CHECKING, Any
+
+from . import layout as geo
+from . import positions as posn
+
+if TYPE_CHECKING:
+    from .world import World
+
+FAR_K = 100.0
+EYE_M = 1.7
+PLANET_R = 6_371_000.0
+MAX_IN_SIGHT = 8
+UNITS = {"m": 1.0, "km": 1000.0}
+
+
+def lines(e: dict[str, Any]) -> dict[str, Any] | None:
+    f = e["state"].get("far")
+    if isinstance(f, str) and f.strip():
+        return {"far": f.strip()}
+    return f if isinstance(f, dict) and (f.get("far") or f.get("mid")) else None
+
+
+def size(lay: dict[str, Any], f: dict[str, Any], unit: float) -> float:
+    """The largest dimension in metres: the extent on the ground or its height."""
+    dims = []
+    if lay.get("radius"):
+        dims.append(2 * float(lay["radius"]))
+    if lay.get("size"):
+        dims.extend(float(x) for x in lay["size"])
+    if lay.get("footprint"):
+        xs, ys = [p[0] for p in lay["footprint"]], [p[1] for p in lay["footprint"]]
+        dims.extend([max(xs) - min(xs), max(ys) - min(ys)])
+    zr = geo.z_range(lay)
+    if zr is not None and math.isfinite(zr[1]):
+        dims.append(zr[1] - zr[0])
+    out = max(dims) * unit if dims else 0.0
+    return max(out, float(f.get("size_m") or 0))
+
+
+def top(lay: dict[str, Any], at: list[float], unit: float) -> float:
+    zr = geo.z_range(lay)
+    hi = zr[1] if zr is not None and math.isfinite(zr[1]) else (at[2] if len(at) > 2 else 0.0)
+    return float(hi) * unit
+
+
+def horizon(eye_m: float, top_m: float, r: float) -> float:
+    """How far two heights see each other over a planet's curve."""
+    return math.sqrt(2 * r * max(eye_m, 0.0)) + math.sqrt(2 * r * max(top_m, 0.0))
+
+
+def words(d: float) -> str:
+    if d < 1000:
+        return f"about {max(10, round(d, -1)):.0f} m"
+    km = d / 1000
+    dist = f"about {km:.1f} km" if km < 10 else f"about {round(km):.0f} km"
+    h = km / 5  # a walker's pace
+    walk = ("under an hour's walk" if h < 0.75 else "about an hour's walk" if h < 1.5 else
+            f"about {round(h)} hours' walk" if h < 8 else "a day's walk" if h <= 12 else f"about {round(h / 8)} days' walk")
+    return f"{dist}, {walk}"
+
+
+def _up(w: "World", eid: str, key: str) -> Any:
+    cur, hops = w.get(eid), 0
+    while cur is not None and hops < 64:
+        if cur["state"].get(key) is not None:
+            return cur["state"][key]
+        cur, hops = (w.get(cur["parent_id"]) if cur["parent_id"] else None), hops + 1
+    return None
+
+
+def _shown(w: "World", e: dict[str, Any], body: str | None, frame: str) -> str | None:
+    """'named', 'unnamed' or None (not in sight), by what is hidden from e up to its frame."""
+    f = lines(e) or {}
+    cur, hops, named = e, 0, "named"
+    while cur is not None and cur["id"] != frame and hops < 64:
+        if cur["state"].get("hidden"):
+            if not posn.is_place(w, cur):
+                return None  # a hidden thing is out of sight, however big
+            if not w.knows_way(body, cur["id"]):
+                if not f.get("seen"):
+                    return None
+                named = "unnamed"
+        cur, hops = (w.get(cur["parent_id"]) if cur["parent_id"] else None), hops + 1
+    return named
+
+
+def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
+    """What a body in `place` sees far off: {in_sight: [{id, name, bearing, compass, distance_m, distance, band,
+    line}], note?}, up to MAX_IN_SIGHT, the most prominent (size over distance) first."""
+    here = w.get(place)
+    if here is None:
+        return {"in_sight": [], "note": "nowhere to look from"}
+    if here["state"].get("indoors"):
+        return {"in_sight": [], "note": "you are indoors: no far view from here"}
+    frame = posn.frame_of(w, place)
+    unit = UNITS.get(str(posn.frame_def(w, frame).get("units") or "m"))
+    spot = posn.resolve(w, place)
+    if unit is None or spot["at"] is None:
+        return {"in_sight": [], "note": "this place has no spot in a frame of metres or km to look from"}
+    lay_here = here["state"].get("layout") if isinstance(here["state"].get("layout"), dict) else {}
+    at = list(spot["at"]) + [0.0] * (3 - len(spot["at"]))
+    zr = geo.z_range(lay_here)
+    eye = (zr[0] if zr is not None else at[2]) * unit + EYE_M
+    root = w.get(w.root_id)
+    rs = root["state"] if root else {}
+    k = float(rs.get("far_k") or FAR_K)
+    r = float(rs.get("planet_radius_m") or PLANET_R)
+    vis = _up(w, place, "visibility_m")
+    vis = float(vis) if vis is not None else math.inf
+
+    skip = {place, *w.ancestors(place)}
+    rows = w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"far"%'))
+    seen: dict[str, dict[str, Any]] = {}
+    for e in rows:
+        f = lines(e)
+        if f is None or e["id"] in skip or place in w.ancestors(e["id"]) or posn.frame_of(w, e["id"]) != frame:
+            continue
+        how = _shown(w, e, body, frame)
+        if how is None:
+            continue
+        p = posn.resolve(w, e["id"])
+        if p["at"] is None or p["how"] not in ("own", "grid"):
+            continue
+        lay = e["state"].get("layout") if isinstance(e["state"].get("layout"), dict) and p["how"] == "own" else {}
+        big = size(lay, f, unit)
+        if big <= 0:
+            continue
+        gap = geo.edge_distance(lay, at) if lay and (lay.get("radius") or lay.get("footprint") or lay.get("size")) else None
+        d = (gap if gap is not None else geo.ground(at, p["at"])) * unit
+        reach = min(k * big, vis, horizon(eye, top(lay, p["at"], unit), r))
+        if d > reach or d <= 0:
+            continue
+        band = "far" if d > reach / 2 else "mid"
+        line = (f.get("mid") or f.get("far")) if band == "mid" else (f.get("far") or f.get("mid"))
+        deg, compass = geo.bearing(at, p["at"])
+        seen[e["id"]] = {"id": e["id"] if how == "named" else None,
+                         "name": e["name"] if how == "named" else (f.get("called") or None),
+                         "bearing": deg, "compass": compass, "distance_m": round(d), "distance": words(d),
+                         "band": band, "line": line, "_size": big, "_merge": float(f.get("merge_m") or big / 4)}
+    out = []
+    for eid, row in seen.items():
+        holder = next((a for a in w.ancestors(eid) if a in seen), None)
+        if holder is not None and row["_size"] <= seen[holder]["_merge"]:
+            continue  # the container's line stands for it
+        out.append(row)
+    out.sort(key=lambda x: -x["_size"] / max(x["distance_m"], 1))
+    for row in out:
+        del row["_size"], row["_merge"]
+    return {"in_sight": out[:MAX_IN_SIGHT]}
+
+
+def _key(w: "World", place: str, body: str | None) -> str:
+    return json.dumps([w.id, place, body, int(w.t // 3600)])
