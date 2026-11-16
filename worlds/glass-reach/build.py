@@ -523,7 +523,7 @@ def populate(s):
     s.spawn("thing", nico, "Long glass", state={"portable": True, "description": "A brass spyglass, Carrier make, the lens scratched."})
     taan = s.spawn("person", deepwell, "Elder Taan", state=TAAN)["id"]
     s.spawn("thing", deepwell, "Stone cups on cords", state={"portable": False, "water_source": True,  # dipped in the pool: never dry
-        "description": "Cups worn smooth, one for each Keth who has ever drunk here. Dipped in the black pool, they come up full."})
+        "description": "Cups worn smooth, one for each Keth who has ever drunk here. Dipped in the black pool, they come up full: drink from them, or fill a skin you carry."})
     worm = s.spawn("thresher", deep, "The Thresher", state={"home": deep})["id"]
 
     # the rails and the clock
