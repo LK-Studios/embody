@@ -12,7 +12,11 @@ its description, in ordinary perceive. Only what carries `far` is ever in sight,
   size (`far.merge_m`, default a quarter of the container's size); otherwise the container's line stands for it.
 - Hidden stays hidden: a hidden thing never shows; a hidden place shows only to one who knows the way to it, or when
   its `far` says `seen: true`, and then without its name or id (`far.called`, if any, is what it looks like).
-- Nothing from inside a place that is `indoors`. Both ends are measured in one frame, in metres or km.
+- Line of sight, 2.5D: a thing with `occludes: true` and a top (a ridge, a wall, the Scar) blocks what lies behind it
+  when its top stands above the line from the viewer's eye to the target's top where that line crosses it. One you
+  stand on blocks nothing.
+- Nothing from inside a place that is `indoors`. Both ends are measured in one ruler: one frame, or frames that say
+  they are `aligned_with` each other (the same origin and units), in metres or km.
 
 Read on demand only (`perceive(far=true)`), cached per place and body per world hour.
 """
@@ -82,6 +86,45 @@ def words(d: float) -> str:
     return f"{dist}, {walk}"
 
 
+def ruler(w: "World", frame: str) -> set[str]:
+    """The frames measured with one ruler: this one and every frame `aligned_with` it, either way, in the same units."""
+    units = posn.frame_def(w, frame).get("units") or "m"
+    named = []
+    for e in w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"aligned_with"%')):
+        f = e["state"].get("frame")
+        if isinstance(f, dict) and f.get("aligned_with") and posn.starts_frame(w, e):
+            other = w.get(f["aligned_with"]) or next(iter(w.find(name=f["aligned_with"], limit=1)), None)
+            if other is not None and (f.get("units") or "m") == (posn.frame_def(w, other["id"]).get("units") or "m"):
+                named.append((e["id"], other["id"]))
+    out, grew = {frame}, True
+    while grew:
+        grew = False
+        for a, b in named:
+            if (a in out) != (b in out) and (posn.frame_def(w, a).get("units") or "m") == units:
+                out |= {a, b}
+                grew = True
+    return out
+
+
+def blocked(eye_at: list[float], eye_m: float, at: list[float], top_m: float, lay: dict[str, Any], occ_top: float) -> bool:
+    """Whether an occluder's extent, `occ_top` metres high, stands above the sight line where the line crosses it."""
+    poly = geo.outline(lay)
+    if poly is None or geo.in_polygon(eye_at, poly):
+        return False
+    ts = [1.0] if geo.in_polygon(at, poly) else []
+    dx, dy = at[0] - eye_at[0], at[1] - eye_at[1]
+    for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]):
+        ex, ey = x2 - x1, y2 - y1
+        den = dx * ey - dy * ex
+        if abs(den) < 1e-12:
+            continue
+        t = ((x1 - eye_at[0]) * ey - (y1 - eye_at[1]) * ex) / den
+        u = ((x1 - eye_at[0]) * dy - (y1 - eye_at[1]) * dx) / den
+        if 0 < t < 1 and 0 <= u <= 1:
+            ts.append(t)
+    return any(occ_top > eye_m + (top_m - eye_m) * t for t in ts)
+
+
 def _up(w: "World", eid: str, key: str) -> Any:
     cur, hops = w.get(eid), 0
     while cur is not None and hops < 64:
@@ -132,13 +175,21 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
     vis = float(vis) if vis is not None else math.inf
 
     skip = {place, *w.ancestors(place)}
+    frames = ruler(w, frame)
+    walls = []
+    for o in w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"occludes"%')):
+        lay = o["state"].get("layout")
+        if o["state"].get("occludes") is True and isinstance(lay, dict) and lay.get("at") and \
+                posn.frame_of(w, o["id"]) in frames and geo.z_range(lay) is not None:
+            walls.append((o["id"], lay, top(lay, lay["at"], unit)))
     rows = w.store.query("entity", "world_id=? AND state LIKE ?", (w.id, '%"far"%'))
     seen: dict[str, dict[str, Any]] = {}
     for e in rows:
         f = lines(e)
-        if f is None or e["id"] in skip or place in w.ancestors(e["id"]) or posn.frame_of(w, e["id"]) != frame:
+        own_frame = posn.frame_of(w, e["id"])
+        if f is None or e["id"] in skip or place in w.ancestors(e["id"]) or own_frame not in frames:
             continue
-        how = _shown(w, e, body, frame)
+        how = _shown(w, e, body, own_frame)
         if how is None:
             continue
         p = posn.resolve(w, e["id"])
@@ -152,6 +203,11 @@ def in_sight(w: "World", place: str, body: str | None) -> dict[str, Any]:
         d = (gap if gap is not None else geo.ground(at, p["at"])) * unit
         reach = min(k * big, vis, horizon(eye, top(lay, p["at"], unit), r))
         if d > reach or d <= 0:
+            continue
+        up = w.ancestors(e["id"])
+        tip = top(lay, p["at"], unit)
+        if any(blocked(at, eye, p["at"], tip, wl, wt) for oid, wl, wt in walls
+               if oid != e["id"] and oid not in up and e["id"] not in w.ancestors(oid)):
             continue
         band = "far" if d > reach / 2 else "mid"
         line = (f.get("mid") or f.get("far")) if band == "mid" else (f.get("far") or f.get("mid"))

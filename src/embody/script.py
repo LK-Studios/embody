@@ -85,7 +85,10 @@ ALLOWED_NODES: frozenset[type] = frozenset(
 
 METHOD_WHITELIST: dict[type, frozenset[str]] = {
     str: frozenset({"lower", "upper", "strip", "startswith", "endswith", "split", "join",
-                    "replace", "title", "capitalize", "isdigit", "count", "find", "format"}),
+                    "replace", "title", "capitalize", "isdigit", "count", "find", "format",
+                    # what an author reaches for next; none of them pads, so none grows a string past its input
+                    "rstrip", "lstrip", "rsplit", "splitlines", "partition", "rpartition", "removeprefix",
+                    "removesuffix", "rfind", "isalpha", "isalnum", "isspace"}),
     list: frozenset({"append", "pop", "extend", "index", "count", "insert", "remove", "reverse", "sort", "copy"}),
     dict: frozenset({"get", "keys", "values", "items", "pop", "setdefault", "update", "copy"}),
     tuple: frozenset({"index", "count"}),

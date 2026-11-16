@@ -66,3 +66,26 @@ def test_merge_size_haze_knowing_the_way_and_indoors():
     gm.clock(step=3601)
     b = nate.perceive(far=True)
     assert b["in_sight"] == [] and "indoors" in b["note"]
+
+
+def test_a_ridge_blocks_what_lies_behind_it_and_aligned_frames_share_a_ruler():
+    eng, w, gm, nate = skyline()
+    ridge = gm.spawn("place", w.root_id, name="Saw Ridge", state={"occludes": True})["id"]
+    gm.layout(placements=[{"entity": ridge, "at": [-10000, 0, 0], "size": [200, 4000], "floor": 0, "ceiling": 400}])
+    gm.clock(step=3601)
+    s = sight(nate)
+    assert "Varn" not in s and "Signal Tower" in s  # behind the ridge to the west; the tower stands north, clear
+    gm.layout(placements=[{"entity": ridge, "ceiling": 20}])  # a low bank: the city's smoke shows over it
+    gm.clock(step=3601)
+    assert "Varn" in sight(nate)
+
+    # a basin laid out in its own frame of metres from the same origin: unseen until its frame says so
+    basin = gm.spawn("place", w.root_id, name="The Basin", state={"tier": "region"})["id"]
+    kiln = gm.spawn("place", basin, name="Kiln Town", state={"far": "a row of chimneys, smoking"})["id"]
+    gm.layout(placements=[{"entity": basin, "frame": {"units": "m"}},
+                          {"entity": kiln, "at": [6000, 0, 0], "radius": 400, "ceiling": 40}])
+    gm.clock(step=3601)
+    assert "Kiln Town" not in sight(nate)
+    gm.layout(placements=[{"entity": basin, "frame": {"units": "m", "aligned_with": "Two Rooms"}}])
+    gm.clock(step=3601)
+    assert sight(nate)["Kiln Town"]["compass"] == "E"

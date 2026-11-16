@@ -38,6 +38,18 @@ def main():
     assert run(src) == "3:brann:none"
 
 
+def test_the_trimming_and_splitting_methods_an_author_reaches_for():
+    src = """
+def main(text):
+    head, _, tail = text.partition(":")
+    return [text.rstrip("."), text.lstrip("M"), head, tail.removesuffix("..").rsplit(" ", 1)[0], "a\\nb".splitlines()]
+"""
+    assert run(src, "main", "Marr: the gate is open..") == [
+        "Marr: the gate is open", "arr: the gate is open..", "Marr", " the gate is", ["a", "b"]]
+    with pytest.raises(ScriptError, match="not allowed"):
+        run('def main():\n    return "x".ljust(10)\n')  # padding grows a string past its input: still out
+
+
 def test_fuel_limit():
     src = """
 def main():

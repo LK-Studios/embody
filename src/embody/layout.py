@@ -12,7 +12,7 @@ from typing import Any
 
 from .world import Rejected
 
-FRAME_KEYS = {"units", "up", "north", "bounds", "geo", "note"}
+FRAME_KEYS = {"units", "up", "north", "bounds", "geo", "note", "aligned_with"}
 LAYOUT_KEYS = {"at", "heading", "radius", "size", "footprint", "floor", "ceiling", "mesh", "note", "landmarks", "solid"}
 COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 DEFAULT_FRAME = {"units": "m", "up": "z", "north": "y"}
@@ -50,6 +50,8 @@ def check_frame(frame: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(g, dict) or set(g) - {"lat", "lon"} or not {"lat", "lon"} <= set(g):
             raise Rejected("geo is {lat, lon}: where x = y = 0 lies on a real map")
         out["geo"] = {"lat": _num(g["lat"], "geo.lat"), "lon": _num(g["lon"], "geo.lon")}
+    if out.get("aligned_with") is not None and not isinstance(out["aligned_with"], str):
+        raise Rejected("aligned_with names one other frame with the same origin and units (its place's id or name)")
     return out
 
 
