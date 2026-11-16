@@ -84,12 +84,18 @@ def test_bulk_is_a_units_and_a_fraction_counts(yard):
     ada.act("take", "Emberglass", params={"count": 40})  # 40 x 0.1 = 4 of 5
     with pytest.raises(Rejected) as r:
         ada.act("take", "Emberglass", params={"count": 11})
-    assert "hands are full" in r.value.reason and "take fewer" in r.value.reason
+    assert "hands are full (4 of 5, and 11 of Emberglass take 1.1)" in r.value.reason and "take fewer" in r.value.reason
     ada.act("take", "Emberglass", params={"count": 10})
     assert [n for _, n in glass(eng, "Ada")] == [50]
     with pytest.raises(Rejected) as r:
         ada.act("take", "Rope", params={"count": 1})  # 3 a coil, 5 in hand already
     assert "hands are full" in r.value.reason
+    # one thing heavier than 1 says what it weighs, or "4 of 5" reads as room to spare
+    gm.spawn("thing", gm.inspect("Ada")["parent"], "Crossbow", state={"portable": True, "bulk": 3})
+    with pytest.raises(Rejected) as r:
+        ada.act("take", "Crossbow")
+    assert "(5 of 5, and it takes 3): drop, put or give something first" in r.value.reason
+    assert "take fewer" not in r.value.reason
 
 
 def test_a_bad_count_is_refused_with_how_many_there_are(yard):

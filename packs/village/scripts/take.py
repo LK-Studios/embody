@@ -3,6 +3,10 @@ def how_many(ctx):
     c = (ctx.params or {}).get("count")
     return None if c is None else int(c)
 
+def num(x):
+    x = round(x, 3)
+    return str(int(x)) if x == int(x) else str(x)
+
 def check(ctx):
     if ctx.target.parent.id == ctx.actor.id:
         return "you already hold it"
@@ -18,7 +22,12 @@ def check(ctx):
         return "there are " + str(have) + " of " + ctx.target.name + ": take 1 to " + str(have) + ", or leave count out for all of it"
     weight = ctx.bulk(ctx.target) * (n if n is not None else have) / have
     if ctx.actor.state.carry and weight > 0 and ctx.load(ctx.actor) + weight > float(ctx.actor.state.carry):
-        return "your hands are full (" + str(ctx.load(ctx.actor)) + " of " + str(ctx.actor.state.carry) + "): drop, put or give something first, or take fewer"
+        # name what this one weighs: "6 of 8" alone reads as room to spare when the thing takes 3
+        full = "your hands are full (" + num(ctx.load(ctx.actor)) + " of " + num(float(ctx.actor.state.carry))
+        if have > 1:
+            took = n if n is not None else have
+            return full + ", and " + str(took) + " of " + ctx.target.name + " take " + num(weight) + "): drop, put or give something first, or take fewer"
+        return full + ", and it takes " + num(weight) + "): drop, put or give something first"
     return True
 
 def apply(ctx):
