@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -173,6 +174,34 @@ def watch_local(s: Session, args: argparse.Namespace) -> dict[str, Any]:
         if not r.get("timed_out") or left <= 60.0:
             return r
         since = r.get("since", since)
+
+
+def render_minds(r: dict[str, Any]) -> str:
+    """The minds table as lines: alerts first, then one line per character."""
+    out = [f"ALERT {a}" for a in r["alerts"]] or ["no alerts"]
+    for m in r["minds"]:
+        who = (m["label"] or m["mind"]) if m["mind"] else "no mind"
+        seat = ("seated" + (f", quiet {m['quiet_min']:g} min" if "quiet_min" in m else "")) if m["seated"] else (
+            "lapsed" if m["mind"] else "")
+        line = f"  {m['name']} ({m['id']}) at {m['place'] or 'nowhere'}: {who}" + (f", {seat}" if seat else "")
+        if m.get("players_here"):
+            line += f"; players here: {', '.join(m['players_here'])}"
+        if m.get("owed"):
+            line += f"; OWED {m['owed']['by']} {m['owed']['min']:g} min: {m['owed']['text'][:60]!r}"
+        out.append(line)
+    return "\n".join(out)
+
+
+def rearm_line(args: argparse.Namespace) -> str:
+    """The last line of every `embody watch`: the command that arms it again. A mind that stops without a watch is a
+    seat nobody hears until someone wakes it."""
+    def q(x: str) -> str:  # "heard('x')" reads better than shlex's 'heard('"'"'x'"'"')', and pastes the same
+        if x and not set(x) & set(" \t'\"$`\\!*?;&|<>()[]{}#~"):
+            return x
+        return f'"{x}"' if not set(x) & set('"$`\\!') else shlex.quote(x)
+
+    a = getattr(args, "argv_", None)
+    return "re-arm before you stop: embody " + " ".join(q(x) for x in a) if a else ""
 
 
 def render_watch(b: dict[str, Any]) -> str:
@@ -393,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--world", default=argparse.SUPPRESS, help="which world (also accepted before watch)")
     c.add_argument("--as", dest="as_", default=argparse.SUPPRESS)
     c.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    c = sub.add_parser("minds", help="the minds table (owner, author, narrator): each character a mind runs or should, "
+                                      "its seat, minutes quiet, players waiting on it, and the alerts")
+    c.add_argument("--quiet", type=float, default=40, help="alert on a mind quiet this many real minutes (default 40)")
+    c.add_argument("--owed", type=float, default=10, help="alert on a player owed an answer this long (default 10)")
     c = sub.add_parser("clock", help="show or set the world clock (author to set)")
     c.add_argument("--run", action="store_true")
     c.add_argument("--pause", action="store_true")
@@ -442,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
                 p.add_argument(*flags, default=argparse.SUPPRESS, **kw)
 
     args = ap.parse_args(argv)
+    args.argv_ = list(sys.argv[1:] if argv is None else argv)
     if args.cmd == "serve":
         from .mcp_server import serve
         return serve(args)
@@ -520,8 +554,16 @@ def main(argv: list[str] | None = None) -> int:
             b = s.wait(timeout=args.timeout, kinds=args.kinds, full=args.full)
             emit(args, b, render_perceive(b) if args.full else render_wait(b))
         elif args.cmd == "watch":
-            r = watch_local(s, args)
-            emit(args, r, render_watch(r))
+            try:
+                r = watch_local(s, args)
+            except Rejected as x:
+                raise Rejected(x.reason, hint=f"{x.hint + '; ' if x.hint else ''}fix the condition, then "
+                                              f"{rearm_line(args).replace('re-arm before you stop: ', '')}") from None
+            r["rearm"] = rearm_line(args)
+            emit(args, r, render_watch(r) + "\n" + r["rearm"])
+        elif args.cmd == "minds":
+            r = s.minds(quiet_min=args.quiet, owed_min=args.owed)
+            emit(args, r, render_minds(r))
         elif args.cmd == "clock":
             run = True if args.run else (False if args.pause else None)
             r = s.clock(run=run, rate=args.rate, step=args.step)

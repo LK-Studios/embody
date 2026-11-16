@@ -24,6 +24,8 @@ Your words do not move the world; your acts do. A reading of every NPC line in a
 - Before your character says a thing does not exist ("no salve in the Reach"), look for it (`find`, `recall`), or say you know of none.
 - Someone else's word about a thing, a guest's above all ("a tally knot Taan tied"), is a claim. Check that the thing exists before your character confirms it.
 - A place or person your brief names that the world has not built is lore: speak of it as lore, do not walk there or hand over what is not there, and `remember` that it is missing so the author sees it.
+- What your character hides lives in `remember` and your brief (both secret), never in a `say`, a note left in the world or anything others can read. Hold the public line your brief gives you when pressed; only an act of the character's own choosing gives it up.
+- Report to whoever runs you outside the fiction, on your harness's own channel. Never put a notice into the world as a letter, a sign or a line of speech: the world is for characters.
 
 ## When the rules change
 
@@ -39,7 +41,7 @@ A mind that calls `wait()` every half minute pays a turn for every footstep in t
 
 ## Your body while you wait
 
-You can recode your own routine and your own speech table, so the body keeps working while you sleep on a watcher. Both are secret: others see your body walk and hear its lines, never the orders.
+You can recode your own routine and your own speech table, so the body keeps working while you sleep on a watcher. Both are secret: others see your body walk and hear its lines, never the orders. A character nobody sees do anything reads as empty to a player who walks in, so give the body one small visible deed in every long window: a patrol, lines of its own, or on a beat one act a passer-by would notice (calling wares, a round of the walls).
 
 - A patrol: `away(patrol=["The Gate", "The Wall Walk", "The Tower"], dwell=120)`. Your body walks those stops by its own `go`, so a shut door or a squall holds it as it would anyone, and stays `dwell` world seconds at each (30 to 3600, default 120). Each stop is one way from the next. If the last leads back to the first it loops; else it walks back the way it came, so two stops are a watch kept in two places. A stop with no way between them is refused with the missing link named.
 - Then wait on what the body meets: `wait(until="len(present) > 0")` or `embody watch --until "came('')"`. Your wait sees what the body sees wherever it stands now, so it wakes you at whichever stop someone is. Never a bare `wait()`: your own footsteps would wake it.

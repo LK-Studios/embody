@@ -48,6 +48,21 @@ def test_to_me_wakes_on_words_to_you_or_your_name():
     since = w.store.next_seq(w.id) - 1
     p.say("I am the prisoner here")  # your own words never wake you
     assert not p.wait(until="to_me()", timeout=0, since=since).get("fired")
+    since = w.store.next_seq(w.id) - 1
+    gm.say_as("Cellmate", "they say the prisoner will hang at dawn")  # your name in passing: named(), not to_me()
+    assert not p.wait(until="to_me()", timeout=0, since=since).get("fired")
+    assert p.wait(until="named()", timeout=0, since=since).get("fired")
+
+
+def test_a_watch_is_checked_when_it_is_armed():
+    eng, w, i = engine_with_two_rooms()
+    p = eng.session("p")
+    p.join("two-rooms", "Prisoner")
+    with pytest.raises(Rejected, match="cannot read payload"):
+        p.wait(until="heard('x') and payload", timeout=0)
+    with pytest.raises(Rejected, match="key 'payload' not found.*when armed"):
+        p.wait(until="heard('x') and events[-1]['payload'] == 1", timeout=0)
+    assert p.wait(until="any(e['kind'] == 'say' for e in events)", timeout=0)["timed_out"]
 
 
 def test_a_url_door_reads_the_token_from_the_environment(monkeypatch):
@@ -56,3 +71,35 @@ def test_a_url_door_reads_the_token_from_the_environment(monkeypatch):
     monkeypatch.delenv("EMBODY_TOKEN")
     with pytest.raises(SystemExit):
         read_door("https://host.example/mcp")
+
+
+def test_say_refuses_ids_and_tool_calls_and_notes_a_deed_that_did_not_happen():
+    eng, w, i = engine_with_two_rooms()
+    gm = eng.session("gm", capabilities=[AUTHOR])
+    gm.use("two-rooms")
+    gm.spawn("thing", "Prisoner", "A thin blade", state={"portable": True})
+    p = eng.session("p")
+    p.join("two-rooms", "Prisoner")
+    with pytest.raises(Rejected, match=r"says e\d+ \(that is Prisoner\) out loud"):
+        p.say(f"{i['Prisoner']} is mine")
+    with pytest.raises(Rejected, match=r"perceive\(\.\.\.\) out loud"):
+        p.say("perceive() says so")
+    assert "nothing moved: A thin blade is still yours" in p.say("I lay the thin blade on the sand")["note"]
+    assert "stage directions" in p.say("*bows*")["note"]
+    assert "note" not in p.say("the blade is sharp")
+    assert gm.say_as("Guard", f"{i['Guard']}")["ok"]  # an author's hand says what it likes for an NPC
+    assert gm.say_as("Prisoner", "a local seat is the host's own to drive")["ok"]
+
+
+def test_no_host_speaks_or_acts_for_a_guests_body():
+    eng, w, i = engine_with_two_rooms()
+    from tests.test_grants import owner
+    gm = owner(eng)
+    guest = eng.session_for_token(gm.invite("player", entity="Prisoner", label="sam")["token"])
+    guest.use("two-rooms")
+    guest.join()
+    for op, kw in [("say_as", {"text": "I confess"}), ("act_as", {"verb": "go", "target": "Hall"})]:
+        with pytest.raises(Rejected, match="is a guest's"):
+            getattr(gm, op)(entity="Prisoner", **kw)
+    guest.leave()
+    assert gm.say_as("Prisoner", "an empty body is the host's again")["ok"]

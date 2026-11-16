@@ -270,6 +270,16 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def minds(quiet_min: float = 40, owed_min: float = 10) -> dict[str, Any]:
+        """(owner, author, narrator) The minds table: one row per character a mind runs or should (a creature with a
+        brief, or a mind grant's seat): who holds it and whether the seat is held, real minutes since that mind was
+        heard from, the players in its place, and `owed` (a player's line to it still unanswered). `alerts` lists
+        what needs a host now: a seat lapsed or quiet past quiet_min, a player waiting past owed_min real minutes, a
+        character with no mind that players talk to. The engine cannot wake a mind's harness; wake its session."""
+        return S(None).minds(quiet_min=quiet_min, owed_min=owed_min)
+
+    @tool()
+    @_wrap
     def report_flaw(what: str, how: str = "", severity: str = "", principal: str | None = None) -> dict[str, Any]:
         """Found a hole? Something the rules let you do that they should not: a roll you can repeat until it lands, a
         verb that writes what it should not, a secret you can read. Tell the owner here instead of using it: what in a
@@ -412,16 +422,19 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @_wrap
     def say(text: str, reach: int = 1, to: str | None = None, principal: str | None = None) -> dict[str, Any]:
         """Speak as the entity you embody. to=<entity> addresses someone here (it lands in both your logs; the
-        room still hears it). reach 1 = your place hears it, 2 = the place above too, -1 = the whole world."""
+        room still hears it). reach 1 = your place hears it, 2 = the place above too, -1 = the whole world.
+        Words only: nothing in a line happens. Do a deed with act first (give, drop, put), then say it; a line that
+        narrates one gets a `note`. Entity ids and tool calls are refused: say names."""
         return S(principal).say(text, reach=reach, to=to)
 
     @tool()
     @_wrap
-    def step(to: Any, principal: str | None = None) -> dict[str, Any]:
+    def step(to: Any = None, heading: float | None = None, principal: str | None = None) -> dict[str, Any]:
         """A short move inside your place without a go: to=[x, y] in the place's frame, or a landmark's name. At most
         as far as you walk since your last step; past the place's edge or into something solid it stops short with
-        clipped=true. Returns {at, frame}; everyone here gets a quiet `stepped`."""
-        return S(principal).step(to)
+        clipped=true. heading= (compass degrees, 0 north, 90 east) sets which way you face; with no to= you turn in
+        place. Returns {at, frame, heading?}; everyone here gets a quiet `stepped` with the same."""
+        return S(principal).step(to, heading=heading)
 
     @tool()
     @_wrap
@@ -497,8 +510,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
                    principal: str | None = None) -> dict[str, Any]:
         """Block until an event touches you or your place (or the timeout, max 120 s). Returns the light bundle
         (t, ambient, here, who is present, the new events, cursor); `full=true` returns perceive() instead.
-        until="<expression>" waits for a condition instead of any event: to_me() (someone speaks to you or says
-        your name), arrived('Reeve') (walks in), came('Reeve')
+        until="<expression>" waits for a condition instead of any event: to_me() (said to you, or with your name as
+        its address; named() for your name anywhere), arrived('Reeve') (walks in), came('Reeve')
         (is here now: already true fires at once, with already=true), heard('water', by='Ruhl'),
         me.get('hp', 0) < 3, t >= 43200, ambient.get('time_of_day') == 'dusk'. It returns with fired=true and the
         events since it began, or timed_out with nothing moved: call again (pass back `since` if you are not

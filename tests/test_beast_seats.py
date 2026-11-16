@@ -93,6 +93,16 @@ def test_a_step_moves_a_little_stays_in_the_place_and_out_of_solids():
     b = nate.wait(timeout=0, positions=True)
     assert b["positions"] == {nan: r["at"]}
     assert any(e["kind"] == "stepped" for e in b["events"])
+    at = r["at"]
+    r = sam.step(heading=270)  # a goat turns in place to face the trough: no walking
+    assert r["turned"] and r["at"] == at and r["heading"] == 270
+    assert gm.inspect("Nan")["state"]["layout"]["heading"] == 270
+    seen = [e for e in nate.wait(timeout=0)["events"] if e["kind"] == "stepped"]
+    assert seen and seen[-1]["payload"]["heading"] == 270
+    r = sam.step([24.5, 2], heading=-45)
+    assert r["heading"] == 315 and "turned" not in r
+    with pytest.raises(Rejected, match="needs to= .* or heading="):
+        sam.step()
     gm.patch("Nan", {"verbs_only": ["bleat"]})
     with pytest.raises(Rejected, match="a goat cannot step"):
         sam.step([24, 2])

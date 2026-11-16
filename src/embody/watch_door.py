@@ -81,7 +81,7 @@ async def _watch(args: argparse.Namespace) -> int:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 
-    from .cli import parse_span, render_watch
+    from .cli import parse_span, rearm_line, render_watch
 
     url, auth = read_door(args.door, args.server)
     end = time.monotonic() + parse_span(args.for_)
@@ -90,7 +90,8 @@ async def _watch(args: argparse.Namespace) -> int:
     lost: float | None = None  # when the door was last lost, while it stays lost
 
     def out(r: dict[str, Any]) -> int:
-        print(json.dumps(r, default=str) if args.json else render_watch(r))
+        r["rearm"] = rearm_line(args)
+        print(json.dumps(r, default=str) if args.json else render_watch(r) + "\n" + r["rearm"])
         return 0
 
     while True:
@@ -125,7 +126,9 @@ async def _watch(args: argparse.Namespace) -> int:
                                     print(f"(the seat had lapsed; took it again at t={j.get('t', '?')})", file=sys.stderr)
                                     continue
                                 reason = str(j.get("reason", reason))
-                            print(f"REFUSED: {reason}" + (f"\nhint: {r.get('hint')}" if r.get("hint") else ""))
+                            print(f"REFUSED: {reason}" + (f"\nhint: {r.get('hint')}" if r.get("hint") else "")
+                                  + "\nnothing is watched now: fix the condition, then "
+                                  + rearm_line(args).replace("re-arm before you stop: ", ""))
                             return 2
                         if not isinstance(r, dict) or "raw" in r:
                             raw = r.get("raw") if isinstance(r, dict) else r

@@ -26,14 +26,14 @@ _PLAY = {"join", "perceive", "inspect", "find", "history", "act", "act_many", "s
          "step", "timers", "reclaim", "away", "program", "unprogram", "programs", "claim_seat", "looks"}
 _WATCH = {"perceive", "inspect", "find", "history", "recall", "timers", "schemas", "scripts", "script_source", "wait",
           "map", "measure", "verify", "looks"}
-_NARRATE = {"act_as", "say_as", "timers", "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "layout",
+_NARRATE = {"act_as", "say_as", "minds", "timers", "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "layout",
             "relate", "unrelate", "schedule", "unschedule", "remember", "intend", "recall", "chmod", "chown"}
 _AUTHOR = _NARRATE | _WATCH | {"create_world", "fork_world", "save", "restore", "define_schema", "define_script",
                                "set_rule", "clear_rule", "mirror", "chronicle", "publish_chronicle", "review",
                                "rules_changed"}
 _OWN = _AUTHOR | {"invite", "grants", "revoke", "evict", "requests", "vouch", "review_script", "flaws", "relink"}
 # The ops that reach the whole world at once, never a builder's: a builder works inside its plot while the world plays.
-_WORLDWIDE = {"create_world", "fork_world", "save", "restore", "mirror", "chronicle", "publish_chronicle", "rules_changed"}
+_WORLDWIDE = {"minds", "create_world", "fork_world", "save", "restore", "mirror", "chronicle", "publish_chronicle", "rules_changed"}
 
 ROLE_OPS: dict[str, frozenset[str]] = {
     OWNER: frozenset(_ANYONE | _PLAY | _OWN),
@@ -275,7 +275,7 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                       "owes an answer, wait(until=\"heard('', by='<their name>')\", timeout=120) before you tell your "
                       "human, so they hear the reply in the same turn (arrived('<name>') waits for someone to walk in, "
                       "came('<name>') is true while they are here, did('attack') waits for a deed, to_me() for anyone "
-                      "speaking to your character or saying its name). Never loop on a bare wait(): it wakes on every footstep. Between your human's turns, "
+                      "speaking to your character or calling it by name). Never loop on a bare wait(): it wakes on every footstep. Between your human's turns, "
                       "if your harness can run a command in the background and wake you when it ends, keep one watch "
                       "going so the world can come to them, and perceive() and tell them when it fires:",
                   f"   for i in $(seq 1 60); do curl -s -X POST {base}/op/wait -H \"Authorization: Bearer {token}\" "

@@ -26,7 +26,7 @@ from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, 
                      active, allowed, caps_for, new_token, paste, principal_id_for, role_for, token_hash)
 from . import layout as geo
 from . import positions as posn
-from .script import Script, ScriptError
+from .script import BUILTINS as SCRIPT_BUILTINS, Script, ScriptError
 from .store import Store
 from . import access as acl
 from . import far as far_mod
@@ -1386,6 +1386,80 @@ class Session:
                        | {"active": active(g, now), "in_world": p is not None, "link_unread": bool(g.get("code_hash")),
                           "embodying": p["entity_id"] if p else None})
         return out
+
+    def minds(self, quiet_min: float = 40, owed_min: float = 10) -> dict[str, Any]:
+        """(owner, author, narrator) The minds table: one row per character a mind runs or should (a creature with a
+        `brief`, or a body a mind principal holds). Each row: who holds it and whether the seat is still held, real
+        minutes since that hand was last heard from, the players in its place, and `owed`: a player's line said to it
+        that it has not answered (by act or line) since. `alerts` lists what needs a host now: a seat lapsed or quiet
+        past `quiet_min`, a player owed an answer for more than `owed_min` real minutes, a character with no mind that
+        players talk to. The engine cannot wake a harness: a host wakes the mind's session, or rejoins it
+        (`embody watch --rejoin`)."""
+        self._tick()
+        w = self.world
+        now, rate = self.engine.wall(), (w.clock()["rate"] or 1)
+        held = {p["entity_id"]: p for p in w.principals() if p.get("entity_id")}
+        grants = [g for g in w.store.query("grants", "world_id=?", (w.id,)) if not g.get("revoked")]
+        labels = {g["principal_id"]: g.get("label") for g in grants}
+        seat_of = {g["principal_id"]: g.get("entity_id") for g in grants if g.get("role") == "mind"}
+        seat_of.update({p["id"]: p["entity_id"] for p in w.principals() if p.get("role") == "mind" and p.get("entity_id")})
+
+        def is_player(eid: str) -> bool:
+            p = held.get(eid)
+            return bool(p) and p.get("role") == PLAYER
+
+        bodies: dict[str, dict[str, Any]] = {}
+        for e in w.find(type="creature", limit=None):
+            if e["state"].get("brief") and not e["state"].get("dead") and not is_player(e["id"]):
+                bodies[e["id"]] = e  # a body with a brief that a player now holds is the player's
+        for eid in seat_of.values():
+            if eid and w.get(eid):
+                bodies[eid] = w.get(eid)
+        mind_for = {eid: pid for pid, eid in seat_of.items() if eid}  # a character's mind, seated or lapsed
+
+        # the newest words people said, oldest first: who owes whom an answer
+        lines = w.events(kinds=["say", "talked", "act"], limit=3000, newest=True)
+        last_from: dict[str, dict[str, Any]] = {}  # character -> the latest player line to it
+        answered: dict[str, int] = {}  # character -> the seq of its own latest deed or line
+        talked_to: dict[str, int] = {}
+        for ev in lines:
+            a, tg = ev.get("actor_id"), ev.get("target_id")
+            if a in bodies:
+                answered[a] = ev["seq"]
+            if tg in bodies and a and is_player(a) and ev["kind"] in ("say", "talked"):
+                last_from[tg] = ev
+                talked_to[tg] = talked_to.get(tg, 0) + 1
+        rows, alerts = [], []
+        for eid, e in sorted(bodies.items(), key=lambda kv: kv[1]["name"]):
+            p = held.get(eid)
+            mind = p if p and p.get("role") == "mind" else None
+            pid = mind["id"] if mind else mind_for.get(eid)
+            place = w.get(e["parent_id"]) if e["parent_id"] else None
+            row: dict[str, Any] = {"id": eid, "name": e["name"], "place": place["name"] if place else None,
+                                   "mind": pid, "label": labels.get(pid) if pid else None, "seated": bool(mind)}
+            if mind:
+                row["quiet_min"] = round((now - float(mind.get("last_seen") or now)) / 60, 1)
+            elif pid:
+                alerts.append(f"{e['name']}: its mind ({row['label'] or pid}) holds no seat (lapsed or left)")
+            if place:
+                row["players_here"] = sorted(c["name"] for c in w.children(place["id"]) if is_player(c["id"]))
+            ev = last_from.get(eid)
+            if ev and ev["seq"] > answered.get(eid, 0):
+                by = w.get(ev["actor_id"])
+                row["owed"] = {"by": by["name"] if by else ev["actor_id"], "text": str((ev.get("payload") or {}).get(
+                    "text") or (ev.get("payload") or {}).get("about") or "")[:200],
+                    "min": round(max(w.t - ev["t"], 0) / rate / 60, 1)}
+            rows.append(row)
+            if mind and row["quiet_min"] > quiet_min:
+                alerts.append(f"{e['name']}: its mind ({row['label'] or mind['id']}) quiet {row['quiet_min']} min")
+            if row.get("owed") and row["owed"]["min"] > owed_min:
+                alerts.append(f"{e['name']}: {row['owed']['by']} has waited {row['owed']['min']} min for an answer"
+                              + ("" if mind else " and no mind holds it"))
+            elif not pid and talked_to.get(eid):
+                alerts.append(f"{e['name']}: no mind, and players spoke to it {talked_to[eid]} time(s) lately")
+        return {"world": w.id, "t": w.t, "minds": rows, "alerts": alerts,
+                "hint": "wake the mind's own session for a quiet or lapsed seat; a body with no mind that players "
+                        "rely on needs one (invite('mind', entity=...))" if alerts else ""}
 
     def vouch(self, grant: str, on: bool = True) -> dict[str, Any]:
         """(owner) Vouch for a grant's hand, or take it back. A hand the owner has not vouched for (every grant but the
@@ -2857,6 +2931,11 @@ class Session:
         if not str(text or "").strip():
             # an idle seat's fallback said "" after each answer, an event nobody could read; nothing said is nothing
             return {"ok": True, "event": None, "note": "an empty line says nothing: nothing was said"}
+        if not self._privileged():
+            leak = _mechanics_in(self.world, str(text))
+            if leak:
+                raise Rejected(f"that line says {leak} out loud: ids and tool calls are not words in the world",
+                               hint="say a thing's or a person's name; do with act() what a tool does")
         self._acted()
         if not self._privileged():
             if len(text) > _SAY_MAX:
@@ -2880,11 +2959,16 @@ class Session:
                                 "way to, or speak to someone who sees you")
         ev = self.world.say(me, text, reach=reach, to=whom)
         self.world._bump_cursor(self.pid)
-        return {"ok": True, "event": _public_event(ev)}
+        out = {"ok": True, "event": _public_event(ev)}
+        deed = _deed_in(self.world, me, str(text))
+        if deed:
+            out["note"] = deed
+        return out
 
-    def step(self, to: Any) -> dict[str, Any]:
+    def step(self, to: Any = None, heading: float | None = None) -> dict[str, Any]:
         """A short move inside the place you stand in, without a `go`: to=[x, y] in the place's frame (z keeps your
-        floor) or a landmark's or a thing's name there. As far as your body walks since its last step (its
+        floor) or a landmark's or a thing's name there. `heading` (compass degrees, 0 north, 90 east) sets which way
+        the body faces; with no `to` it turns in place. As far as your body walks since its last step (its
         `speed_mps`, else the world's `walk_mps`, else 1.4 m/s; a second's worth when the clock is paused), never out
         of the place's extent or into anything solid: a step past either stops short with `clipped: true`. Everyone
         here gets a quiet `stepped {at, frame}`; wait(positions=true) collects them."""
@@ -2902,7 +2986,17 @@ class Session:
                            hint="get out of what holds you first")
         room = posn._room(w, here["id"])
         cur = posn.resolve(w, me)
-        z = float(cur["at"][2]) if cur["at"] and len(cur["at"]) > 2 else             (geo.z_range(room) or (0.0, 0.0))[0] if room.get("at") else 0.0
+        z = float(cur["at"][2]) if cur["at"] and len(cur["at"]) > 2 else \
+            (geo.z_range(room) or (0.0, 0.0))[0] if room.get("at") else 0.0
+        if heading is not None:
+            if isinstance(heading, bool) or not isinstance(heading, (int, float)) or not math.isfinite(heading):
+                raise Rejected("heading is compass degrees: 0 north, 90 east", hint="step(heading=90) faces east")
+            heading = round(float(heading) % 360.0, 1)
+        if to is None:
+            if heading is None:
+                raise Rejected("step needs to= (where to go) or heading= (which way to face)",
+                               hint="step(to=[x, y]), step(to='the gate'), or step(heading=90) to turn in place")
+            return self._turn_in_place(me, here, cur, heading)
         if isinstance(to, (list, tuple)):
             v = geo._vec(to, "to", 2, 3)
             want = [v[0], v[1], z]
@@ -2949,22 +3043,43 @@ class Session:
         if posn.solid_at(w, here["id"], at, skip=me) is not None:
             raise Rejected(f"{at[:2]} is inside something solid", hint="step to a clear spot beside it")
         self._acted()
-        w.store.begin()
-        try:
-            w.patch(me, {"layout": geo.merge(self._own_layout(me), {"at": at})}, actor=me, replace=True)
-            frame = posn.frame_of(w, me)
-            ev = w.emit("stepped", actor=me, target=me, reach=1, payload={"at": at, "frame": frame})
-            w.store.commit()
-        except Exception:
-            w.store.rollback()
-            raise
+        ev, frame, facing = self._stepped(me, {"at": at, **({"heading": heading} if heading is not None else {})})
         self.engine._stepped[(w.id, me)] = w.t
         out = {"ok": True, "at": at, "frame": frame, "event": _public_event(ev)}
+        if facing is not None:
+            out["heading"] = facing
         if clipped:
             out["clipped"] = True
             if blocked:
                 out["blocked_by"] = blocked
         if (where := posn.spot_words(w, here["id"], at)):
+            out["where"] = where
+        return out
+
+    def _stepped(self, me: str, change: dict[str, Any]) -> tuple[dict[str, Any], Any, float | None]:
+        """Write a step or a turn to the body's own layout and tell the place: `stepped {at, frame, heading?}`."""
+        w = self.world
+        w.store.begin()
+        try:
+            w.patch(me, {"layout": geo.merge(self._own_layout(me), change)}, actor=me, replace=True)
+            frame = posn.frame_of(w, me)
+            lay = w.need(me)["state"].get("layout") or {}
+            facing = lay.get("heading")
+            pay = {"at": lay.get("at"), "frame": frame, **({"heading": facing} if facing is not None else {})}
+            ev = w.emit("stepped", actor=me, target=me, reach=1, payload=pay)
+            w.store.commit()
+        except Exception:
+            w.store.rollback()
+            raise
+        return ev, frame, facing
+
+    def _turn_in_place(self, me: str, here: dict[str, Any], cur: dict[str, Any], heading: float) -> dict[str, Any]:
+        """step(heading=...) with no `to`: the body turns where it stands. It spends no walking time."""
+        self._acted()
+        ev, frame, facing = self._stepped(me, {"heading": heading})
+        at = [round(float(x), 2) for x in cur["at"]] if cur["at"] else None
+        out = {"ok": True, "at": at, "heading": facing, "frame": frame, "event": _public_event(ev), "turned": True}
+        if at and (where := posn.spot_words(self.world, here["id"], at)):
             out["where"] = where
         return out
 
@@ -3000,7 +3115,9 @@ class Session:
         self._tick()
         if not str(text or "").strip():
             return {"ok": True, "event": None, "note": "an empty line says nothing: nothing was said"}
-        ev = self.world.say(self._resolve(entity), text, reach=reach, to=self._resolve(to) if to else None)
+        eid = self._resolve(entity)
+        self._not_a_players(eid, "speak")
+        ev = self.world.say(eid, text, reach=reach, to=self._resolve(to) if to else None)
         return {"ok": True, "event": _public_event(ev)}
 
     def remember(self, text: str, entity: str | None = None) -> dict[str, Any]:
@@ -3184,6 +3301,7 @@ class Session:
                 raise Rejected("you are not embodied", hint="join() your seat first, then wait(until=...)")
             if since is None:
                 since = p["cursor_seq"] if (me and p) else w.store.next_seq(w.id) - 1
+            _try_until(cond, self._watch_view(me, []))
         scan, seen = int(since), []
         first = True
         while True:
@@ -3267,12 +3385,19 @@ class Session:
             return any(e["kind"] == "arrived" and low(name) in low(e["who"]) for e in data["events"])
 
         mine = ent["name"] if ent else ""
-        parts = [p for p in re.findall(r"[a-z]+", low(mine)) if len(p) > 2]
+        parts = _name_parts(mine)
+
+        def spoken(e: dict[str, Any]) -> bool:
+            return e["kind"] in ("say", "talked") and bool(e["actor"]) and e["actor"] != mine
 
         def to_me() -> bool:
-            # someone else spoke to you (say to you, talk to you) or said your name in your hearing
-            return any(e["kind"] in ("say", "talked") and e["actor"] and e["actor"] != mine
-                       and (e["target"] == mine or any(re.search(r"\b" + p + r"\b", low(e["text"])) for p in parts))
+            # said to you (a line or a talk aimed at you) or with your name as its address ("Sefa, the gate"), not your
+            # name in passing: a question about you put to the room is someone else's business
+            return any(spoken(e) and (e["target"] == mine or _addressed(e["text"], parts)) for e in data["events"])
+
+        def named() -> bool:
+            # your name anywhere in a line someone else said
+            return any(spoken(e) and any(re.search(r"\b" + p + r"\b", low(e["text"])) for p in parts)
                        for e in data["events"])
 
         def state(name: str) -> dict[str, Any]:
@@ -3288,7 +3413,7 @@ class Session:
             return {}
 
         view = {k: v for k, v in data.items() if k != "cards"}
-        view.update(heard=heard, did=did, came=came, arrived=arrived, to_me=to_me, state=state)
+        view.update(heard=heard, did=did, came=came, arrived=arrived, to_me=to_me, named=named, state=state)
         return view
 
     def _watch_reply(self, me: str | None, until: str, seen: list[dict[str, Any]], hi: int,
@@ -3927,7 +4052,18 @@ class Session:
         """Author only: make any entity act. How a GM drives an NPC without embodying it."""
         self._need(AUTHOR)
         self._tick()
-        return self.world.act(self._resolve(entity), verb, self._resolve(target) if target else None, params)
+        eid = self._resolve(entity)
+        self._not_a_players(eid, "act")
+        return self.world.act(eid, verb, self._resolve(target) if target else None, params)
+
+    def _not_a_players(self, eid: str, what: str) -> None:
+        """A body a guest holds (a player seat from an invite) is theirs: no hand of the host's acts or speaks for it
+        while they hold it. A seat with no invite (a local game, a test) is the host's own to drive."""
+        p = self.world.embodied(eid)
+        if p and p.get("role") == PLAYER and p.get("grant_id") and p["id"] != self.pid:
+            raise Rejected(f"{self.world.need(eid)['name']} is a guest's ({p['id']}): nobody may {what} for them while "
+                           f"they hold it", hint="speak to them in the world, or out of it; evict(principal) first "
+                                                 "if the seat must change hands")
 
     def _actor_or_none(self) -> str | None:
         """Author ops (spawn, patch, move, destroy) are the narrator's hand, not the character's. An entity actor
@@ -3991,10 +4127,16 @@ UNTIL_DOC = ("until is one Python expression (the embody script subset: no impor
              "(names of who is here), me (your own state: water, hp, wounded, ...), events (since the wait began: "
              "seq, t, kind, actor, target, text, player), and helpers heard(word, by=''), did(kind, by=''), "
              "came(name) (is here now), arrived(name) (walked in since the wait began; '' for anyone), to_me() "
-             "(someone spoke to you or said your name: the default for a mind or a player owed nothing in particular), state(name) "
+             "(said to you, or with your name as its address: the default for a mind or a player owed nothing in "
+             "particular), named() (your name anywhere in someone's line), state(name) "
              "(the state you can see of someone here or something you hold). Examples: "
              "\"arrived('Reeve')\", \"heard('ruhl', by='Reeve') or me.get('hp', 0) < 3\", \"t >= 43200\", "
              "\"ambient.get('time_of_day') == 'dusk'\". Names match by part, any case.")
+
+
+_WATCH_HELPERS = ("heard", "did", "came", "arrived", "to_me", "named")
+_WATCH_NAMES = frozenset({"t", "ambient", "here", "present", "me", "events", "state", *_WATCH_HELPERS})
+_WATCH_EVENT = {"seq": 0, "t": 0.0, "kind": "", "actor": "", "target": "", "who": "", "text": "", "player": False}
 
 
 def _until_script(until: str) -> Script:
@@ -4007,7 +4149,90 @@ def _until_script(until: str) -> Script:
         raise Rejected(f"until: {e.reason}", hint=UNTIL_DOC) from None
     if set(sc.functions) != {"until"}:
         raise Rejected("until is one expression, not definitions", hint=UNTIL_DOC)
+    bound, used = set(), set()
+    for node in ast.walk(sc.tree):
+        if isinstance(node, ast.comprehension):
+            bound |= {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            used.add(node.id)
+    unknown = sorted(used - bound - _WATCH_NAMES - set(SCRIPT_BUILTINS) - {"until"})
+    if unknown:
+        raise Rejected(f"until: a watch cannot read {', '.join(unknown)}; it reads "
+                       f"{', '.join(sorted(_WATCH_NAMES))}, and each event has {', '.join(_WATCH_EVENT)}",
+                       hint=UNTIL_DOC)
     return sc
+
+
+def _try_until(cond: Script, view: dict[str, Any]) -> None:
+    """Run a condition once with every helper true and once with every helper false, over one event that has every
+    field, so a typo behind `heard('x') and ...` is refused when it is armed, not hours later when x is said."""
+    for truth in (True, False):
+        v = dict(view, events=[dict(_WATCH_EVENT)])
+        v.update({h: (lambda *a, _r=truth, **k: _r) for h in _WATCH_HELPERS})
+        try:
+            cond.call("until", env=v, fuel=20_000)
+        except ScriptError as e:
+            raise Rejected(f"until: {e.reason} (tried when armed, with every helper {'true' if truth else 'false'})",
+                           hint="read a field that may be missing with .get('key', default); " + UNTIL_DOC) from None
+
+
+def _name_parts(name: str) -> list[str]:
+    """The words a body is called by: the capitalised words of its name, not "the" or "of" ("Sefa of the Keth": sefa,
+    keth)."""
+    ws = [w for w in re.findall(r"[A-Za-z]+", str(name)) if len(w) > 2 and w.lower() not in ("the", "and")]
+    caps = [w for w in ws if w[0].isupper()]
+    return [w.lower() for w in (caps or ws)]
+
+
+_HAIL = r"(?:hey|oi|hi|hello|ho|listen|look|you)"
+
+# A line that narrates handing something over has moved nothing (a blade "laid on the sand" in a say, never dropped,
+# then believed): say's reply says so. A note, never a refusal: "I gave you that blade" can be true.
+_HANDING = re.compile(r"\b(?:lays?|laid|laying|hands?|handed|handing|gives?|gave|giving|drops?|dropped|dropping|"
+                      r"pours?|poured|pouring|puts?|putting|sets?|setting|places?|placed|placing|toss(?:es)?|tossed|"
+                      r"throws?|threw|passes|passed|slides?|slid)\b", re.I)
+
+
+def _bare(name: str) -> str:
+    """A name as it is said in a line: lower case, without its article ("A Crown flask": "crown flask")."""
+    return re.sub(r"^(?:a|an|the)\s+", "", str(name).lower().strip())
+
+
+def _mechanics_in(w: World, text: str) -> str | None:
+    """An entity id of this world or a tool call in a line someone says (a mind said "e57 is mine" aloud)."""
+    for m in re.finditer(r"\be\d+\b", text):
+        if w.get(m.group(0)):
+            return f"{m.group(0)} (that is {w.need(m.group(0))['name']})"
+    m = re.search(r"\b(" + "|".join(OPS) + r")\(", text)
+    return f"{m.group(1)}(...)" if m else None
+
+
+def _deed_in(w: World, me: str, text: str) -> str | None:
+    """The note say adds when its line narrates a deed: a stage direction (*...*), or a hand-over of a thing the
+    speaker still holds."""
+    if re.search(r"\*[^*\n]{2,}\*", text):
+        return ("words only: nothing in a line happens, *stage directions* included; do the deed with act() first, "
+                "then say what you did")
+    if not _HANDING.search(text):
+        return None
+    low = text.lower()
+    held = [c["name"] for c in w.children(me) if len(_bare(c["name"])) > 2 and _bare(c["name"]) in low]
+    if held:
+        return (f"nothing moved: {held[0]} is still yours; if your line hands it over, act('give' or 'drop' or 'put', "
+                f"...) does it")
+    return None
+
+
+def _addressed(text: str, parts: list[str]) -> bool:
+    """Whether a line uses one of these names as its address: "Sefa, the gate", "Hey Sefa", "the gate, Sefa?",
+    "Listen, Sefa, ...", or the name alone; not "Sefa went west" or "where is Sefa?"."""
+    tx = str(text or "").lower().strip()
+    for p in parts:
+        n = r"\b" + re.escape(p) + r"\b"
+        if (re.match(r"^\W*" + n + r"\s*(?:[,!?:]|$)", tx) or re.search(_HAIL + r"\W+" + n, tx)
+                or re.search(r",\s*" + n + r"\s*(?:[,.!?]|$)", tx)):
+            return True
+    return False
 
 
 # How something new comes into the world (introduce): never from nowhere unless the game says so.
@@ -4021,7 +4246,7 @@ INTRODUCE_HOW = {
 
 OPS = [
     "worlds", "use", "create_world", "fork_world", "save", "restore", "join", "leave", "seats", "claim_seat",
-    "invite", "grants", "revoke", "evict", "requests", "chronicle", "publish_chronicle",
+    "invite", "grants", "revoke", "evict", "requests", "minds", "chronicle", "publish_chronicle",
     "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
     "step", "reclaim", "away",
     "define_schema", "define_script", "schemas", "scripts", "script_source",

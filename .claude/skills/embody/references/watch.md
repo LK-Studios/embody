@@ -20,10 +20,11 @@ The expression is one line of the engine's script subset (no imports, no assignm
 | `did(kind, by='')` | an event of that kind happened, by that one if named (`did('attack', by='Hollis')`, `did('arrived')`) |
 | `came(name)` | someone of that name is here now (true already when you arm it? it fires at once, every time, with `already: true`) |
 | `arrived(name)` | someone of that name walked in since the wait began (`''` for anyone, your own steps included) |
-| `to_me()` | someone else spoke to you (a line said to you, a talk aimed at you) or said your name, any part of it |
+| `to_me()` | someone else spoke to you (a line said to you, a talk aimed at you) or used your name as the address ("Sefa, the gate", "Hey Sefa", "the gate, Sefa?"), not your name in passing ("where is Sefa?"); "the" and "and" in a name never count |
+| `named()` | your name anywhere in a line someone else said |
 | `state(name)` | the public state of someone here or a thing you hold; the owner and narrators see anyone's |
 
-Names match by part and any case: `came('reeve')` matches Reeve Ansel Varrick. Start from `to_me()`, the line that is never wrong for a character people talk to: a question put into the room with your name in it is not said to you, and a watch on `heard(..., by=...)` alone sleeps through it. Then add what your goals name. Examples:
+Names match by part and any case: `came('reeve')` matches Reeve Ansel Varrick. Start from `to_me()`, the line that is never wrong for a character people talk to: "Sefa, where is the water?" said to the room is said to you, and a watch on `heard(..., by=...)` alone sleeps through it. Talk about you in passing does not wake it; add `named()` only when the character should rise at its name in any mouth (a wanted man, a lord), since in a busy place that fires all night. Then add what your goals name. Examples:
 
     to_me() or arrived('Keth')
     arrived('Reeve') or heard('Ruhl')
@@ -32,7 +33,7 @@ Names match by part and any case: `came('reeve')` matches Reeve Ansel Varrick. S
     ambient.get('time_of_day') == 'dusk' and came('Keth')
     heard('water', by='Corin') or len(present) == 0
 
-A bad expression is refused at once with this grammar in the hint; a typo never waits for nothing.
+A bad expression is refused when you arm it, with this grammar in the hint: a name the watch cannot read (`payload`) is named with the names it can, and the whole expression is tried on a sample of every event field before it waits, so a typo in the half that runs only after `heard(...)` comes true fails now, not hours later. `any(e['kind'] == 'attack' for e in events)` works as in Python.
 
 ## embody watch: the long wait
 
@@ -40,7 +41,7 @@ MCP clients drop a call after a minute or two, so a wait of hours runs from a sh
 
     embody watch --door .mcp.json --until "arrived('Reeve') or ambient.get('time_of_day') == 'dusk'" --for 8h --rejoin
 
-`--door` is the `.mcp.json` of a hosted session (or any file with the URL and `Bearer <token>`), or the server's URL itself (`--door https://host/mcp`) with the token in the `EMBODY_TOKEN` environment variable, for a harness that keeps its servers in its own config; without it, `embody --as <name> watch ...` watches this machine's database. It calls `wait(until=...)` in pieces of under a minute, reconnects when the line drops or the server redeploys, takes the seat again with `--rejoin` if it lapsed, and exits printing `FIRED: <condition>` with the events, or `TIME UP`. `--principal` watches as a sub-principal of the connection; `--full` prints the whole card; `--json` prints JSON. Exit code 0 for both endings, 2 when the door refuses (the reason is printed), 3 with `LOST THE DOOR` and the cause when the server has been out of reach for ten minutes: check it with one `wait()` and start the watch again, so a mind never sits blind through a night. Without `--until` it wakes on the first event near you.
+`--door` is the `.mcp.json` of a hosted session (or any file with the URL and `Bearer <token>`), or the server's URL itself (`--door https://host/mcp`) with the token in the `EMBODY_TOKEN` environment variable, for a harness that keeps its servers in its own config; without it, `embody --as <name> watch ...` watches this machine's database. It calls `wait(until=...)` in pieces of under a minute, reconnects when the line drops or the server redeploys, takes the seat again with `--rejoin` if it lapsed, and exits printing `FIRED: <condition>` with the events, or `TIME UP`, and as its last line `re-arm before you stop: <the command>`, ready to run again (`rearm` in `--json`). `--principal` watches as a sub-principal of the connection; `--full` prints the whole card; `--json` prints JSON. Exit code 0 for both endings, 2 when the door refuses (the reason is printed), 3 with `LOST THE DOOR` and the cause when the server has been out of reach for ten minutes: check it with one `wait()` and start the watch again, so a mind never sits blind through a night. Without `--until` it wakes on the first event near you.
 
 A condition (or `kinds`) that names a field or event kind this world's rules retired is refused at once (exit 2) with the change named: rebuild it from `guide('changes')`. While your seat has not read the latest rules changes, the output starts with `RULES CHANGED:` and the call to make; read it before you act on what fired.
 

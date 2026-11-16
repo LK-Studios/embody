@@ -78,7 +78,7 @@ ALLOWED_NODES: frozenset[type] = frozenset(
         ast.Call, ast.keyword, ast.Constant, ast.Name, ast.Load, ast.Store,
         ast.Attribute, ast.Subscript, ast.Slice, ast.IfExp,
         ast.List, ast.Tuple, ast.Dict, ast.Set,
-        ast.ListComp, ast.DictComp, ast.comprehension,
+        ast.ListComp, ast.DictComp, ast.GeneratorExp, ast.comprehension,
         ast.JoinedStr, ast.FormattedValue,
     }
 )
@@ -424,6 +424,10 @@ class _Interp:
         out: list[Any] = []
         self._comprehend(node.generators, scope, lambda sc: out.append(self.eval(node.elt, sc)))
         return out
+
+    def eval_GeneratorExp(self, node: ast.GeneratorExp, scope):
+        # any(x for x in xs) reads as it does in Python; evaluated whole, as a list (same fuel, no lazy state)
+        return self.eval_ListComp(node, scope)
 
     def eval_DictComp(self, node: ast.DictComp, scope):
         out: dict[Any, Any] = {}
