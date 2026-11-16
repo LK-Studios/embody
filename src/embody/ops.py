@@ -557,6 +557,10 @@ class Session:
             cur, hops = (w.get(cur["parent_id"]) if cur["parent_id"] else None), hops + 1
         return True
 
+    def may(self, op: str) -> bool:
+        """Whether this grant may call an op: what GET /op and the tool list show, by the rule _allow enforces."""
+        return allowed(self.role, op) and (not self._reader() or op in _READER_OPS)
+
     def _allow(self, op: str) -> None:
         if self._reader() and op not in _READER_OPS:
             w = self.world if self.world_id else None

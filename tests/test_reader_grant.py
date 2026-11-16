@@ -59,3 +59,36 @@ def test_a_read_only_grant_writes_nothing_and_reads_no_ones_feed():
     whole = eng.session_for_token(gm.invite("observer", label="the whole")["token"])
     whole.use("two-rooms")
     assert "Vault" in {e["name"] for e in whole.map(under="Hall")["entities"]}  # an observer with no limits reads all
+
+
+def test_a_read_only_grant_is_shown_only_what_it_may_call(tmp_path):
+    import asyncio
+    import json
+    from embody.mcp_server import _current, build_server, http_app
+    from embody.ops import OPS, _READER_OPS, call
+    eng, w, i = engine_with_two_rooms()
+    gm, s, vault, inv = reader(eng)
+    shown = {op for op in OPS if s.may(op)}
+    assert shown == {op for op in _READER_OPS if op in OPS} and "script_source" not in shown and "wait" not in shown
+    for op in set(OPS) - shown:  # and every op it is not shown is refused when called
+        assert "read-only grant" in call(s, op)["reason"], op
+    srv = build_server(gm, tmp_path / "x.db", eng, http_only=True)
+    tok = _current.set(s)
+    try:
+        tools = {t.name for t in asyncio.run(srv.list_tools())}
+    finally:
+        _current.reset(tok)
+    assert tools - {"principals"} == shown
+    out = {}
+
+    async def get():
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(msg):
+            out.setdefault("body", b"")
+            out["body"] += msg.get("body", b"")
+        await http_app(srv)({"type": "http", "method": "GET", "path": "/op", "query_string": b"", "scheme": "http",
+                             "headers": [(b"authorization", f"Bearer {inv['token']}".encode())]}, receive, send)
+    asyncio.run(get())
+    assert set(json.loads(out["body"])["ops"]) == shown

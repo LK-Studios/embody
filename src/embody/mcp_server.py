@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
-from .grants import is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, allowed, default_url, origin_of, request_origin, token_hash
+from .grants import is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, default_url, origin_of, request_origin, token_hash
 from .ops import AUTHOR, OBSERVER, Engine, Rejected, Session
 
 # The grant session behind the HTTP request being served, set by the Bearer middleware for the request's
@@ -820,19 +820,17 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         fewer tools mean fewer refusals and a plain answer to what the grant gives. The host's own process sees all."""
         cur = _current.get()
         tools = await every()
-        return tools if cur is None else [t for t in tools if shown(cur.role, t.name)]
+        return tools if cur is None else [t for t in tools if shown(cur, t.name)]
 
     srv.list_tools = list_tools  # type: ignore[method-assign]
     return srv
 
 
-def shown(role: str, tool: str) -> bool:
-    """Whether a role's tool list carries this tool: an op by the role table, the tools that are not ops by the op
-    they stand beside."""
+def shown(sess: Session, tool: str) -> bool:
+    """Whether a grant's tool list carries this tool: an op if the grant may call it (its role, and a read-only grant's
+    narrower set), the tools that are not ops by the op they stand beside."""
     from .ops import OPS
-    if tool in OPS:
-        return allowed(role, tool)
-    return allowed(role, {"load_world": "create_world"}.get(tool, "worlds"))
+    return sess.may(tool if tool in OPS else {"load_world": "create_world"}.get(tool, "worlds"))
 
 
 async def _reply(send: Any, status: int, body: Any, ctype: str = "application/json",
@@ -932,7 +930,7 @@ class Bearer:
         and refusal shape as the tools. GET /op lists the ops this grant may call. wait is capped at 120 s."""
         from .ops import OPS, call
         if not op:
-            await _reply(send, 200, {"ops": sorted(o for o in OPS if allowed(sess.role, o)), "role": sess.role,
+            await _reply(send, 200, {"ops": sorted(o for o in OPS if sess.may(o)), "role": sess.role,
                                      "how": "POST /op/<name> with a JSON object of its arguments"})
             return
         if scope.get("method") != "POST":
