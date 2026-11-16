@@ -17,7 +17,7 @@ def apply(ctx):
 def finish(ctx):
     left = int(ctx.target.state.stone or 0) - 1
     ctx.patch(ctx.target, {"stone": left})
-    ctx.spawn("thing", ctx.actor, name="Dressed stone", state={"kind": "dressed stone", "portable": True, "bulk": 2,
+    ctx.spawn("thing", ctx.actor, name="Dressed stone", state={"kind": "dressed stone", "portable": True, "bulk": 2, "stone": True,
               "description": "A block of Scar stone squared on four faces, heavy as a child."})
     ctx.emit("dressed", target=ctx.target, reach=1, by=ctx.actor.id, left=left)
     ctx.log("a dressed stone, " + str(left) + " more in the pile")
