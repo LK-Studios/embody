@@ -55,7 +55,7 @@ def learn(ctx, slab, line):
 
 def clip(s, n):
     s = str(s or "").strip()
-    return s if len(s) <= n else s[:n].rstrip() + "..."
+    return s if len(s) <= n else s[:n].strip() + "..."
 
 def bodied(e):
     return e is not None and e.type != "place" and e.state.hp is not None
