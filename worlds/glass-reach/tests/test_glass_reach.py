@@ -472,7 +472,7 @@ def test_hosted_bodies_thirst_at_the_pace_of_the_day():
         return out
 
     assert beats() == {"thirst": {8640}, "quench": {600}, "mend": {21600}, "fighter_tick": {6}, "wasp_tick": {60},
-                       "vehicle_tick": {15}}  # Hauler Nine rolls on the vehicles pack
+                       "vehicle_tick": {15}, "beast_amble": {30}}  # Hauler Nine rolls on the vehicles pack; beasts amble
     kit = eng.session_for_token(gm.invite("player", label="Kit")["token"])
     kit.join(template="guard", name="Kit")
     assert beats("Kit") == {"thirst": {8640}, "quench": {600}, "mend": {21600}}
@@ -1921,3 +1921,60 @@ def test_the_reach_carries_its_guides_link_and_logs_it_once():
     v = gm.guide("changes")["version"]
     load_world(gm, "glass-reach", upgrade=True)
     assert gm.guide("changes")["version"] == v
+
+
+def test_nicos_jackal_watch_is_night_work_for_those_the_keth_trust():
+    eng, gm, you = reach()
+    root = gm.world.root_id
+    assert where(gm, "Nico's tally stick") == "Red Ridge" and where(gm, "The jackals' earth") == "The Bone Field"
+    assert gm.inspect("Nico's tally stick")["state"]["job"]["open"]
+    bones, ridge = gm.inspect("The Bone Field")["id"], gm.inspect("Red Ridge")["id"]
+    gm.spawn("species", root, "dune jackal", state={"hidden": True, "stages": [], "eats": ["meat", "carrion"],
+                                                    "preys_on": ["ridge goat"], "fed_max": 3})
+    dog = gm.spawn("beast", bones, "The scarred dog", state={"species": "dune jackal", "home": bones, "fed": 3,
+                                                              "hp": 5, "max_hp": 5, "pack": True})["id"]
+    gm.schedule(1, "dawn", entity=root)
+    gm.clock(step=2)
+    assert gm.inspect(dog)["state"]["hidden"]  # by day the pack lies up under the crawler
+    me, keth = gm.inspect("Reeve Ansel Varrick")["id"], gm.inspect("the Keth")["id"]
+    gm.move("Reeve Ansel Varrick", "Red Ridge")
+    gm.unlink(me, keth, "standing")
+    gm.link(me, keth, "standing", {"value": -1, "public": True})
+    with pytest.raises(Rejected, match="standing with the Keth is too low"):
+        you.act("take_job", "Nico's tally stick")
+    gm.unlink(me, keth, "standing")
+    gm.link(me, keth, "standing", {"value": 0, "public": True})
+    r = you.act("take_job", "Nico's tally stick")
+    assert "job_taken" in kinds(r) and gm.inspect("Nico's tally stick")["state"]["job"]["takers"][0]["who"] == me
+    with pytest.raises(Rejected, match="you have it already"):
+        you.act("take_job", "Nico's tally stick")
+    gm.patch(gm.inspect("Story")["id"], {"wild_night": False})
+    gm.schedule(1, "beast_driven_off", entity=ridge, payload={"by": me, "hunters": [dog]})
+    gm.clock(step=2)
+    assert gm.inspect("Nico's tally stick")["state"]["job"]["open"]  # by day it does not count
+    gm.schedule(1, "dusk", entity=root)
+    gm.clock(step=2)
+    assert not gm.inspect(dog)["state"]["hidden"]
+    gm.patch(gm.inspect("Story")["id"], {"wild_night": True})
+    gm.schedule(1, "beast_driven_off", entity=ridge, payload={"by": me, "hunters": [dog]})
+    gm.clock(step=2)
+    job = gm.inspect("Nico's tally stick")["state"]["job"]
+    assert not job["open"] and job["takers"] == [] and job["ledger"][-1]["who"] == me
+    assert {e["target"]: e["data"]["value"] for e in gm.world.edges(me, "standing", "out")}[keth] == 2
+    with pytest.raises(Rejected, match="no trouble just now"):
+        you.act("take_job", "Nico's tally stick")
+    gm.schedule(1, "beast_hungry", entity=dog, payload={"species": "dune jackal", "days": 1})
+    gm.clock(step=2)
+    assert gm.inspect("Nico's tally stick")["state"]["job"]["open"]  # the jackals thin again: Nico hangs it back up
+
+
+def test_the_reach_beasts_amble_like_the_packs_do():
+    eng, gm = hosted()
+    goats = [e for e in gm.find(type="beast") if e["state"].get("species") == "ridge goat"]
+    assert goats, "the ridge goats"
+    ridge = gm.world.get(goats[0]["parent"])["id"] if "parent" in goats[0] else gm.world.get(goats[0]["id"])["parent_id"]
+    gm.patch(ridge, {"amble": True})
+    before = {g["id"]: (gm.world.get(g["id"])["state"].get("layout") or {}).get("at") for g in goats}
+    gm.clock(step=600)
+    after = {g["id"]: (gm.world.get(g["id"])["state"].get("layout") or {}).get("at") for g in goats}
+    assert any(after[i] != before[i] for i in before)

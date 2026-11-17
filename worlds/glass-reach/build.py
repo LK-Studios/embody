@@ -443,11 +443,19 @@ def define(s):
     # the beasts pack's beast (it grows, eats, can be tamed, breeds), with the Reach's word that it does not drink or talk
     s.define_schema("beast", extends="creature", doc="An animal of the Reach: grows, eats what the land gives, can be tamed and kept, breeds; "
                     "the d20 blows land on it and it fights back. It does not drink, talk or carry.",
-                    state=dict(BEAST_STATE), actions=BEAST_ACTIONS, behaviors=[{"script": "fighter_tick", "every": 6}])
+                    state=dict(BEAST_STATE), actions=BEAST_ACTIONS,
+                    behaviors=[{"script": "fighter_tick", "every": 6}, {"script": "beast_amble", "every": 30}])  # the pack's two
     s.define_schema("dice", extends="thing", doc="Dice anyone can throw: everyone here sees how they fall.",
                     state={"portable": True, "dice": 2, "sides": 6},
                     actions={"roll": {"script": "roll_dice", "duration": 2,
                                       "doc": "Throw the dice: everyone here sees the faces. Stakes are yours to make, with say and give"}})
+    s.define_schema("job_token", extends="thing", doc="Work someone gives, again whenever the world needs it: take it "
+                    "from the giver here, and the world's record says when it is done (scripts/_reach_job.py).",
+                    state={"portable": False},
+                    actions={"take_job": {"script": "job_take", "duration": 2,
+                                          "doc": "Take this work from its giver, here and now: a promise between you two, on the record"},
+                             "drop_job": {"script": "job_drop", "duration": 1,
+                                          "doc": "Give the work back; the giver hears it"}})
     s.define_schema("root_ground", extends="thing", doc="Ground with root under it: grub one out by hand, from the place's own forage.",
                     state={"portable": False},
                     actions={"grub": {"script": "grub_root", "duration": 600,
@@ -646,7 +654,7 @@ def upgrade(s):
     s.set_rule(root, "reach_riders", kinds=RIDER_KINDS)
     s.set_rule(root, "reach_wild", kinds=WILD_KINDS)
     s.patch(root, {"policy": POLICY, "briefing": BRIEFING, "templates": TEMPLATES, "guides": GUIDES})
-    keep_behaviors(s.world)  # bodies from before rest mended get the mend tick
+    keep_behaviors(s.world, scripts=("mend", "beast_amble"))  # bodies from before rest mended get the mend tick; beasts from before 11-17 the amble
     keep_canon(s)
     keep_corins_file_kit(s, names_of(s))  # after the nine are made
     keep_faction_stores(s, names_of(s))  # last, so everyone made above learns the word
@@ -2705,6 +2713,7 @@ def keep_canon(s):
     keep_tally_slates(s, names_of(s))
     keep_carry(s)
     keep_dice(s, names_of(s))
+    keep_jobs(s, names_of(s))
     if st.get("garrison"):
         keep_burial(s, names_of(s))
         return
@@ -2787,6 +2796,53 @@ def keep_dice(s, names):
         if name not in names and place in names:
             s.spawn("dice", names[place], name, state={"description": look})
 
+
+
+# Jobs (Nate 2026-11-17: "a job is a questline or goal that can be repeated ... maybe this is the first job?"). The
+# first is Nico's jackal watch: while the jackals trouble the Keth herd, Nico gives it at his post to anyone the Keth
+# do not distrust; at night, bring one down or drive the pack off, and he cuts your mark. By day the pack lies up under
+# the burned crawler in the Bone Field (scripts/jackal_den.py), so the work is night work. scripts/_reach_job.py has the shape.
+JOB_KINDS = ["dawn", "beast_hungry", "beast_stalks", "beast_prowls", "beast_hunts", "downed", "killed",
+             "beast_driven_off", "beast_turned_back"]
+DEN_KINDS = ["dawn", "dusk", "arrived", "beast_went_home"]
+STICK_NAME = "Nico's tally stick"
+JACKAL_JOB = {
+    "id": "jackal_watch", "faction": "the Keth", "min_standing": 0, "species": "dune jackal",
+    "window": "night", "slots": 3, "lapse_days": 3, "open": True, "takers": [], "ledger": [],
+    "pay": {"standing": 2, "skill": "survival", "deed": 1},
+    "lines": {
+        "look_open": "A goat-herder's tally stick of pale thornwood, notched along one edge, hung on a peg driven into "
+                     "the rock by Nico's post. While it hangs there the jackals are trouble, and Nico gives the night "
+                     "watch on them to anyone the Keth trust.",
+        "look_closed": "A goat-herder's tally stick of pale thornwood, notched along one edge, lying off its peg in a "
+                       "crack of the rock by Nico's post: the jackals are no trouble just now.",
+        "opened": "Nico hangs the tally stick back on its peg. 'The jackals are thin again. Who walks the ridge tonight?'",
+        "taken": "Nico looks at {who} a long moment, then nods at the stick. 'At night they come up. Kill one, or send "
+                 "them off the herd, and I cut your mark.'",
+        "terms": "The jackal watch, for Nico of the Keth: at night, from dusk to dawn, bring down or kill a dune jackal, "
+                 "or drive the pack off or turn it from the herd. It pays standing with the Keth, and what the work "
+                 "teaches of survival. By day the pack lies up under the burned crawler in the Bone Field, out of "
+                 "reach. Let three days go by without it and the promise lapses.",
+        "closed": "the stick lies off its peg: the jackals are no trouble just now. Nico hangs it up again when they are",
+        "away": "Nico gives this work himself, at his post on Red Ridge",
+        "refused": "Nico does not take the glass from his eye. 'Not you. The Keth do not hand you their goats.'",
+        "done": "{who} has kept the jackals off the Keth herd tonight. Nico will cut a notch for it.",
+        "pay_why": "kept the jackals off the Keth herd"}}
+JACKALS_EARTH = ("Holes in the sand under the burned crawler's ribs, three or four, the mouths worn smooth and the sand "
+                 "around them printed over and over with narrow feet. A sour animal smell. By day the jackals lie up "
+                 "deep in there where no arm or blade reaches; they come up at dusk.")
+
+
+def keep_jobs(s, names):
+    """Nico's tally stick on Red Ridge (the jackal watch), the jackals' earth in the Bone Field, and the two rules."""
+    root = s.summary()["root"]
+    if STICK_NAME not in names and "Red Ridge" in names and "Nico" in names:
+        job = dict(JACKAL_JOB, giver=names["Nico"])
+        s.spawn("job_token", names["Red Ridge"], STICK_NAME, state={"job": job, "description": job["lines"]["look_open"]})
+    if "The jackals' earth" not in names and "The Bone Field" in names:
+        s.spawn("thing", names["The Bone Field"], "The jackals' earth", state={"portable": False, "description": JACKALS_EARTH})
+    s.set_rule(root, "reach_jobs", kinds=JOB_KINDS)
+    s.set_rule(root, "jackal_den", kinds=DEN_KINDS)
 
 def keep_burial(s, names):
     """The Hold's Gate Acre off the Gate Yard and its sexton, the Guild's Paid Row off the Guild Yard and its
