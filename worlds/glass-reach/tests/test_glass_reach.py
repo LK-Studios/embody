@@ -536,8 +536,8 @@ def test_the_reach_is_laid_out_from_the_canon_once_and_a_live_edit_survives_the_
     m = gm.map(under="The Reach", depth=2)  # the Reach is a region under the world's tiers, in the root's old frame
     rows = {e["name"]: e for e in m["entities"]}
     places = [e for e in m["entities"] if e["type"] == "place"]
-    assert len(places) == 21 and all(e["own"] for e in places)  # thirteen, the Guild Yard, its two rooms,
-    # the Riders' Hollow, the Thornbrake, Tessel's Steading and its cellar, and Weeping Rock
+    assert len(places) == 23 and all(e["own"] for e in places)  # thirteen, the Guild Yard, its two rooms,
+    # the Riders' Hollow, the Thornbrake, Tessel's Steading and its cellar, Weeping Rock, the Gate Acre and the Paid Row
     assert rows["The Keth jars"]["own"] and rows["The Hold's ration cask"]["own"]  # spawned by the routines, placed after
     assert len(m["paths"]) >= 7 and all(p["drawn"] for p in m["paths"])
     ridge = gm.measure("Scar Gate, the Hold", "Red Ridge")
@@ -574,7 +574,8 @@ def test_the_world_grows_its_tiers_once_and_the_reach_keeps_every_spot():
 def varrick_men(gm):
     st = story(gm)
     return {e["name"] for e in gm.world.find(type="person", limit=None) + gm.world.find(type="fighter", limit=None)
-            if gm.world.get(e["id"])["state"].get("faction") == "House Varrick"} - {"Captain Ruhl", "Reeve Ansel Varrick"}
+            if gm.world.get(e["id"])["state"].get("faction") == "House Varrick"} - {"Captain Ruhl", "Reeve Ansel Varrick",
+                                                                                      "Merrit the sexton"}
 
 
 def test_the_low_well_and_ruhls_nine_are_in_the_world():
@@ -1886,3 +1887,14 @@ def test_a_witness_says_more_to_proof_a_keepers_book_matches_hands_and_a_charge_
     assert gm.inspect(culprit)["state"]["held"] is True
     with pytest.raises(Rejected, match="cannot charge yourself"):
         gm.act_as(asker, "charge", book, {"who": "The asker"})
+
+
+def test_each_people_has_its_burial_ground_and_the_keth_keep_theirs():
+    eng, gm, you = reach()
+    for place, keeper in (("The Gate Acre", "Merrit the sexton"), ("The Paid Row", "Tull the dead-carrier")):
+        p = gm.inspect(place)
+        assert p["state"]["burial_ground"] is True
+        assert gm.inspect(keeper)["parent"] == p["id"]
+    ring = gm.inspect("The riders' ring of stones")
+    assert ring["state"]["burial_ground"] is True and gm.world.get(ring["parent"])["name"] == "The Riders' Hollow"
+    assert not gm.inspect("The Low Well")["state"].get("burial_ground")

@@ -47,13 +47,14 @@ read and person_on come from packs/village, the rules from packs/d20), define(s)
 from packs.d20.pack import install_rules, keep_behaviors
 from packs.sheet.pack import to_sheet
 from packs.beasts.pack import BEAST_STATE, BEAST_ACTIONS, install_rules as install_beasts
+from packs.burial.pack import install_rules as install_burial
 
 WORLD = {
     "id": "glass-reach",
     "name": "The Glass Reach",
     "seed": 23,
     "description": "A desert fief, a cracked cistern, a people with the water, a blade left behind. Rules on the table.",
-    "requires": ["d20", "village", "works", "locks", "vehicles", "ledgers", "beasts", "sheet"],
+    "requires": ["d20", "village", "works", "locks", "vehicles", "ledgers", "beasts", "sheet", "burial"],
 }
 
 # ---- what there is ---------------------------------------------------------------------
@@ -532,6 +533,7 @@ def populate(s):
                                            "ansel": ansel, "sefa": sefa, "ruhl": ruhl, "dram": dram, "ossa": ossa, "taan": taan,
                                            "nico": nico, "worm": worm, "keth": factions["the Keth"], "varrick": factions["House Varrick"]})
     install_rules(s, root)
+    install_burial(s, root)
     s.set_rule(root, "reach_story", kinds=STORY_KINDS)
     s.set_rule(root, "reach_chapter", kinds=CHAPTER_KINDS)
     s.set_rule(root, "reach_finds", kinds=FIND_KINDS)
@@ -609,6 +611,7 @@ def upgrade(s):
             s.patch(e["id"], {"secret": sec + ["word_left"]})
     root = s.summary()["root"]
     install_rules(s, root)
+    install_burial(s, root)
     s.set_rule(root, "reach_story", kinds=STORY_KINDS)
     s.set_rule(root, "reach_chapter", kinds=CHAPTER_KINDS)
     s.set_rule(root, "reach_finds", kinds=FIND_KINDS)
@@ -668,6 +671,8 @@ PLACES = [
     {"entity": "The Yard Bunkhouse", "at": [565, 3555, 0], "size": [24, 10], "note": "along the yard's north wall"},
     {"entity": "The Counting House", "at": [565, 3445, 0], "size": [12, 10], "note": "brick, one door, on the yard's south side"},
     {"entity": "The yard tank", "at": [520, 3500, 0], "radius": 2},
+    {"entity": "The Gate Acre", "at": [35, 45, 0], "size": [30, 20], "note": "the Hold's burial plot, outside the yard's north wall"},
+    {"entity": "The Paid Row", "at": [565, 3600, 0], "size": [40, 12], "note": "the Guild's graves, behind the Bunkhouse"},
     {"entity": "The Guild strongbox", "at": [565, 3445, 0], "size": [1.5, 1, 1]},
     {"entity": "The Thornbrake", "at": [420, -1150, 0], "radius": 320, "note": "glassthorn and barrel cactus in the Scar's lee, south of the Hold"},
     {"entity": "Tessel's Steading", "at": [470, -1260, 0], "size": [14, 10], "note": "a roofless house in the brake"},
@@ -692,6 +697,8 @@ ROUTES = [
     {"a": "The Carriers' Landing", "b": "The Guild Yard", "route": [[450, 3500], [460, 3500]]},
     {"a": "The Guild Yard", "b": "The Yard Bunkhouse", "route": [[540, 3530], [560, 3550]]},
     {"a": "The Guild Yard", "b": "The Counting House", "route": [[540, 3470], [560, 3450]]},
+    {"a": "The Guild Yard", "b": "The Paid Row", "route": [[590, 3535], [600, 3570], [585, 3594]]},
+    {"a": "The Gate Yard", "b": "The Gate Acre", "route": [[35, 15], [35, 35]]},
     {"a": "The Gate Yard", "b": "The Thornbrake", "route": [[40, -15], [60, -300], [420, -1150]]},
     {"a": "The Thornbrake", "b": "Tessel's Steading", "route": [[440, -1200], [465, -1255]]},
     {"a": "Tessel's Steading", "b": "The root cellar", "route": [[470, -1260, 0], [472, -1262, -3]]},
@@ -2674,10 +2681,12 @@ def keep_canon(s):
     keep_tally_slates(s, names_of(s))
     keep_carry(s)
     if st.get("garrison"):
+        keep_burial(s, names_of(s))
         return
     hold, ruhl = st["hold"], st["ruhl"]
     bodies = s.world.find(type="person", limit=100000) + s.world.find(type="fighter", limit=None)
-    have = len({e["id"] for e in bodies if s.world.get(e["id"])["state"].get("faction") == "House Varrick"} - {ruhl, st["ansel"]})
+    have = len({e["id"] for e in bodies if s.world.get(e["id"])["state"].get("faction") == "House Varrick"
+                and e["name"] != "Merrit the sexton"} - {ruhl, st["ansel"]})  # the Hold's, not one of Ruhl's men
     for name, spec in NINE:
         if have >= 9:
             break
@@ -2693,6 +2702,70 @@ def keep_canon(s):
         s.link(man, ruhl, "knows", {"standing": 3, "note": "the captain; he counts the water", "met_t": 0, "count": 0})
         have += 1
     s.patch(story, {"garrison": True})
+    keep_burial(s, names_of(s))  # after the nine: the sexton is the Hold's but not one of Ruhl's men
+
+
+# Burial (packs/burial; Nate 2026-11-17, "Yes, as drafted"): each people buries its own by its own custom, written
+# into the ground's description so minds learn it from the world. The Keth's dead lie at the Low Well under their
+# cairns, as canon has it, and no flag is set there: no one else buries in a Keth grave. Wardens are the Guild's.
+ACRE_NAME = "The Gate Acre"
+PAID_ROW_NAME = "The Paid Row"
+GATE_ACRE = ("A walled plot of hard ground outside the Gate Yard's north wall. Low slates stand in two rows, every one "
+             "set to face the gate, so the Hold's dead see who comes home. Names are scratched into the slates; the "
+             "newest are chalked on the reeve's tally too. A spade leans by the plot's gate.")
+PAID_ROW = ("A strip of sand behind the Yard Bunkhouse, raked smooth. At the head of each grave an empty waterskin hangs "
+            "on a stake: the carrier's own, emptied the day the Guild read out what it owed them and what they owed "
+            "it, and chalked the debt paid. Guild dead are carried home; none is left on the road.")
+WASHING_JAR = {"portable": False, "water_source": True, "left": 2, "max_left": 2,
+               "description": "A lidded clay jar kept for washing the dead. The keeper of the ground drinks from it only when the work is long."}
+RIDERS_RING = {"portable": False, "burial_ground": True,
+               "description": "Back under the rib, a ring of black stones laid on the sand, each the size of a saddle. "
+                              "House Dreyer lays its riders inside it under their own blankets. No names are cut: the "
+                              "house remembers its dead and tells no stranger who lies here."}
+SEXTON = {"faction": "House Varrick", "body": 3, "wits": 2, "will": 3, "skills": {"survival": 1}, "hp": 6, "max_hp": 6,
+          "water": 10, "max_water": 10,
+          "description": "A stooped old Hold hand with a spade worn bright at the edge and soil in every crease of his hands.",
+          "default_line": "Merrit leans on the spade. 'Everyone comes home to the Acre in the end. No hurry.'",
+          "dialog": {"bury|grave|dead|acre|sexton|body": "'Hold dead come here. I dig, the reeve chalks the name, "
+                                                         "and we set the slate to face the gate.'",
+                     "hire|pay|dig|work": "'Hold folk I bury for nothing. Anyone else's dead, bring me water for the "
+                                          "digging and I will see them under.'",
+                     "keth|cairn|low well": "'The Keth bury their own, under stones from the Deepwell. I do not dig "
+                                            "there, and nor will you.'",
+                     "guild|carrier|warden": "'Guild dead go home to the Landing. Their carrier comes for them.'"}}
+DEAD_CARRIER = {"faction": "the Carriers", "body": 4, "wits": 2, "will": 3, "skills": {"survival": 2}, "hp": 7,
+                "max_hp": 7, "water": 10, "max_water": 10,
+                "description": "A broad carrier with a folded litter strapped across her back and chalk on her sleeves.",
+                "default_line": "Tull taps the litter. 'The Guild brings its own home. That is my whole trade.'",
+                "dialog": {"bury|grave|dead|row|litter|carry": "'A carrier who dies on the road, I walk out and fetch. "
+                                                               "They come home to the Row, and we close the account "
+                                                               "over them.'",
+                           "debt|paid|account|skin": "'We read what the Guild owed them and what they owed the Guild, "
+                                                     "and say paid. Their skin goes on the stake, empty.'",
+                           "warden|road": "'Wardens are Guild. They come home too.'",
+                           "sel|amory|hollow": "'Sel Amory lies south on Dreyer ground. The Guild owes him three "
+                                               "years. I mean to bring him home when the road lets me.'"}}
+
+
+def keep_burial(s, names):
+    """The Hold's Gate Acre off the Gate Yard and its sexton, the Guild's Paid Row off the Guild Yard and its
+    dead-carrier, and House Dreyer's ring of riders' stones in the Riders' Hollow. Each made once, by name."""
+    root = s.summary()["root"]
+    if ACRE_NAME not in names and "The Gate Yard" in names:
+        acre = s.spawn("place", root, ACRE_NAME, state={"description": GATE_ACRE, "open": True, "burial_ground": True})["id"]
+        names[ACRE_NAME] = acre
+        s.connect(names["The Gate Yard"], acre)
+        s.spawn("person", acre, "Merrit the sexton", state={**SEXTON, "post": acre})
+        s.spawn("thing", acre, "The washing jar", state=dict(WASHING_JAR))
+    if PAID_ROW_NAME not in names and YARD_NAME in names:
+        row = s.spawn("place", root, PAID_ROW_NAME, state={"description": PAID_ROW, "open": True, "guild": True,
+                                                           "burial_ground": True})["id"]
+        names[PAID_ROW_NAME] = row
+        s.connect(names[YARD_NAME], row)
+        s.spawn("person", row, "Tull the dead-carrier", state={**DEAD_CARRIER, "post": row})
+        s.spawn("thing", row, "The Paid Row's washing jar", state=dict(WASHING_JAR))
+    if "The riders' ring of stones" not in names and HOLLOW_NAME in names:
+        s.spawn("thing", names[HOLLOW_NAME], "The riders' ring of stones", state=dict(RIDERS_RING))
 
 
 def keep_routines(s, root):
