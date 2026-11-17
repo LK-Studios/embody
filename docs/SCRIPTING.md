@@ -139,6 +139,45 @@ A carried thing is the one exception: a schema listener with `holder: true` also
 
 Rules are different. A rule installed with `set_rule(entity, script, kinds)` hears every event that happens anywhere under its entity, whatever the event's `reach`: a rule on the root is the table's rule and sees every `hit`, `agreed` or `harvested` emitted with reach 0 or 1 deep in the world. Schema listeners stay scoped by reach (a place hears what happens inside it, a sibling nothing); rules do not need the author to widen every emit. So a storyline, a referee or a watcher goes on the root with `set_rule`; a greeting or a trap stays a schema listener.
 
+## Programming a live world
+
+Read this before you put verbs on things in a running world with `program`: with the owner's hand, or with a maker's
+frame in yours. Over the door, guide('scripting') carries the frame's own rules after this file.
+
+- A verb arrives with `program(thing, verb, source, doc, params)`. Look before you add: `programs(thing)` lists what a
+  thing has, and `find` by name first keeps a second copy of a thing from appearing. After `program`, `inspect` the
+  thing and see the verb under `programmed`; `unprogram` takes one off.
+- `use("name")` is pasted only when a world loads from its folder. A source sent live with `program` gets no paste:
+  write into it every helper it calls.
+- A view's fields are read-only: `view.parent`, `view.id`, `view.name`, `view.type`, `view.pos`. `view.state.key = v`
+  writes state; to move a thing use `ctx.move` or `ctx.transfer` (stack-safe), to rename it `ctx.rename`, to place it
+  `ctx.set_pos` or `ctx.step`.
+- A frame's code reaches its machine, what the machine holds, and the one who chose the verb. It may move things to
+  and from that caller and give them things, but it writes the caller's own state only on the keys the frame's
+  `maker.actor_keys` names (none by default), and never a body's make: stats, skills, sheet, hp, water, carry, faction,
+  memory, or any key the body's schema gives it. One exception reaches past the machine: a thing the world marks
+  `stone: true`, lying loose where the machine stands, portable, nobody's but the caller's, within its `cargo`.
+- A frame's caps: it makes at most 12 verbs, held or live (`unprogram` one to add another), 6000 characters a source, 20
+  programs an hour. With review on, every new verb waits for the owner's `review`, and so does a rewrite of a live
+  one: it goes back to pending. `programs` shows which are pending. A frame's code makes events in its own namespace
+  only (`<prefix><kind>`, the prefix its frame names), and what it says reaches others as `untrusted`.
+- Only the world's rules write a sheet, skills, xp, hp or carry. A verb that needs one changed emits a request in its
+  own namespace, and a world rule that hears it decides and writes.
+- A check. A world script or an owner's verb that rolls emits `checked` {by, place, skill, roll, mod, total, dc,
+  success, margin}, the shape d20's `check` emits, so world rules that wait on a check (a find, a story beat) hear it
+  as one. The world sets the dc, never the caller. A `checked` event teaches nothing: growth comes only from the
+  world's rules (d20's `learn`, in its common). A frame's code cannot emit `checked` at all.
+- Once a day each: keep the count on the thing, keyed by the actor's id and the world day, `int(ctx.t //
+  ctx.day_seconds())`: `ctx.patch(ctx.self, {"heard": {ctx.actor.id: day}})` and refuse when it already says today.
+  No timer needed.
+- Explain first, act on confirm: called bare, a verb with a cost logs what it does and what it costs; called with
+  `{"confirm": true}`, it acts.
+- Names and refusals are the interface. Name a verb the way a player would say it, and let a refusal name the verb or
+  the place that would work ("you must be at the stone to listen there").
+- A description promises verbs. Every action a description offers a player (cups dipped full, a lamp to light, a
+  carving to read) is a verb that does it, or a refusal in the world's words, or out of the description. Count what
+  the fiction counts: a check for a lamp looks at every lamp there, not only the actor's.
+
 ## Patterns
 
 A rule that forbids a verb in one place:

@@ -18,6 +18,9 @@ def test_guide_serves_the_skill_to_any_role():
     watch = p.guide("watch")
     assert "to_me()" in watch["text"] and "EMBODY_TOKEN" in watch["text"]
     assert "ctx" in p.guide("scripting")["text"]  # the old guide(), the scripting reference, is one topic
+    s = p.guide("scripting")["text"]  # what programming live takes, and the frame's rules, from the door
+    assert "## Programming a live world" in s and "## The maker's frame (docs/ACCESS.md)" in s
+    assert "It lifts stone" in s and "### Phase 3" not in s
     with pytest.raises(Rejected) as r:
         p.guide("bard")
     assert "narrator" in r.value.hint

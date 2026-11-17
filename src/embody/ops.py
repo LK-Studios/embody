@@ -988,6 +988,8 @@ class Session:
         if not path.exists():
             raise Rejected(f"this server carries no guide {t!r}", hint="guide() for the index")
         text = path.read_text(encoding="utf-8")
+        if t == "scripting":
+            text += _frame_rules(root.parents[2] / "docs" / "ACCESS.md")
         if text.startswith("---"):
             text = text.split("---", 2)[2].lstrip()  # the skill's frontmatter is for the harness that loads it
         text = re.sub(r"references/(\w+)\.md", r"guide('\1')", text)
@@ -4425,6 +4427,15 @@ _HANDING = re.compile(r"\b(?:lays?|laid|laying|hands?|handed|handing|gives?|gave
 def _bare(name: str) -> str:
     """A name as it is said in a line: lower case, without its article ("A Crown flask": "crown flask")."""
     return re.sub(r"^(?:a|an|the)\s+", "", str(name).lower().strip())
+
+
+def _frame_rules(access: Path) -> str:
+    """The maker's frame section of docs/ACCESS.md, for guide('scripting'): an agent with only the door programs
+    against the same rules the host reads."""
+    if not access.exists():
+        return ""
+    m = re.search(r"^### Phase 2: the maker's frame\n(.*?)(?=^### )", access.read_text(encoding="utf-8"), re.S | re.M)
+    return "\n\n## The maker's frame (docs/ACCESS.md)\n" + m.group(1).rstrip() + "\n" if m else ""
 
 
 def _mechanics_in(w: World, text: str) -> str | None:
