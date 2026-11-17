@@ -29,7 +29,8 @@ Building a world engine by hand keeps recreating the browser DOM. embody borrows
 | methods | actions |
 | events, bubbling | world events bubbling up the containment tree |
 | event listeners | listeners attached to entities, scoped to their subtree |
-| CSS cascade | rules: a location overrides the world's defaults for everything inside it |
+| CSS cascade, for what is allowed | rules: a location overrides the world's defaults for everything inside it |
+| `class`, style sheets, computed style | `roles`, sheets and `looks`: how things appear (section 16, proposed) |
 | script components | behaviors (run on the clock) |
 | `querySelector` | `find` over type, state, relation |
 | MutationObserver | subscriptions for embodied principals |
@@ -225,3 +226,96 @@ The hosted product (sign-in, rosters, world listings, invite pages, a client wit
 4. CLI and MCP server. Repo ships `.mcp.json` and `CLAUDE.md` so a clone plus `claude` is the whole setup.
 5. Sample world: three full locations, NPCs with goals, one storyline. Claude Code as author and as the player's textual interface, subagents embodying NPCs.
 6. Postgres, oracles, outward hooks: after the slice plays.
+
+## 16. Style: roles, sheets and the looks cascade (proposed, Nate 2026-11-17)
+
+Section 3 maps the CSS cascade to rules. That holds for what is allowed (no combat in the tavern). It leaves out what CSS is mostly for: how things look. Today a look lives in each entity's own `description` and its `looks` marks. So every Keth NPC carries its own copy of what the Keth wear, a kid born on the ridge gets none of it, and a change of fashion means editing every body. The fix is the rest of the DOM: classes, style sheets and computed style. Nate's framing is Discord roles.
+
+| DOM, CSS, JS | Discord | embody |
+|---|---|---|
+| `class="keth elder"` | a member's roles | `roles` on any entity: a list of names |
+| a class's style | a role's colour and icon | a sheet's rules for `.elder` |
+| cascade order | role list order: the higher role's colour shows | a role's `rank`: where two rules style the same thing, the higher rank wins |
+| (none) | Manage Roles: only someone above may give a role | `gives` on a role: who may give it (a role above it, a faction's leader, a rule) |
+| `<style>` element | the server's role settings | a `sheet`: an entity in the world |
+| `getComputedStyle` | how the member shows | `looks`, worked out on read |
+| `transition` | (none) | an introduction: how a change arrives in the story |
+| `classList`, `matches`, `querySelectorAll`, CSS variables | bots that give roles | script hooks (below) |
+
+Discord ties a look and a permission to one role. embody splits them: a sheet only ever styles. What a role lets you do stays where power already lives (gates, grants, standing), and those may read a role (a job's gate, a door's check). So a style agent who edits the elders' sheet changes how elders look, never what they may do.
+
+### Roles
+
+- `roles` is a list on any entity's state: a person (`keth`, `elder`, `mourner`), a beast (`kid`, `herd-leader`), a thing (`relic`), a place (`holy-ground`), a faction, a job. A schema may give default roles to everything of its type.
+- A role is defined once in the root's `roles` table: `{rank, public, gives, line, lasts}`.
+  - `public` false makes a secret role: scripts and gates read it, sheets never select it (or every spy would look alike).
+  - `gives` names who may give it: a role (`elder` gives `initiated`), a faction's leader, or `rule` (only the world's code).
+  - `line` is the scene the room sees when it is given.
+  - `lasts` is in world days, for a role that wears off (`in-mourning`).
+- Roles are given in play by `ctx.give_role` and `ctx.take_role` (a verb, a rite, a job's pay, works finished) and by the owner's hand. Each emits `role_given` or `role_taken` at the body's place, seen by those present: getting a role is visible, the way Discord shows a new colour.
+- The works pack already speaks of roles (`for_hire.roles`, a stage's `roles: {mason: 1}`). It reads a body's `roles` too, so the person the village made its mason is a mason to every works.
+
+### Sheets
+
+- A sheet is an entity of type `sheet`. Where it sits is its reach, like a scoped style: a sheet on the root styles the whole world, one held by a faction styles that faction's members, one in a place styles what is in that place. Who may edit it is the grant system's existing reach: a builder grant limited to `types: ["sheet"]` is a style agent's whole grant. No new permission system.
+- A rule is a selector and declarations.
+  - Selectors: type (`goat`), role (`.elder`), public state (`[faction="the Keth"]`, `[stage=kid]`), place (`#red-ridge goat`), and pseudo-classes for live state (`:asleep`, `:down`, `:dead`, `:held` for a body a player drives, `:idle`, `:empty`, `:open`, `:lit`). No sibling selectors: a body's look depends on itself and where it stands, nothing else.
+  - Media queries are the world's sky and weather: `@night`, `@day`, `@season(dry)`, `@weather(dust)`. They read the root's and the place's `ambient`, so they arrive with the sky and time work.
+  - Declarations: a look line on a region with its band, the same shape as a mark (`torso: "an ochre wrap" near`), and a few plain fields a renderer reads: `palette`, `model`, `scale`, `gait`, `sound`.
+  - Variables: `--keth-dye: ochre` declared once, used in many lines. A rule that changes one variable restyles everyone who uses it (the dry season fades the dye).
+- Selectors read only public state, by construction: the view an observer standing there would get. Nothing hidden steers a look.
+- The selector language is one language. The same parser serves `find(select=...)`, so a script, a sheet and an agent's query name a group of entities the same way.
+
+### One compile: looks has inputs
+
+`looks.view` and `card_lines` already compute a body's look on read: the base description, marks with their stages and fades, covers from what it holds, the viewer's band. Sheets are one more input to that compile, never a second path. In order:
+
+1. the base description;
+2. sheet rules that match, lowest role rank first;
+3. the body's own marks (the inline style: they win over any sheet);
+4. what it wears on top (`covers` hides what is under);
+5. the viewer's band (close, near, far).
+
+A sheet rule yields computed marks of kind `styled`, never stored. So covers, bands, the `looks()` op for renderers and the watch page all take sheets with no change of their own.
+
+The rule for whatever comes next: anything that changes how something appears becomes an input to this compile, never its own path. A disguise is an input. Dust in a storm is a sheet rule under `@weather(dust)`. A glow from a charm is a mark. Conditions shown as separate card flags today (`asleep` on the card) move in as pseudo-classes, so all of a body's look comes from one place.
+
+Cost: a sheet's rules are indexed by type and role, and a body's computed look is cached until its state, its place, a sheet over it or the media state changes. Reads stay cheap with thousands of entities.
+
+### Changes in the story: introductions
+
+An edit to a sheet comes in one of two modes:
+
+- **retcon**: it was always so. Silent, owner or author only, for fixing a world. Recorded with the world's changes as a retcon.
+- **in story**: dated, with a `restyled` event at the sheet's holder and the line the world gives it ("The Keth have taken to white cloth"). For a few world days a changed body keeps its old look as `was` lines, which a mind who knew it reads, so Nico can say "you've taken to white". A change may also fade in over days, like a worn-on mark.
+
+A role given in play is always in story. A world rule can swap a sheet on an event: after a death, the Keth sheet turns to mourning white until the rite is done.
+
+### Script hooks (the jQuery part)
+
+What JavaScript does to CSS, the world's scripts do to sheets and roles. docs/SCRIPTING.md gets this table once it is built, and the skill's references point at it:
+
+| JS | ctx |
+|---|---|
+| `el.classList.add`, `remove`, `contains` | `ctx.give_role(e, role, why)`, `ctx.take_role(e, role, why)`, `ctx.has_role(e, role)` |
+| `el.matches(sel)`, `querySelectorAll(sel)` | `ctx.matches(e, sel)`, `ctx.select(sel, limit)` |
+| `getComputedStyle(el)` | `ctx.look(e, band)`: the compiled lines and fields |
+| `el.style.x = ...` | `ctx.mark` (exists) |
+| `sheet.insertRule`, `deleteRule` | `ctx.restyle(sheet, rule, mode, line)`, for code with the sheet in reach |
+| `root.style.setProperty("--x", v)` | `ctx.set_style_var(sheet, name, value, mode, line)` |
+| `transitionend` | `role_given`, `role_taken`, `restyled`: events a rule can hear |
+
+Verbs a world binds (`give_role` from an elder, `dye` with a pot of ochre) are thin scripts over these.
+
+### Where it meets the packs
+
+- **jobs**: a job's `pay` may give a role (`{"role": "jackal-hunter"}`) and its `gate` may want one (`{"role": "initiated"}`). A job is an entity, so a sheet styles postings too: an open job reads as fresh chalk, a closed one as crossed out, with no script.
+- **works**: finishing a works may give a role (whoever built the cistern becomes `well-wright`), and a stage's `roles` are read from the body's roles.
+- **factions and cultures**: a faction or a culture entity holds its own sheet beside its rules and what its people know (the culture idea of 2026-11-17).
+- **any entity**: a sheet selects places, things and beasts as well as people. The Red Ridge's sheet gives goats their dust; the Flats' sheet gives everything on it a glare at noon.
+
+### Open
+
+- The word. `role` already names a grant's role (owner, player, mind), and an agent may mix the two up. Proposed: keep `roles` for an entity's, as Discord does, and always write "a grant's role" for the other. If that reads wrong in play, `badges` is the fallback.
+- How a mind sees a change it never witnessed: `was` lines only for those with a `knows` edge, or for anyone in the place when it changed.
+- Whether a player may style their own body beyond marks: a personal sheet, highest rank, for their body alone.

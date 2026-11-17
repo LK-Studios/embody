@@ -12,7 +12,17 @@ Status: alpha. The first vertical slice was built in one day (2026-11-08) and pl
 4. Worlds grow from play. What a narrator improvises is logged, reviewed and promoted to canon by the author, or dropped.
 5. Every harness is a first-class door: MCP, CLI, library. Instructions are written in engine terms with a per-harness table.
 
-## What exists (2026-11-10)
+## What exists (2026-11-17)
+
+- Engine: everything listed for 2026-11-10 below, and since then: stacks (a `count` is that many of one thing) and carrying by bulk; locks the engine honours (nothing in a locked holder is in reach); strikes with a cooldown per attacker and target, and costs; one health bar (`hp`) with a readable `condition`, death that stays, slow death by thirst, and `dead_ok` verbs for the dead; sleep with its own feed and waking; access on things (owner, group, mode, per verb); the maker's frame, so verbs can be programmed on one thing, under review and caps; hidden bodies shown to some and hidden ways shown only to who knows them; positions (own, grid, inherited) with landmarks and an audit; tiers with their own frames; terrain as a height grid; far views by sight, line of sight, glow, sound and smell; looks as data, with marks and hair that grows; beast bodies (`verbs_only`, they hear tone, not words) and verb cooldowns; holder listeners, `ctx.event_at` and fuel per rule or verb; a rules changelog per world. The script interpreter takes generator expressions and more string methods.
+- Ops: 82 of them behind a Session with grants (owner, author, narrator, builder, player, mind, observer, oracle). CLI, MCP and the HTTPS door (`POST /op/<name>`) expose the same table; `/openapi.json` and `/docs` describe it, grouped by layer (in the world, your seat, to the owner, keeping the world, building, oracle). New since 11-10: `step`, `introduce`, `rename`, `layout`, `map`, `measure`, `verify`, `looks`, `chmod`, `chown`, `program`, `unprogram`, `programs`, `review`, `guide`, `rules_changed`, `vouch`, `review_script`, `report_flaw`, `flaws`, `relink`, `claim_seat`, `minds`, `offer`, `answer`, `ask_owner`, `asks_to_owner`, `answer_ask`, `ask_readers`, `chronicle`, `publish_chronicle`, `requests`. `act` reads a target said as words ("5 arrows to Rin") and refuses a param nothing reads.
+- Minds in the engine: as on 11-10, plus a mind that recodes its body's routine and lines (`away(patrol=, dialog=)`), watches checked when they are armed, `to_me()` and `arrived()` in watches, a `rules_notice` until `guide('changes')` is read, the `minds()` table for hosts, `say(to=X)` only to someone here, no entity ids in a seat's speech. A guest sees "someone" behind another held body, and `inspect` on someone else no longer shows whom they know.
+- Content: the samples live in `examples/` (`ferry-at-dusk`, `two-rooms`). Packs: `village`, `d20`, `sheet`, `beasts`, `burial`, `works`, `ledgers`, `locks`, `vehicles`, and `jobs` (built, being committed). `worlds/glass-reach/` runs on all nine committed packs.
+- Workspace: as on 11-10; git ignores `worlds/` but for the hosted Glass Reach, so an owner's own worlds stay out of the repository's status.
+- Hosted (live on Railway): the Glass Reach, with invite links that say when they were used and `relink` for a fresh one, one character per invite, seats the world hands out (`offer_seat`, `claim_seat` within slots), read-only grants on one part of the world with their own event feed (a game's client), oracles (an app outside the world answering one thing's verbs), guest checks (no ways out of the world from an unvouched hand, guest scripts wait for review), asks and flaw reports to the owner kept beside the database, a public page at `/` with `/chronicle.json` and `/reach.json`, and a world's own guides on every invite page.
+- Tooling: 515 tests in the full suite (the engine, the packs and the Glass Reach), markdown mirror, the watch viewer rebuilt for a world of hundreds (a diff feed, a map with terrain contours, search with numbers, history to drag back through, a phone layout), served hosted at `/watch`; `/docs` for the API; README with eight diagrams; FINDINGS.md for how play surprises us; CONTRIBUTING.md for agents; AGENTS.md and the `embody` skill, served to any harness over the door by `guide(topic)` (roles, watch, hosting, helpers, scripting); `tools/oracle_example.py` and `tools/stage_deploy.py`.
+
+### As it stood on 2026-11-10
 
 - Engine: entity graph with containment, schemas with `extends`, actions with check and apply, events that bubble with reach, listeners along the bubble path, behaviors on the clock (`always` ones tick on embodied seats too), rules via `set_rule` that hear everything under their entity whatever the reach, relations as edges and hyperedges, event-sourced SQLite, deterministic state hash, seeded rand, a Python-subset interpreter for scripts.
 - Ops: 41 of them behind a Session with capabilities (author, observer, embodied). CLI and MCP server expose the same table. `wait` blocks on events and returns a light bundle. `act` returns everything that touched you since you last looked. One clock and one id counter however many processes share the database. The MCP server holds many principals behind one connection (`principal=` on the playing tools).
@@ -21,6 +31,105 @@ Status: alpha. The first vertical slice was built in one day (2026-11-08) and pl
 - Workspace (round 6): a world is a folder, `worlds/<id>/` with `build.py` (manifest, define, populate, upgrade), `scripts/` as files with `use()` includes, `changes.jsonl` written by live authoring and replayed by a fresh build, `saves/`, `notes/`, `tests/`; packs under `packs/`; `create_world` scaffolds the folder and starts a git repository; `save` and `restore`; `embody init`; the database at the workspace root.
 - Hosted (live on Railway since 2026-11-09): the Glass Reach with roles and grants, invites as one-use links, owner grants over the door, a steady 4x clock, idle seats whose bodies see to their water, the Reach's water routines, `wait(until=...)` and `embody watch` for minds and narrators that wait for hours, `packs/d20/soak.py`. CHANGELOG.md has the engine's changes by date.
 - Tooling: 154 tests, markdown mirror, `embody.watch` live graph viewer (run by `tools/watch.py`, served hosted at `/watch`) with zoom, pan and a world switcher, CLAUDE.md and an `embody` skill with the three roles for Claude Code.
+
+## Built since the first hosted game (2026-11-10 to 17)
+
+Gaps found in play since 11-10 are kept in FINDINGS.md, each with what it taught; the ones that became work are below.
+
+About 220 commits after the morning of 11-10, some 75 of them world content. CHANGELOG.md has each one in detail; this is the map.
+
+The hosted world
+
+- [x] (11-10 to 17, about 75 commits) The Glass Reach grew from play: chapter two and the moon, the Guild Yard and Hauler Nine, the wall and the lime kiln, the Thornbrake, a goat herd on Red Ridge, tiers up to its planet, burial grounds, dice, the first job. Its player-facing log is FEATURES.md in the world's folder.
+
+Grants and the door
+
+- [x] (11-10) Grants with limits (`under`, `types`, `scripts`), the `builder` role and canon marks (0ba5f0b).
+- [x] (11-10) The tool list follows the grant, a public schedule, `reclaim` and standing orders (8dbe9e4).
+- [x] (11-10) A public page at `/` with the chronicle and reach feeds and seat requests (1caa54c); invite pages take their host from the request (41591b2).
+- [x] (11-11) A newcomer says how they look: `join(template, name, description)`, set once (8db4968).
+- [x] (11-12) Access on things: owners, groups and modes, `chmod` and `chown` (7003978).
+- [x] (11-12) The maker's frame: whoever holds it programs verbs on the machines it names (ade6741); audited end to end (78e5fe9, 0fbb525); a crane may lift loose stone (28ccf95).
+- [x] (11-12) Refused acts are logged for the hosts as `act_refused` (be44ee1).
+- [x] (11-13) A grant holds one world (a019106); a seat on an ended grant is free (2690885).
+- [x] (11-14) Seats the world hands out: `offer_seat`, `claim_seat` within slots, cascading revoke (8eed918, b4b739f).
+- [x] (11-14) One invite makes one character (f1a28a7).
+- [x] (11-15) Guest checks: no ways out of the world from an unvouched hand, guest scripts wait for `review_script`, lint on every script, `vouch` (922f97c).
+- [x] (11-15) Three holes closed from a playtest report, one check a skill a place an hour, and `report_flaw` (0b451f0).
+- [x] (11-15) Invite links answer 410 once used; `relink` gives a grant a fresh token (c0de671).
+- [x] (11-15) Author hints on writes that leave something players will hit (739290e).
+- [x] (11-16) A read-only grant on one part of the world (e1dc6c5), shown only what it may call (b598ba6), with an event feed (240f085).
+- [x] (11-16) The API described: `/openapi.json` and `/docs` (e2e91b3); named where agents look (8e72557).
+- [x] (11-17) A guest meets the body, not who holds it (3e6fe3e).
+
+Asks to the owner and layers
+
+- [x] (11-17) `ask_owner`: a guest asks the owner for what play cannot get them, outside the fiction; CONTRIBUTING.md for agents (6367edf).
+- [x] (11-17) A world's own guides on invite pages, the join briefing and `guide()` (8f05419).
+- [x] (11-17) Out-of-story ops named for who they reach, every op in one layer, asks capped and marked untrusted (869506b).
+
+Minds and oracles
+
+- [x] (11-11) A door watch that loses the server says why and wakes its runner (9133024).
+- [x] (11-11) `inspect` on someone else no longer shows whom they know (fa3ea95).
+- [x] (11-13) Minds recode their body's routine and lines: `away(patrol=, dialog=)` (00d6f83); addressed speech is for someone here (18c474f).
+- [x] (11-13) Watches read `me` with schema defaults (a019106); `arrived()` in watches (d12ab22).
+- [x] (11-13) Briefs say how a character thinks and deals; liars carry their truths (d27079d).
+- [x] (11-14) One skill for every harness: `guide(topic)` over the door, `to_me()`, `embody watch --door` (c5d5fcd).
+- [x] (11-14) A world's rules have a changelog: `rules_notice` until `guide('changes')` is read (ba7d9f9, 2b6f9e1).
+- [x] (11-14) A param nothing reads is refused, naming the ones the verb takes (0bcf9ec).
+- [x] (11-16) Lessons from running minds: watches checked when armed, no ids in speech, the `minds()` table (c076ab9).
+- [x] (11-16) A target said as words is read into count and item (375c2bb); an empty line says nothing (8a557de).
+- [x] (11-17) Oracles: an app outside the world bound to one thing answers the verbs it offers; the world never calls out (bea582c).
+- [x] (11-17) What the Reach's roles learned, in the skill, with references/helpers.md (76cba88); `guide('scripting')` on programming a live world (b490253).
+
+Bodies and looks
+
+- [x] (11-10) Put, holders, and cards that show what a body bears (af9b32c).
+- [x] (11-11) `introduce`: bring something into a running world with a past (7831824, c0e3142); `rename` (aaafca8).
+- [x] (11-11) Kits for templates (9c83964); carrying limits (7e4f0cd); stacks (996fa0c).
+- [x] (11-11) Sleep: a body lies down, mends faster and is easy prey (8caf110).
+- [x] (11-13) Strikes take their time: a cooldown per attacker per target, and a cost (cfd53fa, 438e270).
+- [x] (11-13) Hidden bodies shown to some, `hands: false`, `ctx.ways` (2690885).
+- [x] (11-14) One health bar, a readable condition, and a slow death by thirst (29c99ae).
+- [x] (11-16) Looks: a body's appearance as data, marked only by the world's rules (1bd716e); hair grows (469f230).
+- [x] (11-16) Beast seats: `verbs_only`, beasts hear tone not words, verb cooldowns, `step` (7742728); `step` faces a way (c076ab9).
+
+Packs
+
+- [x] (11-10 to 16) d20: healing costs water, rest mends (fa7ff6a, 329ecb0); sweat and a sleeper's thirst (9a574eb); quench walks to water (7bf2bb4); search honours carry (cfe1cd9); shoot and sight scope (03645a8); secret factions stay secret (814dd76); `aid` on checks (2690885); `pour` (6faa2a4); grudges end (505cbdb); idle bodies step off vehicles for water (4516ee2).
+- [x] (11-11) village `burn` (cdbe56d).
+- [x] (11-11) Works: blueprints as things, works that take materials, hands and time (33867aa).
+- [x] (11-11) Locks: a lock on a box, a door or a place (f57ef6d), a lockpick skill (0452350), a lock no hand opens (742ac60, 16ef087).
+- [x] (11-12) Ledgers, holder listeners, `ctx.event_at` and action fuel (906334f); keepers and kept books (3dd89ff).
+- [x] (11-12) Vehicles: things people ride, with time on the road (ec3c7b2).
+- [x] (11-13) Beasts: growth, diet and forage, taming, kept beasts, breeding to what the land carries (8f74bdc); hunts (a019106); grazers go home, the unborn count (d12ab22); wild beasts break off (505cbdb); amble and `ctx.step` (43f7606); a hunt with a warning window (f03b05c).
+- [x] (11-14) Sheet: twelve attributes, skills ranked 0 to 15 that grow only from difficulties the world sets (7ff4131); growth by use and by teachers (8a557de); Wizard's rules for growth (3e5b976, 4a37922).
+- [x] (11-17) Burial: the dead decay by world time and the living bury them where a place is a burial ground (a860ac2).
+- [ ] Jobs: work one character gives and another takes, done by deeds the world sees (built, being committed).
+
+Layout and space
+
+- [x] (11-10) Layout: one frame over the tree (071f08f).
+- [x] (11-12) Hidden ways show only to who knows them (74c00f3).
+- [x] (11-14) Positions: own, grid or inherited, landmarks with `at=`, `verify()` (819cf79, c2eb154).
+- [x] (11-15) Tiers: regions with their own frames, quiet regrouping (739290e).
+- [x] (11-16) Far views: in sight (8ac3ea6), occluders and aligned frames (68c6f26), glow at night, sound and smell on the wind (e550593).
+- [x] (11-16) Terrain: a place's ground as a height grid (e1dc6c5).
+
+The watch viewer and the chronicle
+
+- [x] (11-10) The chronicle: a day's digest for a writer and `publish_chronicle` (3bc4540); it reads like news (6245f1c).
+- [x] (11-11) Stacks, locks, bodies, seats, works, water, day clock and readable events in the viewer (a3f34a3).
+- [x] (11-14) The viewer rebuilt for a world of hundreds: a diff feed, a map view, search with numbers, a phone layout (6ea98e6).
+- [x] (11-14) History: drag back through the world's time, rebuilt from the log (1338fa8).
+- [x] (11-15) The map centers and rings a place, taps step through what is stacked (3a3c38f).
+
+Docs
+
+- [x] (11-11) FINDINGS.md: how the system surprises us in play (60423e0).
+- [x] (11-11 to 14) README: how embody works, in eight diagrams (2e4f6e2, 33be401, db9c808).
+- [x] (11-12) Samples move to `examples/` (66b91b6).
 
 ## Found in the first playtest
 
@@ -135,15 +244,15 @@ Gaps
 - [x] Minds looped `wait()` and paid a turn per footstep: `wait(until=...)` and `embody watch` (26ee343).
 - [x] Watchers held every seat overnight and no held body drank: idle seats and the Reach's routines (7800202).
 - [x] A thing named like a people woke a watch for them (The Keth jars, `came('Keth')`): `present` is people (ccec4bc).
-- [x] A friend's agent kept its character notes in local files: the page and the briefing point players at `remember` and `intend` on the server; a guest's note is capped at 2000 characters (unreleased).
-- [x] A guest held Ansel's blade and went quiet, and the blade stayed out of reach for hours. Things remember whom they were taken from; `reclaim` takes back from an idle body what is yours or what its standing orders (`away`) give; an idle body answers with its standing line (unreleased).
-- [x] A guest's agent saw every tool and was refused on most: the tool list follows the grant's role (unreleased).
-- [x] A player could not read the day's schedule: `timers()` gives players and minds the next of each kind the world lists as `public_timers`, in words (unreleased).
-- [x] Nate's own test player (Isalit) waited on bare timeouts and never between his turns: nothing told a player's agent to wait on a condition, and the watcher was framed for minds. The page carries the habit and an HTTPS watch loop; `references/player.md` (unreleased).
+- [x] A friend's agent kept its character notes in local files: the page and the briefing point players at `remember` and `intend` on the server; a guest's note is capped at 2000 characters (76e48a8).
+- [x] A guest held Ansel's blade and went quiet, and the blade stayed out of reach for hours. Things remember whom they were taken from; `reclaim` takes back from an idle body what is yours or what its standing orders (`away`) give; an idle body answers with its standing line (8dbe9e4).
+- [x] A guest's agent saw every tool and was refused on most: the tool list follows the grant's role (8dbe9e4).
+- [x] A player could not read the day's schedule: `timers()` gives players and minds the next of each kind the world lists as `public_timers`, in words (8dbe9e4).
+- [x] Nate's own test player (Isalit) waited on bare timeouts and never between his turns: nothing told a player's agent to wait on a condition, and the watcher was framed for minds. The page carries the habit and an HTTPS watch loop; `references/player.md` (06b6b3d).
 - [ ] `by_player` names whoever holds the seat now, not who held it when the event happened.
 - [ ] Some of Taan's `say` rows are written twice.
 - [ ] A person with no dialog answers a stock "Hm.", which reads as the engine, not the character.
-- [x] The Glass Reach has no rest verb: vigor lost to thirst or a blade comes back only by water or a hand (the reeve sat at vigor 2 for a day). Now `mend` (rest), `tend` and `medicine` in packs/d20.
+- [x] The Glass Reach has no rest verb: vigor lost to thirst or a blade comes back only by water or a hand (the reeve sat at vigor 2 for a day). Now `mend` (rest), `tend` and `medicine` in packs/d20 (fa7ff6a).
 - [ ] Glassroot salve comes back slowly, for a price (Nate, 2026-11-10): the Deepwell grows it, Taan's camp makes a dose every few days, the Hold trades for it. Iska's four doses and the water cost of tending ran from 2026-11-10; read a week of play on 2026-11-17 (doses used, tends tried, water spent on healing) before choosing the rate.
 - [ ] Live authoring on the server is recorded inside the container and lost on the next deploy; the database keeps it, git does not. A pull-back script (scripts, rules, timers out of the live world, into the world's folder) is open.
 
@@ -203,27 +312,44 @@ Decisions from Nate on 2026-11-09: an invite is a block of text a friend pastes 
 - [x] Network transport: `embody serve --http --host --port --url`, streamable HTTP at `/mcp` behind a bearer middleware (401 in the refusal shape), one engine lock around every call, `wait` polling under it. stdio unchanged. The REST face for clients that are not agents comes later.
 - [x] `AGENTS.md` with `CLAUDE.md` a pointer. docs/HOSTING.md is the path.
 - [x] A ticker on the server (once a second: running clocks advance, lapsed seats release, a world that runs while occupied starts and stops with its guests). A build's `host(s)` is how a world differs when hosted; `load --hosted` runs it. The Glass Reach's sets rate 4, a 900 s lapse, `run_when_occupied` and a daily spine of timers in world seconds; the live single-player database is untouched.
-- [ ] `wait` over the network: long poll with `since` and the filter; a server-sent event stream for harnesses with a monitor tool. Document both in the per-harness table of the skill.
+- [ ] `wait` over the network: long poll with `since` and the filter; a server-sent event stream for harnesses with a monitor tool. Document both in the per-harness table of the skill. Done so far: a read-only grant's `wait(since, kinds, timeout)` returns a feed with a cursor (240f085).
 - [x] A hosted world lives while nobody plays (2026-11-10): the clock keeps real time, a seat with no deed for `idle_after` runs its body's `idle` behaviors (d20 quench), the Glass Reach refills its water with routines players can interrupt (the Keth run, the Guild crawler), and `packs/d20/soak.py` runs a world a week with every seat held and idle and says who went dry.
 - [ ] Real-time defaults for hosted worlds: clock running, durations price every verb (the engine default duration per verb above becomes necessary here). Done: `say` capped for players and minds (1000 characters, 30 a minute).
 - [x] Provenance: an event whose actor is another principal's body carries `by_player`, and their speech `untrusted: true`. Accounts are not a thing yet.
-- [ ] Hosted role references: narrator and mind for a remote world, with the harness profile they must run under (no filesystem, no shell, only the embody tools), and the server-run sandboxed mind as the recommended option for NPCs.
+- [ ] Hosted role references: narrator and mind for a remote world, with the harness profile they must run under (no filesystem, no shell, only the embody tools), and the server-run sandboxed mind as the recommended option for NPCs. Done so far: every role's reference is served over the door by `guide(topic)` (c5d5fcd).
 - [ ] Web client without an agent: room, people, exits, inventory and the evaluated affordances as text and buttons, `say` as a box. Reads the same bundle.
 - [ ] Accounts, rosters, world listings, invitations.
 - [x] A per-world page with the live graph: the viewer lives in the package (`embody.watch`) and the hosted server serves it at `/watch` behind the bearer door, the grant's world only, for the roles that read everything; `tools/watch.py` stays the local way to run it.
-- [x] A daily chronicle for a world's page: `chronicle(day)` digests the day's log for a writer, `publish_chronicle` puts the telling on `/chronicle.json` (2026-11-10). Next: a scheduled chronicler, a mind-like grant that writes each day at dawn.
-- [ ] Security audit before any public world: auth, grants, the script sandbox under hostile authors, rate limits, abuse of `fill`, what a captured mind token can do.
+- [x] A daily chronicle for a world's page: `chronicle(day)` digests the day's log for a writer, `publish_chronicle` puts the telling on `/chronicle.json` (2026-11-10, 3bc4540). Next: a scheduled chronicler, a mind-like grant that writes each day at dawn.
+- [ ] Security audit before any public world: auth, grants, the script sandbox under hostile authors, rate limits, abuse of `fill`, what a captured mind token can do. Done so far: guest checks and script review (922f97c), the maker's frame audit (78e5fe9, 0fbb525), holes from a playtest report closed and `report_flaw` (0b451f0).
 
 ### Later
 
 - [ ] Stock verbs on the base schemas (go, take, drop, give, say) as an opt-in, so a sketch world plays without defining physics first.
-- [x] Spatial layout beyond containment: one frame over the tree (`layout`, `map`, `measure`, `perceive(layout=true)`), DESIGN.md section 8. Next: a viewer that draws it (embody-viewer can read `map`), and an optional layout reading in perception for verbs that care about range.
+- [x] Spatial layout beyond containment: one frame over the tree (`layout`, `map`, `measure`, `perceive(layout=true)`), DESIGN.md section 8 (071f08f). The viewer draws it as a map (6ea98e6), and `perceive(layout=true)` gives each thing's size and heading (3e6fe3e). Positions, tiers, terrain and far views followed (see above).
 - [ ] PyPI release as `embody-engine`, after the workspace split.
 
 ### Fresh games on old states
 
 - [x] (round 2) `fork_world(source, id)`: a copy with its history, nobody embodied, `meta.forked_from`, a `forked` event on the new root. The viewer shows the fork lineage and switches worlds.
 - [x] (round 2) `load_world(file, upgrade=true)` runs a world file's `define(s)` against a live world: new scripts and schemas, same entities and log.
+
+## Engine order now (Nate, 2026-11-17)
+
+In this order:
+
+1. [ ] Sky and time.
+2. [ ] Area-effect readers.
+3. [ ] Plan features and promotion.
+4. [ ] Fittings, piloting and hands.
+5. [ ] Weather.
+6. [ ] Flows.
+
+Asked for and not yet ordered:
+
+- [ ] The jobs pack (built, being committed).
+- [ ] Herd life and a daily beast rhythm in the beasts pack: steering as weighted forces, the same speed-capped step for code and agents, a `retype` op, heritable traits, sleep, startle, watch, dung.
+- [ ] Style sheets and roles on entities, after Discord roles: a cascade into `looks`, script hooks, roles a job or a works can give (DESIGN.md section 16, proposed).
 
 ## Order of attack
 
@@ -235,13 +361,15 @@ Decisions from Nate on 2026-11-09: an invite is a block of text a friend pastes 
 2e. (done, round 6) Worlds as folders: `build.py` with a manifest, scripts as files, packs, `use()` includes, live authoring written to the folder and replayed, `create_world` starts a git repository, `save` and `restore`, `embody init`, the database at the workspace root.
 2f. (done, round 7) Fix pass from the fourth playtest, all in the packs and the Glass Reach, nothing in the engine: bodies drink, the tremor settles, the ring ends on leaving or on agreed terms, trades and returns are not gifts, show, follow, stay and watch, a held Dram stays, Sefa shows the well, the tables answer the road questions.
 3. The lint for names in prose that match no entity; an engine default duration per verb; the `overheard` tail.
-4. Sample worlds inside the package (the rest of the workspace split is done), then the release.
+4. Sample worlds inside the package (the rest of the workspace split is done; the samples moved to `examples/` on 2026-11-12, 66b91b6), then the release.
 5a. (done 2026-11-09) Hosted, the engine side: grants and roles checked on every op, claims with reservations and lapse, invites as tokens, the MCP server over HTTP with a bearer per grant, a ticker for running worlds, provenance and `say` caps, `AGENTS.md`, docs/HOSTING.md. 120 tests including the HTTP door.
 5b. The first friend. Done 2026-11-09 in the repository: six playable seats across the factions (the reeve, Dram, Ruhl, Ossa, Sefa, Nico), four templates (carrier, guard, keth, dreyer), a briefing, `host(s)` with the 4x clock that runs while anyone is in, a daily spine (heat, dusk, night, dawn, the cistern's day), `/health`, `EMBODY_WORKSPACE`, the Railway container (`Dockerfile`, `railway.json`, `deploy/start.sh`), docs/HOSTING.md. Open: the deploy itself (Railway sign-in is Nate's), the first tester's invite, and their notes in `worlds/glass-reach/notes/`.
 5b2. (done 2026-11-09 and 10) The first friend played. Deployed on Railway; one friend's game with five host minds on seats; his agent built a viewer of its own (LK-Studios/embody-viewer). Out of it: the thirst pace, invite links, the watch oracle and `embody watch`, the steady clock with idle seats and routines, the soak, notes on the server for players.
 5b3. (done 2026-11-10) Nate tested the newcomer path from a fresh session of his own: Isalit, a Keth from a template (invite g23b2bdcf), came onto Red Ridge. The hiccup it found: his agent went looking for the repository and a second session. Fixed the same day: the door answers as plain HTTPS (`/op`) and the page, the skill and AGENTS.md say a pasted link is played where it was pasted.
-5b4. (built 2026-11-10, not deployed) Grants with limits (`under`, `types`, `scripts`), held in the ops and in the scripts a limited grant defines; the `builder` role; canon marks. Next: `revert`, delegated invites (a grant hands on only narrower grants), roles as data on the world root. DESIGN.md section 14 has the shape.
-5c. The product: the client without an agent, accounts and rosters, world listings, `wait` as a server-sent stream, and the security audit before anything is public.
+5b4. (done 2026-11-10, 0ba5f0b) Grants with limits (`under`, `types`, `scripts`), held in the ops and in the scripts a limited grant defines; the `builder` role; canon marks. Seat offers now hand on narrower mind grants within slots (8eed918). Still open: `revert`, delegated invites in general, roles as data on the world root. DESIGN.md section 14 has the shape.
+5b5. (done 2026-11-10 to 17) The hosted world grew from play, and the engine with it: access and the maker's frame, guest checks and review, oracles, asks to the owner, read-only grants for a game's client, the API page; the sheet, beasts, burial, works, ledgers, locks and vehicles packs; positions, tiers, terrain and far views; looks; the viewer rebuilt. "Built since the first hosted game" above has each with its commit.
+5c. Next: the engine order (Nate, 2026-11-17), from sky and time through flows, with the jobs pack, herd life and style sheets alongside. "Engine order now" above has the list.
+5d. The product: the client without an agent, accounts and rosters, world listings, `wait` as a server-sent stream, and the security audit before anything is public.
 
 ## How this file is kept
 
