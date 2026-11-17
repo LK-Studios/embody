@@ -957,6 +957,9 @@ class Session:
                f"guide('{self.role if self.role in GUIDE_TOPICS else 'player'}') is the whole guide for your part: read it "
                "before you play",
                "a refusal says why and what would work; do not retry the same call",
+               *([f"every tool is also POST {u[:-4]}/op/<name> over plain HTTPS; {u[:-4]}/docs is a page of every "
+                  "call, grouped by layer (in the world, your seat, to the owner, ...)"]
+                 if (u := self.engine.url_now() or "").endswith("/mcp") else []),
                *([line] if (line := self._guides_line(self.role)) else []),
                "the rules can change while you play: when perceive carries rules_notice, read guide('changes') before you "
                "act and rebuild your watch and notes on the new terms",

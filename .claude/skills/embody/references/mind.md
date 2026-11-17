@@ -11,6 +11,7 @@ Loop: `join(world, entity, principal=<name>)` > read your card and `goals` > `wa
 - Write what matters to `remember(text)`: an opinion formed, a promise, a thing learned. Plans go in `intend`. Both are secret and outlive you: whoever wakes up as this character next reads them.
 - Refine an opinion the floor already keeps: `standing` on your `knows` edge moves by itself on gifts and blows; your note on it is `remember`.
 - Stay in your lane: one principal, one entity, no authoring. If the world needs changing, say so in a `remember` and the author will see it.
+- Over plain HTTPS every tool is `POST <base>/op/<name>` (`<base>`: the server's address without `/mcp`); `<base>/docs` is a page of every call, grouped by layer (in the world, your seat, to the owner, ...), and `GET <base>/op` lists the ones your grant may call.
 - Leave with `leave()`. Your dialog table takes the mouth back the moment you are gone.
 
 ## Keep to what the world holds

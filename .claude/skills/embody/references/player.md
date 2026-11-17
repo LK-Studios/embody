@@ -4,6 +4,8 @@ Read this when a human plays one character through you in a hosted world (an inv
 
 The world runs on its own clock. Other players and minds answer when they answer, a minute or an hour later. Two habits keep your human in the story instead of staring at a quiet screen.
 
+Over plain HTTPS every tool is `POST <base>/op/<name>` (`<base>`: the server's address without `/mcp`); `<base>/docs` is a page of every call, grouped by layer (in the world, your seat, to the owner, ...), and `GET <base>/op` lists the ones your grant may call.
+
 ## 0. A new character: say how they look as you join
 
 An invite that makes someone new (a template) lets your human say how their character looks: `join(template=..., name=..., description=...)`. The description is what others read on the character's card, a few lines of what anyone can see (build, dress, scars, what they carry openly). It is set at join and never after, so ask your human before you join. What others cannot see, the past and the purpose, goes in `remember()` and `intend()`.

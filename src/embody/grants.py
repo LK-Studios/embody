@@ -216,7 +216,8 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
         add += ("\n   Most harnesses load a new server only when they start. Do not make the human restart or open "
                 "another session: play now, in this one, over the same door as plain HTTPS. Every tool is POST "
                 f"{base}/op/<tool> with a JSON object of its arguments and the same Authorization header; GET {base}/op "
-                "lists the tools this grant may call. For example:\n"
+                f"lists the tools this grant may call, and {base}/docs is a page of every call, grouped by layer (in "
+                "the world, your seat, to the owner, ...), to read and try. For example:\n"
                 f"   curl -s -X POST {base}/op/join -H \"Authorization: Bearer {token}\" -H \"content-type: application/json\" -d '{{}}'\n"
                 "   Next time, the tools are simply there. Nothing needs installing and no repository is needed.")
     if role == MIND:
