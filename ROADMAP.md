@@ -348,7 +348,7 @@ In this order:
 Asked for and not yet ordered:
 
 - [ ] The jobs pack (built, being committed).
-- [ ] Herd life and a daily beast rhythm in the beasts pack: steering as weighted forces, the same speed-capped step for code and agents, a `retype` op, heritable traits, sleep, startle, watch, dung.
+- [ ] Herd life and a daily beast rhythm in the beasts pack: steering as weighted forces, the same speed-capped step for code and agents, a `retype` op, heritable traits, sleep, startle, watch, dung (DESIGN.md section 17, proposed).
 - [ ] Style sheets and roles on entities, after Discord roles: a cascade into `looks`, script hooks, roles a job or a works can give (DESIGN.md section 16, proposed).
 
 ## Order of attack

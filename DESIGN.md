@@ -319,3 +319,109 @@ Verbs a world binds (`give_role` from an elder, `dye` with a pot of ochre) are t
 - The word. `role` already names a grant's role (owner, player, mind), and an agent may mix the two up. Proposed: keep `roles` for an entity's, as Discord does, and always write "a grant's role" for the other. If that reads wrong in play, `badges` is the fallback.
 - How a mind sees a change it never witnessed: `was` lines only for those with a `knows` edge, or for anyone in the place when it changed.
 - Whether a player may style their own body beyond marks: a personal sheet, highest rank, for their body alone.
+
+## 17. Herd life: steering, a daily rhythm, traits (proposed, Nate 2026-11-17)
+
+Nate, on the Reach's goats: "goats have like a social life... can't we capture some of that dynamic in code a bit with the goats and their verbs and some behavior etc?", then "herd life and like flocking, etc. maybe should all go together and the actual behavior should be something like different dimensional boids or other algorithms that work in such a way that also works with the idea that if an agent were to control a goat, they'd use move", and "wouldnt eat, flee, sleep, poop be like standard beast behavior for most beasts".
+
+Today the beasts pack lives one abstract day: at dawn they eat, age, breed and hunt. Between dawns a beast only ambles (`beast_amble`: a few random steps, back toward the middle of its herd when it strays). The aim: a herd that moves like one, has a rhythm through the day, and has a social life. All of it is built from three things:
+
+1. **One way to move.** Code and agents make the same step at the same speed.
+2. **Steering as a sum of weighted forces.** The weights are a species' numbers, scaled by a beast's own traits.
+3. **Social acts as verbs.** The code and an agent holding the beast use the same verbs, so a held goat and a coded goat are the same animal.
+
+### Core: one way to move
+
+- **Step parity.** The `step` op caps a move at the body's `speed_mps` times the time since its last step. `ctx.step` takes a free `max_m`. They become one rule: `ctx.step` reads the same speed and the same last-step time, and `max_m` can only lower the cap. The last-step time moves from the server process's memory into the body's own state, so a restart, a second process and a behavior all see it.
+- **Gaits.** `speeds` {walk, trot, run} on a body (on a species for beasts), and `gait=` on both the op and `ctx.step` (default walk). Running costs what the world says (d20 sweat already prices heavy deeds). A goat that flees and a player who runs their goat use the same run.
+- **`retype(entity, type)`**, for the owner and for code: moves a body to a subtype of its current type, keeping its id, state, seat, edges and history, and adding the behaviors the new schema names (as `keep_behaviors` does on upgrade). Emits `retyped`. Births already copy the mother's type, so once the Reach's six goats are a `ridge_goat` (extends `beast`, carrying the goat verbs), every kid is born one. Narrow on purpose: only down the type tree, never sideways, never for a held body unless its holder's grant allows it.
+- **One event a herd a tick.** Each step is two events today, so six goats on a 30-second tick is about 700 events an hour for one place. A herd's tick moves all its members at once and emits one quiet `herd_moved` {moves: [{id, at, heading, gait}]} at the place. A held body still emits its own `stepped`. Clients that draw herds read both. To check with the Ridge Kid client before building.
+
+### Pack: steering
+
+- **One tick per herd, not per beast.** A herd is the wild, unheld beasts of one species in one place. Its tick runs on one member (the leader, or the next if the leader is held or down), every `herd_tick` seconds (default 30). It steers every member in one pass. It runs live only where the place is seen (someone holds a body there, or the place says `amble: true`), the rule amble keeps today. Unseen herds keep the abstract day.
+- **Forces.** For each member, a vector from:
+  - the boids three: separation (do not crowd), alignment (go the way the others go), cohesion (toward the middle);
+  - wander (a little randomness);
+  - follow (toward the leader, by rank);
+  - kin (the young toward their mother; a mother toward a young one far off);
+  - forage (toward the place's grazing spot, a landmark marked `grazing` with its diet tag, while grazing);
+  - shade (toward shade in the heat, read from `ambient`);
+  - rest (stay, lie down);
+  - fear (away from a threat in the place);
+  - for hunters, stalk (toward marked prey, slowly, keeping cover) and pursue (straight at it, running).
+
+  Each force has a weight. The weighted sum, capped by the gait's speed, is the step. Neighbours are the 7 nearest, not everyone, as starlings do: the cost stays flat as a herd grows.
+- **Held bodies are neighbours, never driven.** A goat a player holds pulls the others like any member. If it leads, the herd follows it. If it breaks away, its kin call after it.
+- **Weights live on the species**, with a table per mode (below). A stage scales them (kids hold close to mothers). State scales them: hunger raises forage; a male in rut raises rank drive; a wound raises fear. Every roll comes from the world's seeded rand, so a seed replays a herd step for step.
+- `beast_amble` becomes the simplest case: cohesion plus wander. A species with no herd table keeps ambling as today.
+
+### Pack: the daily rhythm
+
+- **Activity by hour, per species.** `rhythm` maps parts of the day to modes: `graze`, `travel`, `rest`, `social`, `sleep`. Goats are active by day, jackals at dusk and dawn, thornbacks at night. The parts of the day come from the sky and time work. Until then they come from the hour on the world clock (`day_seconds`).
+- **Mode sets the weights.** Grazing spreads the herd and pulls toward the grazing. Travel lines it up behind the leader. Rest packs it close in shade. Sleep lies it down.
+- **Eating in bouts.** In a seen place, a grazing bout takes a share of a meal from the place's forage, the same forage the day draws on. The dawn meal becomes only what the bouts left short. Unseen herds eat as today. Hunger, growth and breeding stay on the day.
+- **Sleep** is the `asleep` state people have, with the same rule: a sleeper hears only what is loud or done to it, wakes to a noise or a hand, and is easy prey.
+- **Drinking** stays a species' choice (`drinks`). The Reach's beasts do not drink, by the world's own rule.
+
+### Pack: fear, watch and alarm
+
+- **Startle.** A threat in the place starts fear at once, in real time, not only inside a hunt. A threat is a predator species of this one, a stranger who comes fast or close, or an event a world marks `loud`. The herd runs away from it (gait run, `beast_startled` once for the herd), then regroups through cohesion once the threat is out of range. Boldness (a trait) sets how near a threat may come before a beast startles.
+- **Watch.** While a herd grazes, one member at a time keeps watch (`watching`), head up and not eating. A watcher rolls to notice a stalker before the strike (d20 plus survival against the stalk). A seen stalk is an alarm: the hunt's warning window gets a sound anyone there hears.
+- **Alarm call.** The watcher calls (the `call` verb below). The herd bunches and turns to face the threat, or runs, by species.
+
+### Pack: social acts through verbs
+
+The goat verbs the Reach programs per goat today (graze, ram, bleat, nose, follow, lie) become the pack's, with plain names a species can rename for its own voice:
+
+| verb | what it does | renamed, for goats |
+|---|---|---|
+| `call` | a sound kin hear across the place; kin beyond `call_m` turn toward the caller | bleat |
+| `contest` | a rank contest between two males (an opposed roll, strength and size); the loser gives way and its rank drops | ram |
+| `nose` | greets kin; raises a bond | nose |
+| `follow` | follows another herd member, not only an owner | follow |
+| `lie` | rests or sleeps | lie |
+| `graze` | exists | graze |
+
+The herd's tick performs these through the same action scripts an agent calls, so a bleat from code and a bleat from a player are the same event and get the same answer. A species names its verbs (`verbs: {"bleat": "call", "ram": "contest"}`). The bodies carry the world's names, and agents see those. Calls are capped (one a beast a minute) so a herd cannot flood the log.
+
+**Rank and leading.** `rank` within a herd comes from contests and age. The leader is set by the species' `leads`: `"eldest female"` (goats: an older doe leads where the herd goes day to day, while bucks contest rank in the rut) or `"top rank"` (jackals: a pair). Goat kids are hiders for their first days: they lie out where their mother leaves them and she comes back to nurse. That is kin with the mother's pull reversed, a few lines of weights.
+
+### Pack: traits, inherited
+
+- `traits` on a beast: a few numbers, each about 1.0 for the species' average: `boldness`, `cohesion`, `rank_drive`, `size`, `speed`. They scale the weights (cohesion scales cohesion, boldness shrinks the startle range), `size` scales the stage's body and hp, and `speed` scales `speeds`.
+- A species gives each trait's spread. A wild beast spawned without traits rolls them once.
+- A newborn's traits blend its mother's and its sire's (the sire is in `carrying` already), plus a small drift from rand. Code is never copied; only numbers are inherited. Over generations a herd drifts: a bold line, a shy one.
+
+### Pack: sign
+
+- A grazing herd leaves droppings now and then: one stack a species a place (`Goat droppings`, its count growing), kept as a thing so it is real, aging from fresh to old to gone over a few days. Stacking, not one entity a dropping, keeps the entity count flat.
+- Sign is readable: a tracker's check (d20 survival) on a place's droppings says what passed and how long ago. A world makes them fuel (dried dung burns: a `fuel` kind) or manure for its works. The Reach's Red Ridge description already promises goat sign on the stone.
+
+### For an agent holding a herd animal
+
+`perceive` for a held herd beast carries `herd`: the mode, where the herd is heading and why ("the herd drifts east to the grazing; the eldest doe leads; Bell bleats behind you"), and the pull on you as a direction. The agent can play the animal true (follow the pull), or break from it, and the herd answers the way it answers any member.
+
+### Cost
+
+- Live only where seen; abstract where not.
+- One tick a herd, not a beast. The 7 nearest neighbours. One `herd_moved` a herd a tick. Calls capped.
+- Six goats seen all day: 120 herd events an hour against about 700 today, with a few calls.
+
+### Build order
+
+1. Step parity, gaits and `retype` (core). The Reach needs `retype` first, for `ridge_goat`.
+2. The herd tick with the boids three, wander and follow, `herd_moved`, and amble as its simple case.
+3. Traits read by the weights; inherited at birth.
+4. The rhythm: modes by hour, grazing bouts, rest, sleep.
+5. Startle, watch and the alarm call.
+6. Social verbs, rank, leading, kids that hide.
+7. Sign.
+
+Tests: a seeded herd replays step for step; a herd stays a herd over a day without walls; a startle scatters it and it regroups; a held goat leads the herd; a held goat that breaks away gets called; kids inherit between their parents; the events an hour stay under the bound.
+
+### Open
+
+- What the Ridge Kid client reads: `herd_moved` beside `stepped`.
+- Where the grazing is in a place: a landmark with `grazing`, or forage with an `at`.
+- Whether a jackal pack's stalk and pursuit replace the hunt's walk-to-prey when the place is seen, so a player watching sees the stalk happen.
