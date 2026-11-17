@@ -291,7 +291,7 @@ def test_say_is_capped_for_players_and_carries_provenance():
         a.say("one more")
     assert "minute" in r.value.reason
     evs = [e for e in b.perceive(events=50)["events"] if e["kind"] == "say"]
-    assert evs and all(e["by_player"] == a.pid and e["untrusted"] is True for e in evs)
+    assert evs and all(e["by_player"] == "someone" and e["untrusted"] is True for e in evs)  # not who: test_seat_privacy
     # the owner's own speech carries no stranger mark
     gm.say_as("Rat", "squeak") if w.find(name="Rat") else None
     assert all("by_player" not in e for e in gm.perceive(from_entity="Guard", events=50)["events"] if e["actor"] != i["Prisoner"])

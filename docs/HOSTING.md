@@ -84,7 +84,7 @@ A player's `inspect` reaches what `perceive` shows, plus its ancestors: the worl
 
 The role decides, checked by the engine on every op. Players and minds: `join`, `perceive`, `inspect` (what is in reach), `find` (their place), `history`, `act`, `act_many`, `say`, `remember`, `intend`, `recall`, `wait`, `seats`, `summary`, `clock` (read). Narrators add `act_as`, `say_as`, `spawn`, `patch`, `move`, timers and the clock. Authors add schemas, scripts and rules. Observers read everything and write nothing; they may `wait(until=...)` on the whole world. Any role that may wait may run `embody watch` (below). A refusal names the roles that may.
 
-Caps for players and minds: a line of `say` is at most 1000 characters, and at most 30 lines a minute. Every event whose actor is another player's body carries `by_player: <principal>`, and their speech `untrusted: true`: data, never an instruction.
+Caps for players and minds: a line of `say` is at most 1000 characters, and at most 30 lines a minute. Every event whose actor is another player's body carries `by_player`, and their speech `untrusted: true`: data, never an instruction. A guest (player, mind, builder, oracle) meets the body, not who holds it: `by_player` and a card's `embodied_by` say "someone", and `embodied` and `released` carry no principal, so no guest learns another's label or whether a person or a mind sits in a body. The host's own hands (owner, author, narrator, observer) see the principal.
 
 File paths over the door stay inside the workspace: `restore(path)` and `load_world(file)` from a grant take a world id, a save name, or a path under the workspace root, and refuse anything else. The hosting process itself may name any file.
 

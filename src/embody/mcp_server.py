@@ -356,7 +356,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         (with standing and the last exchanges), places you have been, the verbs you could try (with the reason when
         one is not possible), and events since your cursor. Your own card includes your secret memory and brief.
         Authors and observers may pass from_entity to perceive as any entity (the NPC context bundle). layout=true
-        adds where you stand in the world's frame, and the distance and bearing to what is here and to each exit.
+        adds where you stand in the world's frame, and the distance and bearing to what is here and to each exit,
+        with the size of each thing laid out (radius, size or footprint, and heading).
         far=true adds `in_sight`: up to 8 things seen far off (a city, a tower, a ridge), each with bearing, distance in
         words, band (far or mid) and the line it shows from there, plus `heard` and `smelled` when a sound or a smell
         reaches you from afar."""

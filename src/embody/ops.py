@@ -787,7 +787,7 @@ class Session:
             place = w.get(e["parent_id"]) if e["parent_id"] else None
             out.append({"id": e["id"], "name": e["name"], "type": e["type"], "place": place["name"] if place else None,
                         "about": e["state"].get("description") or e["state"].get("doc") or "",
-                        "embodied_by": emb["id"] if emb else None, "reserved": bool(res),
+                        "embodied_by": self._seat_name(emb["id"]) if emb else None, "reserved": bool(res),
                         "open": emb is None and (not res or e["id"] in self.scope)})
         return out
 
@@ -1940,8 +1940,9 @@ class Session:
             return {"at": [round(x, 1) for x in at], "distance": round(geo.ground(mine, at), 1), "bearing": b[1],
                     "degrees": b[0], "dz": round(at[2] - mine[2], 1)}
 
-        out["present"] = [{"id": c["id"], "name": c["name"], **r} for c in bundle["present"]
-                          if (r := rel(c["id"])) and self._own_layout(c["id"]).get("at")]
+        out["present"] = [{"id": c["id"], "name": c["name"], **r,
+                           **{k: v for k, v in lay.items() if k in ("radius", "size", "footprint", "heading")}}
+                          for c in bundle["present"] if (r := rel(c["id"])) and (lay := self._own_layout(c["id"])).get("at")]
         exits = []
         for x in bundle["exits"]:
             r = rel(x["to"])
@@ -2202,6 +2203,16 @@ class Session:
     def _privileged(self) -> bool:
         return AUTHOR in self.capabilities or NARRATOR in self.capabilities or OBSERVER in self.capabilities
 
+    def _sees_seats(self) -> bool:
+        """Whether this viewer may know who holds a body: the host's own hands (owner, author, narrator, observer) may;
+        a guest of any role (player, mind, builder, oracle) meets the body, not the person or what stands behind it
+        (a label, a mind or a person: DESIGN.md section 14, "Secrets have owners")."""
+        return self._privileged() and self.role not in (BUILDER, PLAYER, MIND, ORACLE)
+
+    def _seat_name(self, pid: str) -> str:
+        """A body's holder as this viewer may name it: the principal, or "someone"."""
+        return pid if pid == self.pid or self._sees_seats() else "someone"
+
     def _events_for(self, me: str | None, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """The public view of events for one viewer. Authors and observers see everything but the internal
         kinds. An embodied viewer never sees another entity's private events (remembered, intended) and sees
@@ -2256,10 +2267,13 @@ class Session:
             if not full and sb is not None:
                 pe["payload"] = {k: v for k, v in pe["payload"].items() if k != "seen_by"}  # not who else it shows itself to
             a = e["actor_id"]
+            if e["kind"] in ("embodied", "released") and a != me and not self._sees_seats():
+                # someone sat down in a body or got up: the guest sees that, not who (or what) it was
+                pe["payload"] = {k: v for k, v in (pe["payload"] or {}).items() if k not in ("principal", "as")}
             if a and a != me:
                 who = holder(a)
                 if who and who != self.pid:
-                    pe["by_player"] = who
+                    pe["by_player"] = self._seat_name(who)
                     if e["kind"] == "say":
                         pe["untrusted"] = True
             if (e["payload"] or {}).get("maker"):
@@ -2356,7 +2370,7 @@ class Session:
             card["pos"] = e["pos"]
         emb = w.embodied(e["id"])
         if emb:
-            card["embodied_by"] = emb["id"]
+            card["embodied_by"] = self._seat_name(emb["id"])
             if w.idle(e["id"]):
                 card["idle"] = True  # the seat has done nothing for a while; standing_orders in its state say what holds
         if e["state"].get("asleep"):
