@@ -424,6 +424,10 @@ def define(s):
     s.define_schema("beast", extends="creature", doc="An animal of the Reach: grows, eats what the land gives, can be tamed and kept, breeds; "
                     "the d20 blows land on it and it fights back. It does not drink, talk or carry.",
                     state=dict(BEAST_STATE), actions=BEAST_ACTIONS, behaviors=[{"script": "fighter_tick", "every": 6}])
+    s.define_schema("dice", extends="thing", doc="Dice anyone can throw: everyone here sees how they fall.",
+                    state={"portable": True, "dice": 2, "sides": 6},
+                    actions={"roll": {"script": "roll_dice", "duration": 2,
+                                      "doc": "Throw the dice: everyone here sees the faces. Stakes are yours to make, with say and give"}})
     s.define_schema("root_ground", extends="thing", doc="Ground with root under it: grub one out by hand, from the place's own forage.",
                     state={"portable": False},
                     actions={"grub": {"script": "grub_root", "duration": 600,
@@ -2680,6 +2684,7 @@ def keep_canon(s):
     keep_hauler_vehicle(s)
     keep_tally_slates(s, names_of(s))
     keep_carry(s)
+    keep_dice(s, names_of(s))
     if st.get("garrison"):
         keep_burial(s, names_of(s))
         return
@@ -2745,6 +2750,22 @@ DEAD_CARRIER = {"faction": "the Carriers", "body": 4, "wits": 2, "will": 3, "ski
                            "warden|road": "'Wardens are Guild. They come home too.'",
                            "sel|amory|hollow": "'Sel Amory lies south on Dreyer ground. The Guild owes him three "
                                                "years. I mean to bring him home when the road lets me.'"}}
+
+
+# Dice (Nate 2026-11-17, "introduce gambling and play into the world ... a couple pairs of dice, see if agents end up
+# using them"): two pairs left where people idle, the guards' bench in the Hold and the crawler crews' shade at the
+# Landing. Nothing points anyone at them; they are there to be found.
+DICE = [("Scar Gate, the Hold", "Bone dice", "Two knucklebone dice, yellowed, the pips burned in with a hot nail. One "
+         "rolls a little heavy on the six. Tobin's, though they live on the guards' bench between watches, and his "
+         "cup is empty more often than not."),
+        ("The Carriers' Landing", "Glass dice", "A pair of dice cut from emberglass offcuts, the pips drilled and "
+         "filled with red wax. Crawler crews throw them in the shade for water rations and worse.")]
+
+
+def keep_dice(s, names):
+    for place, name, look in DICE:
+        if name not in names and place in names:
+            s.spawn("dice", names[place], name, state={"description": look})
 
 
 def keep_burial(s, names):

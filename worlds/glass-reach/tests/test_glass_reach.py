@@ -1898,3 +1898,15 @@ def test_each_people_has_its_burial_ground_and_the_keth_keep_theirs():
     ring = gm.inspect("The riders' ring of stones")
     assert ring["state"]["burial_ground"] is True and gm.world.get(ring["parent"])["name"] == "The Riders' Hollow"
     assert not gm.inspect("The Low Well")["state"].get("burial_ground")
+
+
+def test_dice_lie_where_people_idle_and_a_throw_shows_the_room():
+    eng, gm, you = reach()
+    for name, place in (("Bone dice", "Scar Gate, the Hold"), ("Glass dice", "The Carriers' Landing")):
+        assert gm.world.get(gm.inspect(name)["parent"])["name"] == place
+    assert where(gm, "Reeve Ansel Varrick") == "Scar Gate, the Hold"
+    r = you.act("roll", "Bone dice")
+    rolled = [e for e in r["events"] if e["kind"] == "rolled"]
+    faces = rolled[0]["payload"]["faces"]
+    assert len(faces) == 2 and all(1 <= f <= 6 for f in faces)
+    assert any(e["kind"] == "scene" and "throws" in str(e) for e in r["events"])
