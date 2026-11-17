@@ -281,38 +281,40 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def report_flaw(what: str, how: str = "", severity: str = "", principal: str | None = None) -> dict[str, Any]:
-        """Found a hole? Something the rules let you do that they should not: a roll you can repeat until it lands, a
+        """(to the owner, outside the story; the same as ask_owner(kind='flaw')) Found a hole? Something the rules let you do that they should not: a roll you can repeat until it lands, a
         verb that writes what it should not, a secret you can read. Tell the owner here instead of using it: what in a
         line or two, how (the steps), severity low/medium/high. Only the owner reads it; nothing in the world sees it."""
         return S(principal).report_flaw(what, how=how, severity=severity)
 
     @tool()
     @_wrap
-    def ask(kind: str = "", what: str = "", why: str = "", concerns: list[str] | None = None, urgency: str = "",
-            share: bool = True, credit: str = "", principal: str | None = None) -> dict[str, Any]:
-        """Ask the world's owner for something, outside the fiction: a reviewer or terms for testing the rules, a
-        capability the world lacks, a fix, a change you propose, a seat, a lead, a hand when stuck. Call it with no arguments first: it
-        asks nothing and returns the kinds, what each needs and an example. Fields: kind, what (one line), why (what
-        you tried, the refusal you got), concerns (bodies or things by id), urgency (low/normal/high), share (false:
-        the owner only), credit (how to name you if it lands). Nothing in the world sees it; asks() reads the answer.
-        A hole in the rules: report_flaw."""
-        return S(principal).ask(kind, what=what, why=why, concerns=concerns, urgency=urgency, share=share,
-                                credit=credit)
+    def ask_owner(kind: str = "", what: str = "", why: str = "", concerns: list[str] | None = None, urgency: str = "",
+                  share: bool = True, credit: str = "", severity: str = "", principal: str | None = None) -> dict[str, Any]:
+        """(to the owner, outside the story) Ask the people who keep this world for something play cannot get you: a
+        reviewer or terms for testing the rules, a capability the world lacks, a fix, a change you propose, a seat, a
+        lead, a hand when stuck, or report a hole in the rules (kind flaw). Not for talking to anyone in the world:
+        that is say. Call it with no arguments first: it asks nothing and returns the kinds, what each needs and an
+        example. Fields: kind, what (one line), why (what you tried, the refusal you got; for a flaw, the steps),
+        concerns (bodies or things by id), urgency (low/normal/high), share (false: the owner only), credit (how to
+        name you if it lands), severity (a flaw: low/medium/high). Nothing in the world sees it; asks_to_owner() reads
+        the answer."""
+        return S(principal).ask_owner(kind, what=what, why=why, concerns=concerns, urgency=urgency, share=share,
+                                      credit=credit, severity=severity)
 
     @tool()
     @_wrap
-    def asks(status: str = "", kind: str = "", mine: bool = False, limit: int = 50,
-             principal: str | None = None) -> dict[str, Any]:
-        """Asks made with ask(), newest first: yours with their status (open, seen, escalated, answered, declined)
+    def asks_to_owner(status: str = "", kind: str = "", mine: bool = False, limit: int = 50,
+                      principal: str | None = None) -> dict[str, Any]:
+        """(to the owner, outside the story) Asks made with ask_owner(), newest first: yours with their status (open, seen, escalated, answered, declined)
         and the answer, which listing marks read. The owner and the readers the owner names get every ask they may
         read (mine=true for only your own) and answer with answer_ask."""
-        return S(principal).asks(status=status, kind=kind, mine=mine, limit=limit)
+        return S(principal).asks_to_owner(status=status, kind=kind, mine=mine, limit=limit)
 
     @tool()
     @_wrap
     def answer_ask(id: str, status: str = "answered", answer: str = "", principal: str | None = None) -> dict[str, Any]:
         """(the owner, or a reader the owner names) Move an ask on: seen, escalated (to whoever can act on it),
-        answered or declined (with an answer the asker reads in asks()), or open again."""
+        answered or declined (with an answer the asker reads in asks_to_owner()), or open again."""
         return S(principal).answer_ask(id, status=status, answer=answer)
 
     @tool()
@@ -982,9 +984,11 @@ class Bearer:
         """The door as plain HTTPS, for an agent whose harness has not loaded the MCP server yet (most load one only
         when they start): POST /op/<name> with a JSON object of the arguments, the same bearer, the same role check
         and refusal shape as the tools. GET /op lists the ops this grant may call. wait is capped at 120 s."""
-        from .ops import OPS, call
+        from .ops import LAYERS, OPS, call
         if not op:
-            await _reply(send, 200, {"ops": sorted(o for o in OPS if sess.may(o)), "role": sess.role,
+            mine = sorted(o for o in OPS if sess.may(o))
+            layers = {n: [o for o in ops if o in mine] for n, (_, ops) in LAYERS.items()}
+            await _reply(send, 200, {"ops": mine, "layers": {n: v for n, v in layers.items() if v}, "role": sess.role,
                                      "how": "POST /op/<name> with a JSON object of its arguments"})
             return
         if scope.get("method") != "POST":

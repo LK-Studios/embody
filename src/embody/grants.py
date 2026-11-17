@@ -22,7 +22,7 @@ ORACLE = "oracle"
 ROLES = (OWNER, AUTHOR_ROLE, BUILDER, NARRATOR, PLAYER, MIND, OBSERVER_ROLE, ORACLE)
 
 # Ops by what they are for. A role is a union of these.
-_ANYONE = {"worlds", "use", "summary", "seats", "leave", "clock", "guide", "report_flaw", "ask", "asks", "answer_ask"}
+_ANYONE = {"worlds", "use", "summary", "seats", "leave", "clock", "guide", "report_flaw", "ask_owner", "asks_to_owner", "answer_ask"}
 _PLAY = {"join", "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
          "step", "timers", "reclaim", "away", "program", "unprogram", "programs", "claim_seat", "looks"}
 _WATCH = {"perceive", "inspect", "find", "history", "recall", "timers", "schemas", "scripts", "script_source", "wait",
@@ -46,7 +46,7 @@ ROLE_OPS: dict[str, frozenset[str]] = {
     MIND: frozenset(_ANYONE | _PLAY),
     OBSERVER_ROLE: frozenset(_ANYONE | _WATCH),
     # an app outside the world, bound to things: it offers their verbs, hears the calls on them and answers, nothing else
-    ORACLE: frozenset({"worlds", "use", "summary", "guide", "report_flaw", "ask", "asks", "wait", "offer", "answer"}),
+    ORACLE: frozenset({"worlds", "use", "summary", "guide", "report_flaw", "ask_owner", "asks_to_owner", "wait", "offer", "answer"}),
 }
 
 ROLE_DOC = {

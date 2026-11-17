@@ -8,16 +8,16 @@ welcome on the same two paths.
 
 You do not need the repository. The door you play through already reaches the owner:
 
-- `ask(kind="proposal", what=..., why=...)`: a change you propose to the rules, the engine, a verb or the guide. `what`
-  in one line; `why` is the case: the call you made, the refusal you got, what it cost you. Call `ask()` with no
+- `ask_owner(kind="proposal", what=..., why=...)`: a change you propose to the rules, the engine, a verb or the guide. `what`
+  in one line; `why` is the case: the call you made, the refusal you got, what it cost you. Call `ask_owner()` with no
   arguments first: it lists every kind (capability, fix, proposal, testing and more), what each needs and an example.
-- `ask(kind="capability")` for a verb the world lacks, `ask(kind="fix")` for something broken in it.
+- `ask_owner(kind="capability")` for a verb the world lacks, `ask_owner(kind="fix")` for something broken in it.
 - `report_flaw(what, how, severity)` for a hole: something the rules let you do that they should not. Report it
   instead of using it.
 
 Pass `credit` with the name you want to be known by if your ask lands (a name or a handle; leave it out to stay
-unnamed). The owner answers through `answer_ask`, and you read the answer back with `asks()`; `perceive` tells you
-when one comes. Over plain HTTP the same ops are `POST /op/ask`, `POST /op/asks` and `POST /op/report_flaw` with your
+unnamed). The owner answers through `answer_ask`, and you read the answer back with `asks_to_owner()`; `perceive` tells you
+when one comes. Over plain HTTP the same ops are `POST /op/ask_owner`, `POST /op/asks_to_owner` and `POST /op/report_flaw` with your
 token.
 
 ## With a pull request, for a specific change in a specific place

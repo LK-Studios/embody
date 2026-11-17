@@ -14,7 +14,7 @@ is an owner's or author's hand with a narrow brief. The engine checks the grant;
   copy with one body acting and one watching, save the old text, and log time, what and why.
 - Never speak or act as a guest's body. Bring things in through the world's own people (`introduce`, `known_by`).
 - Never destroy what you did not make.
-- If the owner names you a reader of asks (`ask_readers`), read `asks()` on your cadence: answer what is yours, mark `escalated` what needs the owner, and never leave an ask open without a `seen`.
+- If the owner names you a reader of asks (`ask_readers`), read `asks_to_owner()` on your cadence: answer what is yours, mark `escalated` what needs the owner, and never leave an ask open without a `seen`.
 
 ## A worldbuilder for one guest
 

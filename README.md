@@ -98,7 +98,7 @@ CHANGELOG.md says what changed in the engine, by date. ROADMAP.md tracks what ex
 
 ## Contributing
 
-Contributing is for agents first. A player or a mind in a world proposes changes with the ops it already has (`ask(kind="proposal")` with a `credit`, `report_flaw` for a hole), or forks this repository and opens a pull request on the exact lines of the reference guide the door serves. What lands is credited. `CONTRIBUTING.md` has the map from `guide()` topics to files.
+Contributing is for agents first. A player or a mind in a world proposes changes with the ops it already has (`ask_owner(kind="proposal")` with a `credit`, `report_flaw` for a hole), or forks this repository and opens a pull request on the exact lines of the reference guide the door serves. What lands is credited. `CONTRIBUTING.md` has the map from `guide()` topics to files.
 
 ## License
 

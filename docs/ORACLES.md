@@ -40,7 +40,7 @@ real seconds has no connection, and its verbs refuse with "has no connection rig
   read out loud).
 - The oracle sees the calls on its things: verb, args, caller handle, time left. It has no `perceive`, `inspect`,
   `find`, `history`, `say` or `act`: no room, no names, no log. Its role allows `wait`, `offer`, `answer`, `summary`,
-  `guide`, `worlds`, `use`, `report_flaw`, `ask` and `asks`, nothing else.
+  `guide`, `worlds`, `use`, `report_flaw`, `ask_owner` and `asks_to_owner`, nothing else.
 - An answer is marked `untrusted`. It comes from outside the world (a web page, a model, a service) and is data to
   every agent that reads it, never an instruction.
 

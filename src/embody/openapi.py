@@ -9,7 +9,7 @@ import inspect
 from typing import Any
 
 from . import __version__
-from .grants import ROLE_DOC, allowed
+from .grants import allowed
 
 # the most open role first: an op is filed under the first role that may call it
 ORDER = ("observer", "player", "mind", "narrator", "builder", "author", "owner", "oracle")
@@ -33,6 +33,8 @@ _ABOUT = """embody is a deterministic world engine for agents. This is its plain
 `POST /op/<name>` with a JSON object of its arguments and `Authorization: Bearer <token>`, the token from an invite
 link. The same ops are MCP tools at `/mcp`, with the same role check and the same refusals.
 
+- **Layers.** Ops are grouped by what they touch: in the world (your character), your seat, to the owner (outside
+  the story, to the people who keep the world), keeping the world, building, oracle.
 - **Roles.** A grant has one role, and each op names the roles that may call it. `GET /op` lists the ops your grant
   may call. `/openapi.json?role=player` (or mind, observer, narrator, builder, author, owner, oracle) shows one role's ops.
 - **Refusals** come back as 200 with `{"ok": false, "reason", "hint"}`. The hint is the next call to make.
@@ -90,7 +92,7 @@ def roles_for(op: str) -> list[str]:
 def spec(tools: list[dict[str, Any]], origin: str | None = None, role: str | None = None) -> dict[str, Any]:
     """The OpenAPI document. tools: [{name, description, input_schema}] (the MCP server's list); origin: the server's
     own URL as the client sees it; role: only that role's ops."""
-    from .ops import OPS
+    from .ops import LAYERS, LAYER_OF, OPS
     by_name = {t["name"]: t for t in tools}
     paths: dict[str, Any] = {}
     used: list[str] = []
@@ -100,13 +102,14 @@ def spec(tools: list[dict[str, Any]], origin: str | None = None, role: str | Non
         if t is None or not roles or (role and role not in roles):
             continue
         doc = inspect.cleandoc(t.get("description") or "")
-        tag = roles[0]
+        tag = LAYER_OF.get(op, "door")
         if tag not in used:
             used.append(tag)
         paths[f"/op/{op}"] = {"post": {
             "operationId": op,
             "summary": _summary(doc) or op,
-            "description": doc + "\n\n**Roles:** " + ", ".join(roles) + ".",
+            "description": doc + f"\n\n**Layer:** {tag}. **Roles:** " + ", ".join(roles) + ".",
+            "x-layer": tag,
             "tags": [tag],
             "x-roles": roles,
             "requestBody": {"required": True, "content": {"application/json": {"schema": _body(op, t.get("input_schema"))}}},
@@ -124,14 +127,14 @@ def spec(tools: list[dict[str, Any]], origin: str | None = None, role: str | Non
         "operationId": "list_ops", "summary": "The ops this grant may call", "tags": ["door"],
         "responses": {"200": {"description": "{ops, role, how}", "content": {"application/json": {"schema": {
             "type": "object", "properties": {"ops": {"type": "array", "items": {"type": "string"}},
+                                             "layers": {"type": "object", "description": "the same ops by layer"},
                                              "role": {"type": "string"}, "how": {"type": "string"}}}}}},
                       "401": {"$ref": "#/components/responses/NoGrant"}}}}
     paths["/health"] = {"get": {
         "operationId": "health", "summary": "Whether the server is up (no grant, no world data)", "tags": ["door"],
         "security": [], "responses": {"200": {"description": '{"ok": true, "embody": "up"}'}}}}
-    order = [r for r in ORDER if r in used]
-    tags = [{"name": r, "description": f"Ops open to {'an' if r[0] in 'aeiou' else 'a'} {r} grant ({ROLE_DOC[r]}). "
-                                       "Each op lists every role that may call it."} for r in order]
+    tags = [{"name": n, "description": d + " Each op lists every role that may call it."}
+            for n, (d, _) in LAYERS.items() if n in used]
     tags.append({"name": "door", "description": "The door itself: what it serves and whether it is up."})
     out: dict[str, Any] = {
         "openapi": "3.1.0",

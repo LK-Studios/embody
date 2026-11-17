@@ -50,8 +50,11 @@ def test_every_op_is_a_post_with_the_arguments_the_door_takes(tmp_path):
     assert "heading" in body("step")["properties"] and body("say")["required"] == ["text"]
     assert "actions" in body("define_schema")["properties"]  # an op that takes **kw keeps the tool's arguments
     step = doc["paths"]["/op/step"]["post"]
-    assert step["tags"] == ["player"] and "mind" in step["x-roles"] and "Roles:" in step["description"]
-    assert doc["paths"]["/op/spawn"]["post"]["tags"] != ["player"]
+    assert step["tags"] == ["in the world"] and "mind" in step["x-roles"] and "Roles:" in step["description"]
+    assert doc["paths"]["/op/spawn"]["post"]["tags"] == ["building"]
+    owner_door = doc["paths"]["/op/ask_owner"]["post"]
+    assert owner_door["tags"] == ["to the owner"] and "Layer:** to the owner" in owner_door["description"]
+    assert [t["name"] for t in doc["tags"]][:3] == ["in the world", "your seat", "to the owner"]
     for r in refs(doc):
         assert resolve(doc, r), r
     json.dumps(doc)
