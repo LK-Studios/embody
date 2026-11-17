@@ -335,7 +335,7 @@ Today the beasts pack lives one abstract day: at dawn they eat, age, breed and h
 - **Step parity.** The `step` op caps a move at the body's `speed_mps` times the time since its last step. `ctx.step` takes a free `max_m`. They become one rule: `ctx.step` reads the same speed and the same last-step time, and `max_m` can only lower the cap. The last-step time moves from the server process's memory into the body's own state, so a restart, a second process and a behavior all see it.
 - **Gaits.** `speeds` {walk, trot, run} on a body (on a species for beasts), and `gait=` on both the op and `ctx.step` (default walk). Running costs what the world says (d20 sweat already prices heavy deeds). A goat that flees and a player who runs their goat use the same run.
 - **`retype(entity, type)`**, for the owner and for code: moves a body to a subtype of its current type, keeping its id, state, seat, edges and history, and adding the behaviors the new schema names (as `keep_behaviors` does on upgrade). Emits `retyped`. Births already copy the mother's type, so once the Reach's six goats are a `ridge_goat` (extends `beast`, carrying the goat verbs), every kid is born one. Narrow on purpose: only down the type tree, never sideways, never for a held body unless its holder's grant allows it.
-- **One event a herd a tick.** Each step is two events today, so six goats on a 30-second tick is about 700 events an hour for one place. A herd's tick moves all its members at once and emits one quiet `herd_moved` {moves: [{id, at, heading, gait}]} at the place. A held body still emits its own `stepped`. Clients that draw herds read both. To check with the Ridge Kid client before building.
+- **One event a herd a tick.** Each step is two events today, so six goats on a 30-second tick is about 700 events an hour for one place. A herd's tick moves all its members at once and emits one quiet `herd_moved` {moves: [{id, at, heading, gait}]} at the place. A held body still emits its own `stepped`. Every member's spot and heading are still written to its state, so a client that polls `map` (the Ridge Kid server does) sees the herd move with no change.
 
 ### Pack: steering
 
@@ -385,7 +385,7 @@ The goat verbs the Reach programs per goat today (graze, ram, bleat, nose, follo
 
 The herd's tick performs these through the same action scripts an agent calls, so a bleat from code and a bleat from a player are the same event and get the same answer. A species names its verbs (`verbs: {"bleat": "call", "ram": "contest"}`). The bodies carry the world's names, and agents see those. Calls are capped (one a beast a minute) so a herd cannot flood the log.
 
-**Rank and leading.** `rank` within a herd comes from contests and age. The leader is set by the species' `leads`: `"eldest female"` (goats: an older doe leads where the herd goes day to day, while bucks contest rank in the rut) or `"top rank"` (jackals: a pair). Goat kids are hiders for their first days: they lie out where their mother leaves them and she comes back to nurse. That is kin with the mother's pull reversed, a few lines of weights.
+**Rank and leading.** `rank` within a herd comes from contests and age. The leader is set by the species' `leads`: `"eldest female"` (the pack's default, as in real goats: an older doe leads where the herd goes day to day, while bucks contest rank in the rut), `"eldest male"` or `"top rank"` (jackals: a pair). The Reach's ridge goats set `"eldest male"`: Ridge Kid's design has the oldest billy leading. Goat kids are hiders for their first days: they lie out where their mother leaves them and she comes back to nurse. That is kin with the mother's pull reversed, a few lines of weights.
 
 ### Pack: traits, inherited
 
@@ -422,6 +422,5 @@ Tests: a seeded herd replays step for step; a herd stays a herd over a day witho
 
 ### Open
 
-- What the Ridge Kid client reads: `herd_moved` beside `stepped`.
-- Where the grazing is in a place: a landmark with `grazing`, or forage with an `at`.
+- Settled with the Host (2026-11-17): grazing is a landmark marked `grazing` with its diet tag, and the forage pool stays on the place, one store for bouts and the dawn meal; the Ridge Kid server polls `map`, so `herd_moved` costs it nothing while state keeps every spot.
 - Whether a jackal pack's stalk and pursuit replace the hunt's walk-to-prey when the place is seen, so a player watching sees the stalk happen.
