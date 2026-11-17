@@ -26,6 +26,14 @@ def test_guide_serves_the_skill_to_any_role():
     assert "narrator" in r.value.hint
 
 
+def test_the_container_carries_every_doc_the_guide_serves():
+    # guide('scripting') reads docs/SCRIPTING.md and docs/ACCESS.md; a hosted server has only what the Dockerfile copies
+    from pathlib import Path
+    docker = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    for doc in ("docs/SCRIPTING.md", "docs/ACCESS.md"):
+        assert f"COPY {doc} ./{doc}" in docker, doc
+
+
 def test_the_briefing_teaches_a_condition_and_names_the_guide():
     eng, w, i = engine_with_two_rooms()
     p = eng.session("p")

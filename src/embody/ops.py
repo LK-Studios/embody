@@ -24,6 +24,10 @@ from typing import Any, Callable, Iterator
 
 from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, ORACLE, OWNER, PLAYER, ROLES, ROLE_DOC,
                      active, allowed, caps_for, new_token, paste, principal_id_for, role_for, token_hash)
+from .asks import (ASK_PER_HOUR, ANSWER_MAX as ASK_ANSWER_MAX, CREDIT_MAX as ASK_CREDIT_MAX, FIELDS as ASK_FIELDS,
+                   KINDS as ASK_KINDS,
+                   STATUSES as ASK_STATUSES, URGENCY as ASK_URGENCY, WHAT_MAX as ASK_WHAT_MAX, WHY_MAX as ASK_WHY_MAX,
+                   AskLog, new_id as new_ask_id, now_iso as ask_now)
 from . import layout as geo
 from . import positions as posn
 from .script import BUILTINS as SCRIPT_BUILTINS, Script, ScriptError
@@ -94,6 +98,8 @@ class Engine:
         self.flaws_path: Path | None = db.with_name("flaw-reports.jsonl") if db else None  # report_flaw, for the owner
         self._flaws: list[dict[str, Any]] = []  # the same, when there is no database file
         self._flaw_times: dict[str, list[float]] = {}
+        self.asks = AskLog(db.with_name("asks.jsonl") if db else None)  # ask(), what guests ask of the owner
+        self._ask_times: dict[str, list[float]] = {}
         self._said: dict[str, collections.deque] = {}
         self._stepped: dict[tuple[str, str], float] = {}  # (world, body): the world time of its last step
 
@@ -1040,6 +1046,9 @@ class Session:
         if seen < v:
             b["rules_notice"] = (f"the rules changed since you last read them (v{seen} to v{v}): "
                                  f"guide('changes', since={seen})")
+        news = [a for a in self.engine.asks.fold(self.world_id) if a.get("pid") == self.pid and a.get("news")]
+        if news:
+            b["asks_notice"] = (f"{len(news)} of your asks moved on (answered, declined or seen): asks() reads them")
         return b
 
     def _skills_guide(self) -> dict[str, Any]:
@@ -1361,7 +1370,8 @@ class Session:
         """Tell the world's owner about a hole: something the rules let you do that they should not (a check you can
         roll until it lands, a verb that writes what it should not, a secret you could read). `what` in a line or two,
         `how` the steps, `severity` low, medium or high. Only the owner reads it (flaws()); nothing in the world sees it.
-        At most FLAW_PER_HOUR an hour a principal."""
+        At most FLAW_PER_HOUR an hour a principal. To ask the owner for something (a reviewer, a capability, a fix,
+        a seat), ask() instead."""
         what = " ".join(str(what or "").split())
         how = str(how or "").strip()
         severity = str(severity or "").strip().lower()
@@ -1410,6 +1420,156 @@ class Session:
                     rows.append(r)
         rows = [r for r in rows if r.get("world") in (self.world_id, None)]
         return list(reversed(rows))[:max(1, min(int(limit), 500))]
+
+    def ask(self, kind: str = "", what: str = "", why: str = "", concerns: Any = None, urgency: str = "",
+            share: bool = True, credit: str = "") -> dict[str, Any]:
+        """Ask the world's owner for something, outside the fiction: a reviewer or terms for testing the rules, a
+        capability the world lacks, a fix, a change you propose, a seat, a lead, a hand when stuck. `credit`: how to
+        name you if it lands. Called with no kind it asks nothing and
+        returns the kinds, what each needs and an example. Nothing in the world sees an ask: the owner reads it, and
+        the helpers the owner names when share is true. asks() lists yours with their status and answer; perceive
+        says when an answer comes. A hole in the rules goes to report_flaw. At most ASK_PER_HOUR an hour."""
+        if not self.world_id:
+            raise Rejected("an ask is to one world's owner", hint="use(world_id) first, then ask()")
+        k = str(kind or "").strip().lower()
+        if not k:
+            return {"ok": False, "asked": None,
+                    "how": "nothing was asked yet: pick a kind, fill what it needs, and call ask() again",
+                    "kinds": {n: {"for": d["for"], "needs": d["needs"], "example": d["example"]} for n, d in ASK_KINDS.items()},
+                    "fields": ASK_FIELDS,
+                    "readers": "the owner, and the helpers the owner names for asks with share true; nothing in the world",
+                    "after": "asks() lists your asks with their status (open, seen, escalated, answered, declined) and "
+                             "the answer; perceive says when one comes",
+                    "not_for": "a hole in the rules (report_flaw), or anything your character can ask someone in the world",
+                    "credit": "what lands from an ask is credited by the name you give in credit (CONTRIBUTING.md)"}
+        if k not in ASK_KINDS:
+            raise Rejected(f"no kind of ask {kind!r}: the kinds are {', '.join(ASK_KINDS)}",
+                           hint="ask() with no arguments walks you through each, with an example")
+        d = ASK_KINDS[k]
+        what = " ".join(str(what or "").split())
+        why = str(why or "").strip()
+        got = {"what": what, "why": why}
+        missing = [f for f in d["needs"] if not got[f]]
+        if missing:
+            ex = ", ".join(f"{f}={v!r}" for f, v in d["example"].items())
+            raise Rejected(f"a {k} ask needs {missing[0]}: {ASK_FIELDS[missing[0]]}", hint=f"for example ask({ex})")
+        if len(what) > ASK_WHAT_MAX or len(why) > ASK_WHY_MAX:
+            raise Rejected(f"too long: what takes {ASK_WHAT_MAX} characters, why {ASK_WHY_MAX}",
+                           hint="what in one line; the case in why; the owner can ask for more")
+        credit = " ".join(str(credit or "").split())
+        if len(credit) > ASK_CREDIT_MAX:
+            raise Rejected(f"credit takes {ASK_CREDIT_MAX} characters", hint="a name or a handle")
+        urgency = str(urgency or "normal").strip().lower()
+        if urgency not in ASK_URGENCY:
+            raise Rejected(f"urgency is {', '.join(ASK_URGENCY)}, not {urgency!r}", hint="or leave it out (normal)")
+        w = self.world
+        p = w.principal(self.pid)
+        body = p.get("entity_id") if p else None
+        refs = concerns if isinstance(concerns, list) else ([concerns] if concerns else ([body] if body else []))
+        about = []
+        for r in refs[:12]:
+            try:
+                e = w.need(self._resolve(str(r)))
+            except Rejected:
+                raise Rejected(f"concerns names {r!r}, and nothing by that id or name is in your reach",
+                               hint="give ids from perceive or inspect, or leave concerns out (your own body)") from None
+            about.append({"id": e["id"], "name": e["name"]})
+        eng, now = self.engine, self.engine.wall()
+        mine = [t for t in eng._ask_times.get(self.pid, []) if now - t < 3600]
+        if len(mine) >= ASK_PER_HOUR:
+            raise Rejected(f"{ASK_PER_HOUR} asks this hour already", hint="put the rest into one ask, or wait an hour")
+        eng._ask_times[self.pid] = mine + [now]
+        aid = new_ask_id()
+        try:
+            eng.asks.append({"op": "ask", "id": aid, "at": ask_now(), "world": self.world_id, "by": self.name,
+                             "pid": self.pid, "grant": (self.grant or {}).get("id"), "role": self.role, "body": body,
+                             "kind": k, "what": what, "why": why or None, "concerns": about, "urgency": urgency,
+                             "share": bool(share), "credit": credit or None})
+        except OSError:
+            raise Rejected("the ask could not be kept", hint="try again in a while") from None
+        return {"ok": True, "id": aid, "status": "open",
+                "note": "kept out of the world: the owner reads it" + (", and the helpers they name" if share else "")
+                        + ". asks() shows its status and the answer; perceive says when one comes."}
+
+    def asks(self, status: str = "", kind: str = "", mine: bool = False, limit: int = 50) -> dict[str, Any]:
+        """Asks made with ask(), newest first. Yours, with their status (open, seen, escalated, answered, declined)
+        and answer: listing them marks the answers read. The owner, and the readers the owner names (ask_readers),
+        get every ask they may read (the owner all, a reader those shared) unless mine is true, and answer with
+        answer_ask(id, status, answer). Filter by status or kind."""
+        if not self.world_id:
+            raise Rejected("asks are one world's", hint="use(world_id) first")
+        eng = self.engine
+        rows = eng.asks.fold(self.world_id)
+        reader = self._ask_reader() and not mine
+        if reader:
+            rows = [r for r in rows if self.role == OWNER or r.get("share") or r.get("pid") == self.pid]
+        else:
+            rows = [r for r in rows if r.get("pid") == self.pid]
+            for r in rows:
+                if r.get("news"):
+                    eng.asks.append({"op": "read", "id": r["id"], "world": self.world_id, "at": ask_now()})
+        if status:
+            rows = [r for r in rows if r.get("status") == status]
+        if kind:
+            rows = [r for r in rows if r.get("kind") == kind]
+        hide = ("pid",) if reader else ("pid", "grant", "role", "news")
+        out = [{k: v for k, v in r.items() if k not in hide} for r in reversed(rows)][:max(1, min(int(limit), 500))]
+        res: dict[str, Any] = {"asks": out, "reader": reader}
+        if reader:
+            res["how"] = ("answer_ask(id, status, answer): seen, escalated (to whoever can act), answered or declined "
+                          "with a line the asker reads")
+        elif not out:
+            res["how"] = "you have asked nothing here; ask() with no arguments shows how"
+        return res
+
+    def answer_ask(self, id: str, status: str = "answered", answer: str = "") -> dict[str, Any]:
+        """(the owner, or a reader the owner names) Move an ask on: seen, escalated (to whoever can act on it),
+        answered or declined (both with an answer the asker reads in asks()), or open again. The answer reaches the
+        asker outside the fiction; act on it in the world as the world's own people would."""
+        if not self.world_id:
+            raise Rejected("asks are one world's", hint="use(world_id) first")
+        if not self._ask_reader():
+            raise Rejected("only the owner and the readers the owner names answer asks",
+                           hint="asks() lists your own; the owner adds readers with ask_readers(add=[...])")
+        row = next((r for r in self.engine.asks.fold(self.world_id) if r["id"] == id), None)
+        if row is None or (self.role != OWNER and not row.get("share")):
+            raise Rejected(f"no ask {id!r} you may read", hint="asks() lists the ids")
+        status = str(status or "").strip().lower()
+        if status not in ASK_STATUSES:
+            raise Rejected(f"status is {', '.join(ASK_STATUSES)}, not {status!r}", hint="answered, with an answer")
+        answer = str(answer or "").strip()
+        if status in ("answered", "declined") and not answer:
+            raise Rejected(f"{status} needs an answer: a line the asker reads",
+                           hint="say what was done, or why not and what they could ask instead")
+        if len(answer) > ASK_ANSWER_MAX:
+            raise Rejected(f"an answer takes {ASK_ANSWER_MAX} characters", hint="say it shorter")
+        self.engine.asks.append({"op": "status", "id": id, "world": self.world_id, "at": ask_now(), "status": status,
+                                 "by": self.name, **({"answer": answer} if answer else {})})
+        return {"ok": True, "id": id, "status": status,
+                "note": "the asker reads it with asks(), and perceive tells them it came"}
+
+    def ask_readers(self, add: list[str] | None = None, remove: list[str] | None = None) -> dict[str, Any]:
+        """(owner) Who besides you reads asks (those their askers let be shared) and answers them: grant ids or
+        principal ids, a host's helper, a keeper, an angel. Returns the list."""
+        w = self.world
+        cur = list(w.meta().get("ask_readers") or [])
+        known = {g["id"] for g in w.store.query("grants", "world_id=?", (w.id,))}
+        for r in add or []:
+            r = str(r).strip()
+            if r not in known and w.principal(r) is None:
+                raise Rejected(f"{r!r} is no grant or principal on this world", hint="grants() lists the grant ids")
+            if r not in cur:
+                cur.append(r)
+        cur = [r for r in cur if r not in set(remove or [])]
+        w.set_meta({"ask_readers": cur})
+        return {"ok": True, "readers": cur}
+
+    def _ask_reader(self) -> bool:
+        """The owner, or a grant or principal the owner named with ask_readers."""
+        if self.role == OWNER and not self.limits:
+            return True
+        readers = set(self.world.meta().get("ask_readers") or [])
+        return bool(readers) and ((self.grant or {}).get("id") in readers or self.pid in readers)
 
     def grants(self) -> list[dict[str, Any]]:
         """(owner) Every grant on this world, without the tokens."""
@@ -4301,7 +4461,7 @@ class Session:
 
 
 # What a read-only grant on one part of the world may call (Session._reader): reads that show it as anyone sees it.
-_ANYONE_OPS = frozenset({"worlds", "use", "guide", "clock", "report_flaw", "leave"})
+_ANYONE_OPS = frozenset({"worlds", "use", "guide", "clock", "report_flaw", "leave", "ask", "asks"})
 _READER_OPS = _ANYONE_OPS | {"map", "inspect", "find", "perceive", "measure", "looks", "wait"}
 # What a read-only grant's feed leaves out besides the private and host kinds: edits, seats and the engine's faults.
 _READER_UNHEARD = frozenset({"patched", "embodied", "released", "script_error", "opinion", "merged"})
@@ -4494,6 +4654,7 @@ OPS = [
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
     "vouch", "review_script", "report_flaw", "flaws", "relink", "looks", "offer", "answer",
+    "ask", "asks", "answer_ask", "ask_readers",
 ]
 
 

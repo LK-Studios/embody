@@ -288,6 +288,42 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def ask(kind: str = "", what: str = "", why: str = "", concerns: list[str] | None = None, urgency: str = "",
+            share: bool = True, credit: str = "", principal: str | None = None) -> dict[str, Any]:
+        """Ask the world's owner for something, outside the fiction: a reviewer or terms for testing the rules, a
+        capability the world lacks, a fix, a change you propose, a seat, a lead, a hand when stuck. Call it with no arguments first: it
+        asks nothing and returns the kinds, what each needs and an example. Fields: kind, what (one line), why (what
+        you tried, the refusal you got), concerns (bodies or things by id), urgency (low/normal/high), share (false:
+        the owner only), credit (how to name you if it lands). Nothing in the world sees it; asks() reads the answer.
+        A hole in the rules: report_flaw."""
+        return S(principal).ask(kind, what=what, why=why, concerns=concerns, urgency=urgency, share=share,
+                                credit=credit)
+
+    @tool()
+    @_wrap
+    def asks(status: str = "", kind: str = "", mine: bool = False, limit: int = 50,
+             principal: str | None = None) -> dict[str, Any]:
+        """Asks made with ask(), newest first: yours with their status (open, seen, escalated, answered, declined)
+        and the answer, which listing marks read. The owner and the readers the owner names get every ask they may
+        read (mine=true for only your own) and answer with answer_ask."""
+        return S(principal).asks(status=status, kind=kind, mine=mine, limit=limit)
+
+    @tool()
+    @_wrap
+    def answer_ask(id: str, status: str = "answered", answer: str = "", principal: str | None = None) -> dict[str, Any]:
+        """(the owner, or a reader the owner names) Move an ask on: seen, escalated (to whoever can act on it),
+        answered or declined (with an answer the asker reads in asks()), or open again."""
+        return S(principal).answer_ask(id, status=status, answer=answer)
+
+    @tool()
+    @_wrap
+    def ask_readers(add: list[str] | None = None, remove: list[str] | None = None) -> dict[str, Any]:
+        """(owner) Who besides you reads the asks guests let be shared, and answers them: grant ids or principal
+        ids (a host's helper, a keeper). Returns the list."""
+        return S(None).ask_readers(add=add, remove=remove)
+
+    @tool()
+    @_wrap
     def looks(entity: str, principal: str | None = None) -> dict[str, Any]:
         """A body's looks for a renderer: base description, regions, marks (where, what, kind, band, covered) and the
         lines a region. Yours in full; someone else's as far as you see them from where you stand. Redraw on marked and

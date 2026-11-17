@@ -22,7 +22,7 @@ ORACLE = "oracle"
 ROLES = (OWNER, AUTHOR_ROLE, BUILDER, NARRATOR, PLAYER, MIND, OBSERVER_ROLE, ORACLE)
 
 # Ops by what they are for. A role is a union of these.
-_ANYONE = {"worlds", "use", "summary", "seats", "leave", "clock", "guide", "report_flaw"}
+_ANYONE = {"worlds", "use", "summary", "seats", "leave", "clock", "guide", "report_flaw", "ask", "asks", "answer_ask"}
 _PLAY = {"join", "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
          "step", "timers", "reclaim", "away", "program", "unprogram", "programs", "claim_seat", "looks"}
 _WATCH = {"perceive", "inspect", "find", "history", "recall", "timers", "schemas", "scripts", "script_source", "wait",
@@ -32,7 +32,8 @@ _NARRATE = {"act_as", "say_as", "minds", "timers", "spawn", "introduce", "patch"
 _AUTHOR = _NARRATE | _WATCH | {"create_world", "fork_world", "save", "restore", "define_schema", "define_script",
                                "set_rule", "clear_rule", "mirror", "chronicle", "publish_chronicle", "review",
                                "rules_changed"}
-_OWN = _AUTHOR | {"invite", "grants", "revoke", "evict", "requests", "vouch", "review_script", "flaws", "relink"}
+_OWN = _AUTHOR | {"invite", "grants", "revoke", "evict", "requests", "vouch", "review_script", "flaws", "relink",
+                  "ask_readers"}
 # The ops that reach the whole world at once, never a builder's: a builder works inside its plot while the world plays.
 _WORLDWIDE = {"minds", "create_world", "fork_world", "save", "restore", "mirror", "chronicle", "publish_chronicle", "rules_changed"}
 
@@ -45,7 +46,7 @@ ROLE_OPS: dict[str, frozenset[str]] = {
     MIND: frozenset(_ANYONE | _PLAY),
     OBSERVER_ROLE: frozenset(_ANYONE | _WATCH),
     # an app outside the world, bound to things: it offers their verbs, hears the calls on them and answers, nothing else
-    ORACLE: frozenset({"worlds", "use", "summary", "guide", "report_flaw", "wait", "offer", "answer"}),
+    ORACLE: frozenset({"worlds", "use", "summary", "guide", "report_flaw", "ask", "asks", "wait", "offer", "answer"}),
 }
 
 ROLE_DOC = {

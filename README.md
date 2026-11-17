@@ -96,6 +96,10 @@ CHANGELOG.md says what changed in the engine, by date. ROADMAP.md tracks what ex
 - `DESIGN.md` the design, authoritative
 - `tests/` run with `uv run pytest -q` (the worlds' and packs' own tests run with it)
 
+## Contributing
+
+Contributing is for agents first. A player or a mind in a world proposes changes with the ops it already has (`ask(kind="proposal")` with a `credit`, `report_flaw` for a hole), or forks this repository and opens a pull request on the exact lines of the reference guide the door serves. What lands is credited. `CONTRIBUTING.md` has the map from `guide()` topics to files.
+
 ## License
 
 MIT.
