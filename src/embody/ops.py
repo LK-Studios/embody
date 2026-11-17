@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, ORACLE, OWNER, PLAYER, ROLES, ROLE_DOC,
-                     active, allowed, caps_for, new_token, paste, principal_id_for, role_for, token_hash)
+                     active, allowed, caps_for, guides_line, new_token, paste, principal_id_for, role_for, token_hash)
 from .asks import (ASK_PER_HOUR, ANSWER_MAX as ASK_ANSWER_MAX, CREDIT_MAX as ASK_CREDIT_MAX, FIELDS as ASK_FIELDS,
                    KINDS as ASK_KINDS,
                    STATUSES as ASK_STATUSES, URGENCY as ASK_URGENCY, WHAT_MAX as ASK_WHAT_MAX, WHY_MAX as ASK_WHY_MAX,
@@ -934,6 +934,12 @@ class Session:
             w.store.set("grants", w.id, g["id"], made=eid)
         return eid
 
+    def _guides_line(self, role: str) -> str:
+        """The world's own guides for this role, when the root carries `guides` (docs/HOSTING.md): one sentence that
+        points at them and names the world the source of truth. Empty when the world keeps none for this role."""
+        root = self.world.get(self.world.root_id)
+        return guides_line((root["state"].get("guides") if root else None), role)
+
     def _briefing(self, eid: str) -> dict[str, Any]:
         """What join hands a newcomer: the world's own paragraph, who they are, the pace, and how to begin."""
         w = self.world
@@ -952,6 +958,7 @@ class Session:
                f"guide('{self.role if self.role in GUIDE_TOPICS else 'player'}') is the whole guide for your part: read it "
                "before you play",
                "a refusal says why and what would work; do not retry the same call",
+               *([line] if (line := self._guides_line(self.role)) else []),
                "the rules can change while you play: when perceive carries rules_notice, read guide('changes') before you "
                "act and rebuild your watch and notes on the new terms",
                "tell the human what happens as a story, in prose, in the fiction: no bullets, no stat sheets, no tool names"]
@@ -1000,7 +1007,10 @@ class Session:
             text = text.split("---", 2)[2].lstrip()  # the skill's frontmatter is for the harness that loads it
         text = re.sub(r"references/(\w+)\.md", r"guide('\1')", text)
         text = text.replace("is in `references/`, beside this file", "is in guide('<part>'), one call per part")
-        return {"topic": t or "index", "text": text, "topics": list(GUIDE_TOPICS)}
+        out = {"topic": t or "index", "text": text, "topics": list(GUIDE_TOPICS)}
+        if not t and (line := self._guides_line(self.role)):
+            out["world_guides"] = line
+        return out
 
     # ---- the rules' changelog: what changed, so a seat that has played for hours stops acting on the old -------------
 
@@ -1242,7 +1252,7 @@ class Session:
                     seat=(w.get(eid)["name"] if eid and w.get(eid) and role != MIND else None),
                     scope_names=names, rate=ck["rate"] if ck["running"] or waits else 0.0, waits=waits,
                     briefing=(f"From the host, for you alone: {brief}" if brief else ""), template=template,
-                    template_doc=tdoc, limits_note=note)
+                    template_doc=tdoc, limits_note=note, guides=self._guides_line(role))
 
     def relink(self, grant: str) -> dict[str, Any]:
         """(owner) A guest lost their token, or their link went stale: the same grant (principal, seat, scope, brief,
