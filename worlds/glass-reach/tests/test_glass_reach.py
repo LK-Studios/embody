@@ -1926,8 +1926,8 @@ def test_the_reach_carries_its_guides_link_and_logs_it_once():
 def test_nicos_jackal_watch_is_night_work_for_those_the_keth_trust():
     eng, gm, you = reach()
     root = gm.world.root_id
-    assert where(gm, "Nico's tally stick") == "Red Ridge" and where(gm, "The jackals' earth") == "The Bone Field"
-    assert gm.inspect("Nico's tally stick")["state"]["job"]["open"]
+    assert where(gm, "The jackal watch") == "Nico" and where(gm, "The jackals' earth") == "The Bone Field"
+    assert where(gm, "Nico's tally stick") == "Red Ridge" and "hung on a peg" in gm.inspect("Nico's tally stick")["state"]["description"]
     bones, ridge = gm.inspect("The Bone Field")["id"], gm.inspect("Red Ridge")["id"]
     gm.spawn("species", root, "dune jackal", state={"hidden": True, "stages": [], "eats": ["meat", "carrion"],
                                                     "preys_on": ["ridge goat"], "fed_max": 3})
@@ -1936,36 +1936,48 @@ def test_nicos_jackal_watch_is_night_work_for_those_the_keth_trust():
     gm.schedule(1, "dawn", entity=root)
     gm.clock(step=2)
     assert gm.inspect(dog)["state"]["hidden"]  # by day the pack lies up under the crawler
-    me, keth = gm.inspect("Reeve Ansel Varrick")["id"], gm.inspect("the Keth")["id"]
+    me, keth, nico = gm.inspect("Reeve Ansel Varrick")["id"], gm.inspect("the Keth")["id"], gm.inspect("Nico")["id"]
     gm.move("Reeve Ansel Varrick", "Red Ridge")
+    with pytest.raises(Rejected, match="posted here or offered to you"):
+        you.act("take_job", params={"job": "The jackal watch"})
+    nico_seat = eng.session("nico")
+    nico_seat.join("glass-reach", "Nico")
+    nico_seat.act("offer_job", "Reeve Ansel Varrick", params={"job": "The jackal watch"})
     gm.unlink(me, keth, "standing")
     gm.link(me, keth, "standing", {"value": -1, "public": True})
-    with pytest.raises(Rejected, match="standing with the Keth is too low"):
-        you.act("take_job", "Nico's tally stick")
+    with pytest.raises(Rejected, match="the Keth do not trust you enough"):
+        you.act("take_job", params={"job": "The jackal watch"})
     gm.unlink(me, keth, "standing")
     gm.link(me, keth, "standing", {"value": 0, "public": True})
-    r = you.act("take_job", "Nico's tally stick")
-    assert "job_taken" in kinds(r) and gm.inspect("Nico's tally stick")["state"]["job"]["takers"][0]["who"] == me
-    with pytest.raises(Rejected, match="you have it already"):
-        you.act("take_job", "Nico's tally stick")
-    gm.patch(gm.inspect("Story")["id"], {"wild_night": False})
+    r = you.act("take_job", params={"job": "The jackal watch"})
+    assert "job_taken" in kinds(r) and me in gm.world.get(gm.inspect("The jackal watch")["id"])["state"]["holders"]
     gm.schedule(1, "beast_driven_off", entity=ridge, payload={"by": me, "hunters": [dog]})
     gm.clock(step=2)
-    assert gm.inspect("Nico's tally stick")["state"]["job"]["open"]  # by day it does not count
+    assert gm.world.get(gm.inspect("The jackal watch")["id"])["state"]["open"]  # by day it does not count
     gm.schedule(1, "dusk", entity=root)
     gm.clock(step=2)
     assert not gm.inspect(dog)["state"]["hidden"]
-    gm.patch(gm.inspect("Story")["id"], {"wild_night": True})
     gm.schedule(1, "beast_driven_off", entity=ridge, payload={"by": me, "hunters": [dog]})
     gm.clock(step=2)
-    job = gm.inspect("Nico's tally stick")["state"]["job"]
-    assert not job["open"] and job["takers"] == [] and job["ledger"][-1]["who"] == me
+    job = gm.world.get(gm.inspect("The jackal watch")["id"])["state"]
+    assert not job["open"] and job["done_by"][me] == 1
     assert {e["target"]: e["data"]["value"] for e in gm.world.edges(me, "standing", "out")}[keth] == 2
-    with pytest.raises(Rejected, match="no trouble just now"):
-        you.act("take_job", "Nico's tally stick")
+    assert "off its peg" in gm.inspect("Nico's tally stick")["state"]["description"]
     gm.schedule(1, "beast_hungry", entity=dog, payload={"species": "dune jackal", "days": 1})
     gm.clock(step=2)
-    assert gm.inspect("Nico's tally stick")["state"]["job"]["open"]  # the jackals thin again: Nico hangs it back up
+    assert gm.world.get(gm.inspect("The jackal watch")["id"])["state"]["open"]  # the jackals thin again
+    assert "hung on a peg" in gm.inspect("Nico's tally stick")["state"]["description"]
+
+
+def test_a_tally_stick_from_before_the_jobs_pack_becomes_the_sign_on_upgrade():
+    eng, gm, you = reach()
+    stick = gm.inspect("Nico's tally stick")["id"]
+    gm.patch(stick, {"job": {"id": "jackal_watch", "open": True, "takers": [], "ledger": []}})
+    load_world(gm, "glass-reach", upgrade=True)
+    st = gm.world.get(stick)["state"]
+    assert st["job"] == "The jackal watch" and "hung on a peg" in st["description"]
+    assert gm.world.schema("job_token")["actions"] == {}
+    assert len([j for j in gm.find(type="job") if j["name"] == "The jackal watch"]) == 1
 
 
 def test_the_reach_beasts_amble_like_the_packs_do():

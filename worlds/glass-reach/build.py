@@ -48,13 +48,14 @@ from packs.d20.pack import install_rules, keep_behaviors
 from packs.sheet.pack import to_sheet
 from packs.beasts.pack import BEAST_STATE, BEAST_ACTIONS, install_rules as install_beasts
 from packs.burial.pack import install_rules as install_burial
+from packs.jobs.pack import install_rules as install_jobs
 
 WORLD = {
     "id": "glass-reach",
     "name": "The Glass Reach",
     "seed": 23,
     "description": "A desert fief, a cracked cistern, a people with the water, a blade left behind. Rules on the table.",
-    "requires": ["d20", "village", "works", "locks", "vehicles", "ledgers", "beasts", "sheet", "burial"],
+    "requires": ["d20", "village", "works", "locks", "vehicles", "ledgers", "beasts", "sheet", "burial", "jobs"],
 }
 
 # ---- what there is ---------------------------------------------------------------------
@@ -467,13 +468,9 @@ def define(s):
                     state={"portable": True, "dice": 2, "sides": 6},
                     actions={"roll": {"script": "roll_dice", "duration": 2,
                                       "doc": "Throw the dice: everyone here sees the faces. Stakes are yours to make, with say and give"}})
-    s.define_schema("job_token", extends="thing", doc="Work someone gives, again whenever the world needs it: take it "
-                    "from the giver here, and the world's record says when it is done (scripts/_reach_job.py).",
-                    state={"portable": False},
-                    actions={"take_job": {"script": "job_take", "duration": 2,
-                                          "doc": "Take this work from its giver, here and now: a promise between you two, on the record"},
-                             "drop_job": {"script": "job_drop", "duration": 1,
-                                          "doc": "Give the work back; the giver hears it"}})
+    s.define_schema("job_token", extends="thing", doc="A giver's sign that work is wanted: on its peg while the job is open, "
+                    "off it when not. The work itself is a job the giver carries and offers (packs/jobs).",
+                    state={"portable": False}, actions={})
     s.define_schema("root_ground", extends="thing", doc="Ground with root under it: grub one out by hand, from the place's own forage.",
                     state={"portable": False},
                     actions={"grub": {"script": "grub_root", "duration": 600,
@@ -2818,47 +2815,52 @@ def keep_dice(s, names):
 
 
 
-# Jobs (Nate 2026-11-17: "a job is a questline or goal that can be repeated ... maybe this is the first job?"). The
-# first is Nico's jackal watch: while the jackals trouble the Keth herd, Nico gives it at his post to anyone the Keth
-# do not distrust; at night, bring one down or drive the pack off, and he cuts your mark. By day the pack lies up under
-# the burned crawler in the Bone Field (scripts/jackal_den.py), so the work is night work. scripts/_reach_job.py has the shape.
-JOB_KINDS = ["dawn", "beast_hungry", "beast_stalks", "beast_prowls", "beast_hunts", "downed", "killed",
-             "beast_driven_off", "beast_turned_back"]
+# Jobs (Nate 2026-11-17: "a job is a questline or goal that can be repeated ... maybe this is the first job?"), on the
+# jobs pack. The first is Nico's jackal watch: a promise he carries and offers (offer_job) to anyone the Keth do not
+# distrust; at night, bring a jackal down or drive the pack off the herd, and the world pays. By day the pack lies up
+# under the burned crawler in the Bone Field (scripts/jackal_den.py), so the work is night work. Trouble from the
+# jackals opens it again, and his tally stick on Red Ridge shows whether it is open (scripts/reach_jobs.py).
+JOB_KINDS = ["beast_hungry", "beast_stalks", "beast_prowls", "beast_hunts", "job_done", "job_reopened"]
 DEN_KINDS = ["dawn", "dusk", "arrived", "beast_went_home"]
-STICK_NAME = "Nico's tally stick"
+JOB_NAME = "The jackal watch"
 JACKAL_JOB = {
-    "id": "jackal_watch", "faction": "the Keth", "min_standing": 0, "species": "dune jackal",
-    "window": "night", "slots": 3, "lapse_days": 3, "open": True, "takers": [], "ledger": [],
-    "pay": {"standing": 2, "skill": "survival", "deed": 1},
-    "lines": {
-        "look_open": "A goat-herder's tally stick of pale thornwood, notched along one edge, hung on a peg driven into "
-                     "the rock by Nico's post. While it hangs there the jackals are trouble, and Nico gives the night "
-                     "watch on them to anyone the Keth trust.",
-        "look_closed": "A goat-herder's tally stick of pale thornwood, notched along one edge, lying off its peg in a "
-                       "crack of the rock by Nico's post: the jackals are no trouble just now.",
-        "opened": "Nico hangs the tally stick back on its peg. 'The jackals are thin again. Who walks the ridge tonight?'",
-        "taken": "Nico looks at {who} a long moment, then nods at the stick. 'At night they come up. Kill one, or send "
-                 "them off the herd, and I cut your mark.'",
-        "terms": "The jackal watch, for Nico of the Keth: at night, from dusk to dawn, bring down or kill a dune jackal, "
-                 "or drive the pack off or turn it from the herd. It pays standing with the Keth, and what the work "
-                 "teaches of survival. By day the pack lies up under the burned crawler in the Bone Field, out of "
-                 "reach. Let three days go by without it and the promise lapses.",
-        "closed": "the stick lies off its peg: the jackals are no trouble just now. Nico hangs it up again when they are",
-        "away": "Nico gives this work himself, at his post on Red Ridge",
-        "refused": "Nico does not take the glass from his eye. 'Not you. The Keth do not hand you their goats.'",
-        "done": "{who} has kept the jackals off the Keth herd tonight. Nico will cut a notch for it.",
-        "pay_why": "kept the jackals off the Keth herd"}}
+    "hidden": True,
+    "terms": "The jackal watch, for Nico of the Keth: at night, from dusk to dawn, bring down or kill a dune jackal, or "
+             "drive the pack off or turn it from the herd. It pays standing with the Keth, and what the work teaches of "
+             "survival. By day the pack lies up under the burned crawler in the Bone Field, out of reach. Let three "
+             "days go by without it and the promise lapses.",
+    "gate": {"standing": {"the Keth": 0}},
+    "done": {"kind": ["killed", "downed", "beast_driven_off", "beast_turned_back"], "species": "dune jackal"},
+    "window": {"night": True, "days": 3},
+    "pay": {"standing": 2, "deed": {"skill": "survival", "amount": 1}},
+    "repeat": "reopen", "slots": 3, "open": True}
+STICK_NAME = "Nico's tally stick"
+STICK = {
+    "job": JOB_NAME,
+    "look_open": "A goat-herder's tally stick of pale thornwood, notched along one edge, hung on a peg driven into the "
+                 "rock by Nico's post. While it hangs there the jackals are trouble, and Nico gives the night watch on "
+                 "them to anyone the Keth trust.",
+    "look_closed": "A goat-herder's tally stick of pale thornwood, notched along one edge, lying off its peg in a crack "
+                   "of the rock by Nico's post: the jackals are no trouble just now."}
 JACKALS_EARTH = ("Holes in the sand under the burned crawler's ribs, three or four, the mouths worn smooth and the sand "
                  "around them printed over and over with narrow feet. A sour animal smell. By day the jackals lie up "
                  "deep in there where no arm or blade reaches; they come up at dusk.")
 
 
 def keep_jobs(s, names):
-    """Nico's tally stick on Red Ridge (the jackal watch), the jackals' earth in the Bone Field, and the two rules."""
+    """The jobs pack's rule on the Reach's dusk and dawn, Nico's jackal watch (a job he carries), his tally stick on
+    Red Ridge that shows it, the jackals' earth in the Bone Field, and the two rules. A stick from before the pack
+    (its job inside it, 2026-11-17) becomes the sign."""
     root = s.summary()["root"]
-    if STICK_NAME not in names and "Red Ridge" in names and "Nico" in names:
-        job = dict(JACKAL_JOB, giver=names["Nico"])
-        s.spawn("job_token", names["Red Ridge"], STICK_NAME, state={"job": job, "description": job["lines"]["look_open"]})
+    install_jobs(s, root, dusk="dusk", dawn="dawn")
+    if JOB_NAME not in names and "Nico" in names:
+        s.spawn("job", names["Nico"], JOB_NAME, state=dict(JACKAL_JOB, giver=names["Nico"]))
+    if STICK_NAME not in names and "Red Ridge" in names:
+        s.spawn("job_token", names["Red Ridge"], STICK_NAME, state=dict(STICK, description=STICK["look_open"]))
+    elif STICK_NAME in names and isinstance(s.world.get(names[STICK_NAME])["state"].get("job"), dict):
+        old = s.world.get(names[STICK_NAME])["state"]["job"]
+        s.patch(names[STICK_NAME], {"job": None})
+        s.patch(names[STICK_NAME], dict(STICK, description=STICK["look_open" if old.get("open") else "look_closed"]))
     if "The jackals' earth" not in names and "The Bone Field" in names:
         s.spawn("thing", names["The Bone Field"], "The jackals' earth", state={"portable": False, "description": JACKALS_EARTH})
     s.set_rule(root, "reach_jobs", kinds=JOB_KINDS)
