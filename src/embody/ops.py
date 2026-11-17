@@ -2415,6 +2415,8 @@ class Session:
         out: dict[str, Any] = {"condition": c}
         if way:
             out["way_out"] = way
+        if c == "dead" and st.get("decay"):
+            out["decay"] = st["decay"]  # fresh, foul or bones: the burial pack's clock on the dead
         if c == "down (thirst)" and st.get("fading"):
             out["fading"] = int(st["fading"])  # world days it has lain dry; thirst kills in a few
         return out

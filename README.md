@@ -88,7 +88,7 @@ CHANGELOG.md says what changed in the engine, by date. ROADMAP.md tracks what ex
 - `src/embody/` the engine: `script.py` interpreter, `store.py` SQLite, `world.py` graph, events, actions, clock, `ops.py` sessions and capabilities, `layout.py` and `positions.py` frames and true spots, `far.py` what is in sight far off, `looks.py` appearance, `grants.py` and `access.py` roles and modes, `workspace.py` worlds as folders, `mirror.py`, `cli.py`, `mcp_server.py` (with `site.py` and `watch.py` for the hosted pages, `openapi.py` for the API description)
 - `examples/` sample worlds, one folder each (`ferry-at-dusk/`, `two-rooms/`): `build.py`, `scripts/`, `notes/`, `tests/`. Load one by its path (`load examples/ferry-at-dusk`), or copy it into `worlds/` to make it your own
 - `worlds/` your own worlds, the workspace's folder (git ignores it, all but `glass-reach/`, the hosted world)
-- `packs/` shared verbs and rules a world `requires` (`village/`, `d20/`, `locks/`, `works/`, `vehicles/`, `ledgers/`, `beasts/`, `sheet/`)
+- `packs/` shared verbs and rules a world `requires` (`village/`, `d20/`, `locks/`, `works/`, `vehicles/`, `ledgers/`, `beasts/`, `sheet/`, `burial/`)
 - `docs/SCRIPTING.md` the scripting reference (also `guide('scripting')`)
 - `docs/ACCESS.md` owners, groups and modes on things (`chmod`, `chown`), and what a limited grant reads
 - `docs/HOSTING.md` serving a world to others: invites, roles, tokens, minds and the hosted viewer

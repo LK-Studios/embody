@@ -328,7 +328,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
-        "may_write_sheet", "mark", "unmark", "regrow", "step",
+        "may_write_sheet", "mark", "unmark", "regrow", "step", "leak",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -528,6 +528,12 @@ class Ctx(ScriptObject):
 
     def distance(self, a: Any, b: Any) -> float | None:
         return self._w.distance(_ev(self._w, a), _ev(self._w, b))
+
+    def leak(self, text: Any) -> str | None:
+        """What in a line someone writes into the world gives the table away (an entity id of this world, a tool call),
+        named, or None: the filter `say` applies to players and minds, for verbs that keep words (an inscription)."""
+        from .ops import _mechanics_in
+        return _mechanics_in(self._w, str(text or ""))
 
     def embodied(self, id: Any) -> bool:
         """Someone (a mind, a player) holds this body: it acts for itself, so a rule should not drive it."""
@@ -2286,6 +2292,11 @@ class World:
                 return c
         return None
 
+    def _dead_ok(self, actor_id: str, verb: str) -> bool:
+        """A verb of the body's own that its schema marks `dead_ok`: what a dead seat may still do (give its leave)."""
+        a = self.schema_actions(self.need(actor_id)["type"]).get(verb)
+        return bool(a and a.get("dead_ok") and not a.get("targets"))
+
     def check_action(self, actor_id: str, verb: str, target_id: str | None = None,
                      params: dict[str, Any] | None = None) -> tuple[bool, str | None]:
         """Preconditions only. Returns (ok, reason)."""
@@ -2297,10 +2308,13 @@ class World:
 
     def _prepare(self, actor_id: str, verb: str, target_id: str | None, params: dict[str, Any] | None,
                  dry: bool) -> tuple[dict[str, Any], str, Script]:
-        if self.need(actor_id)["state"].get("dead"):
+        if self.need(actor_id)["state"].get("dead") and not self._dead_ok(actor_id, verb):
             # first, before any other reason: a mind that hears "the door is shut" never learns it has died
-            raise Rejected("you are dead", hint="nothing you do reaches the world now; perceive still shows it. A guest "
-                                                "whose invite makes characters may join(template=...) for a new one")
+            left = [v for v, a in self.schema_actions(self.need(actor_id)["type"]).items()
+                    if a.get("dead_ok") and not a.get("targets")]
+            raise Rejected("you are dead", hint="nothing you do reaches the world now; perceive still shows it. "
+                                                + (f"Your seat may still: {', '.join(sorted(left))}. " if left else "")
+                                                + "A guest whose invite makes characters may join(template=...) for a new one")
         self._verbs_only(actor_id, verb)
         adef, owner = self.resolve_action(actor_id, verb, target_id)
         if owner != actor_id:
