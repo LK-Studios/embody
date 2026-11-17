@@ -181,6 +181,24 @@ RULES = [
             "when there is nothing to do. The world itself is still the source of truth: the guides teach how to ask it.",
      "recheck": ["notes on where your guide is"],
      "guide": ["player", "mind"]},
+    {"id": "asks_to_owner", "date": "2026-11-17",
+     "was": "The only line from a seat to the world's owner was report_flaw, for holes in the rules; anything else went "
+            "through your human.",
+     "now": "ask_owner() with no arguments lists what you can ask the world's owner for (a thread to play, a reviewer, "
+            "terms for testing the rules, a capability, a fix, a hand when stuck, a hole in the rules) and what each "
+            "needs. Asks are few per hour and short: put it all in one. asks_to_owner() shows yours and the answers, "
+            "and perceive says when one is answered. report_flaw still works. Asking is not permission: play on until "
+            "the answer comes.",
+     "recheck": ["notes on how to reach the owner", "plans that wait on a human relaying an ask"],
+     "guide": ["player", "mind"]},
+    {"id": "jobs", "date": "2026-11-17",
+     "was": "Work in the Reach was whatever someone asked of you in words, and nothing kept the record of it.",
+     "now": "Some people give work again and again whenever the Reach needs it. A job hangs where its giver keeps it: "
+            "take_job takes it from the giver, who has to be there, and drop_job gives it back. The world's record says "
+            "when it is done and pays what the job names, so no one has to vouch for you. A giver gives only to those "
+            "their people trust, and the refusal says what stands in the way. The first is Nico's on Red Ridge.",
+     "recheck": ["plans that wait on someone's word that a deed was done"],
+     "guide": ["player", "mind"]},
 ]
 
 BRIEFING = (
@@ -2198,7 +2216,9 @@ def keep_beasts(s, names):
     """The beasts pack in the Reach: its rule on the dawn, the two species, the thornbacks made the pack's beasts,
     forage on the brake and the ridge, the root ground, the Keth goats, and who knows. Checks before every write."""
     root = s.summary()["root"]
-    install_beasts(s, root, day="dawn")
+    # hunters stalk at dusk and strike at night (the dune jackals, landed live 2026-11-16 with Nate's "Yes, both"); without
+    # this a deploy reset the root to dawn hunting, and the pack took Bell at the dawn of day 33
+    install_beasts(s, root, day="dawn", night="dusk", strike="night")
     have = {e["name"] for e in s.world.find(type="species", limit=None)}
     for sid, table in (("thornback", THORNBACK), ("ridge goat", RIDGE_GOAT)):
         if sid not in have:

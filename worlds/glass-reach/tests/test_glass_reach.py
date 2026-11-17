@@ -1978,3 +1978,12 @@ def test_the_reach_beasts_amble_like_the_packs_do():
     gm.clock(step=600)
     after = {g["id"]: (gm.world.get(g["id"])["state"].get("layout") or {}).get("at") for g in goats}
     assert any(after[i] != before[i] for i in before)
+
+
+def test_hunters_stalk_at_dusk_and_strike_at_night_through_an_upgrade():
+    eng, gm = hosted()
+    load_world(gm, "glass-reach", upgrade=True)
+    root = gm.world.get(gm.world.root_id)
+    assert root["state"]["beast_night"] == ["dusk"] and root["state"]["beast_strike"] == ["night"]
+    kinds = [r["kinds"] for r in root["state"]["rules"] if r["script"] == "beasts_rule"][0]
+    assert {"dawn", "dusk", "night"} <= set(kinds)
