@@ -965,7 +965,7 @@ class Session:
 
     def guide(self, topic: str = "", since: int | None = None) -> dict[str, Any]:
         """The embody skill, served over the door, so an agent in any harness reads the rules the host's agents read.
-        No topic: the index and the rules for every role. A topic (narrator, author, player, mind, hosting, watch):
+        No topic: the index and the rules for every role. A topic (narrator, author, player, mind, hosting, helpers, watch):
         that part's whole guide; scripting: the ctx reference (docs/SCRIPTING.md). A pointer to another part reads as
         guide('<part>'). changes: this world's rules changelog since version `since` (default: since your seat last
         read it), and reading it marks your seat current; `since` with no topic, or a topic that asks for the changes
@@ -4494,7 +4494,7 @@ _NEWS_KINDS = frozenset({"found", "downed", "killed", "outlawed", "yielded", "tr
                          "lock_picked", "lifted", "caught", "renamed", "destroyed", "burned", "works_done", "stage_done",
                          "challenged", "agreed", "spoiled", "wounded", "rose", "searched", "stopped",
                          "broke_down", "struck"})
-GUIDE_TOPICS = ("narrator", "author", "player", "mind", "hosting", "watch", "scripting", "changes", "skills")
+GUIDE_TOPICS = ("narrator", "author", "player", "mind", "hosting", "helpers", "watch", "scripting", "changes", "skills")
 _CHANGES_ASKS = frozenset({"changes", "change", "changelog", "rules", "rules changes", "rule changes", "what changed",
                            "whats new", "what's new", "news", "updates", "update", "rules_notice"})
 

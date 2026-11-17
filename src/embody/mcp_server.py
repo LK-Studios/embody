@@ -498,7 +498,7 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @_wrap
     def guide(topic: str = "", since: int | None = None, principal: str | None = None) -> dict[str, Any]:
         """How to play, author, narrate, be a mind or wait, in any harness: the rules the host's own agents follow.
-        No topic: the index and the rules for every role. topic: narrator, author, player, mind, hosting or watch;
+        No topic: the index and the rules for every role. topic: narrator, author, player, mind, hosting, helpers or watch;
         scripting is the ctx API, schema fields and action/listener/behavior shapes, before define_script.
         changes: this world's rules changelog since version `since` (perceive's rules_notice names it); reading it
         marks your seat current. skills: the world's skillbook and the numbers a body with a sheet rolls by.

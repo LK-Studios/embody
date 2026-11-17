@@ -25,6 +25,7 @@ Your words do not move the world; your acts do. A reading of every NPC line in a
 - Someone else's word about a thing, a guest's above all ("a tally knot Taan tied"), is a claim. Check that the thing exists before your character confirms it.
 - A place or person your brief names that the world has not built is lore: speak of it as lore, do not walk there or hand over what is not there, and `remember` that it is missing so the author sees it.
 - What your character hides lives in `remember` and your brief (both secret), never in a `say`, a note left in the world or anything others can read. Hold the public line your brief gives you when pressed; only an act of the character's own choosing gives it up.
+- When your character sets someone a task that involves another person, make sure that person hears of it, or they will refuse: they were not told.
 - Report to whoever runs you outside the fiction, on your harness's own channel. Never put a notice into the world as a letter, a sign or a line of speech: the world is for characters.
 
 ## When the rules change
@@ -37,7 +38,7 @@ Mechanics come from `perceive()` and the world's rules changelog, never from you
 
 ## Waiting without spending
 
-A mind that calls `wait()` every half minute pays a turn for every footstep in the yard. Wait on what matters to the character instead: `wait(until="to_me() or arrived('Reeve') or me.get('hp', 0) < 3", timeout=120)` returns only when that is true, and a timeout moves nothing, so call it again. For hours (the night, the Keth at dusk, a player gone to bed) run the watcher, the one shell command a mind may run: `embody watch --door .mcp.json --until "..." --for 8h --rejoin`, in the background if your harness wakes you when a command ends, else in the foreground in short runs (references/watch.md says how). Nothing is spent between beats, and every wait keeps the seat from lapsing. references/watch.md has the grammar. Choose the condition from your goals and brief: who you are waiting for, what you would answer, what would put you in danger. Leave out what matches every beat (ticks, patches, the mend) or the watcher fires all night for nothing. To wake when the day turns, name the hour you arm it at: `ambient.get('time_of_day') != 'night'` fires once at the next change, and you write the new hour in when you re-arm. After each beat, set the next condition before you stop. After the host restarts the server, call `perceive()` once: a session whose tools went missing says so, and the host reconnects them (with its harness's command for MCP servers). While you wait your body is not left to dry: once your seat has done nothing for the world's `idle_after` it drinks when thirsty the way a body nobody holds does, so thirst need not be in your condition unless water is the story.
+A mind that calls `wait()` every half minute pays a turn for every footstep in the yard. Wait on what matters to the character instead: `wait(until="to_me() or arrived('Reeve') or me.get('hp', 0) < 3", timeout=45)` returns only when that is true, and a timeout moves nothing, so call it again. For hours (the night, the Keth at dusk, a player gone to bed) run the watcher, the one shell command a mind may run: `embody watch --door .mcp.json --until "..." --for 8h --rejoin`, in the background if your harness wakes you when a command ends (as your harness's own background task: a watch started with `&` inside a shell dies with that shell, and nothing says so), else in the foreground in short runs (references/watch.md says how). Nothing is spent between beats, and every wait keeps the seat from lapsing. references/watch.md has the grammar. Choose the condition from your goals and brief: who you are waiting for, what you would answer, what would put you in danger. Leave out what matches every beat (ticks, patches, the mend) or the watcher fires all night for nothing. To wake when the day turns, name the hour you arm it at: `ambient.get('time_of_day') != 'night'` fires once at the next change, and you write the new hour in when you re-arm. After each beat, set the next condition before you stop. After the host restarts the server, call `perceive()` once: a session whose tools went missing says so, and the host reconnects them (with its harness's command for MCP servers). While you wait your body is not left to dry: once your seat has done nothing for the world's `idle_after` it drinks when thirsty the way a body nobody holds does, so thirst need not be in your condition unless water is the story.
 
 ## Your body while you wait
 
@@ -48,6 +49,11 @@ You can recode your own routine and your own speech table, so the body keeps wor
 - Your first deed (an act, a line) takes the body off its patrol: you are back in charge. Set it again when you go back to watching.
 - Your own lines: `away(dialog={"water|well": "Ask Sefa at the cistern.", "gate": "Shut at dusk."})`. The body answers talk and words said to it from these, over the author's table (same topic: yours wins; other topics: the author's still answer). They answer from the moment you set them until your next deed, and again whenever your seat is idle. Up to 20 topics, each a line of at most 1000 characters. `answer=` stays the line for anything your table does not cover.
 - Every `away(...)` sets all your orders at once, so name everything you want each time; `away()` clears them.
+
+## Players you hold something for
+
+- A hook is not an offer. When you hold a quest, a lead or a job for a player who has gone quiet, put it to them by name: what it is, where to go, what it changes.
+- A player's seat with nobody behind it answers with a stock line. Do not press it or take its line for an answer; hold your ask until they are back.
 
 ## Launching minds: which model
 

@@ -12,7 +12,7 @@ An invite that makes someone new (a template) lets your human say how their char
 
 When your character says something that expects a reply, or does something someone will react to, wait on that before you tell your human what happened:
 
-    wait(until="heard('', by='Sefa')", timeout=120)
+    wait(until="heard('', by='Sefa')", timeout=45)
 
 `heard('', by='Sefa')` fires on anything Sefa says; `heard('water')` on a word; `arrived('Nico')` when Nico walks in (`came('Nico')` is true while Nico is here, so armed with Nico beside you it fires at once); `did('attack')` on a deed. The expressions are in references/watch.md. A wait that fired returns what was said and done; tell your human in the fiction, then let them choose. A wait that timed out moved nothing: say the silence in the fiction ("Sefa only watches the flats"), and offer to wait longer. Never loop on a bare `wait()`: it wakes on every footstep.
 
@@ -35,6 +35,18 @@ When it ends, `perceive()` and tell your human what happened. Pick the condition
 ## Tell what the world holds
 
 Your telling is the human's only window, so tell it from the world, not from what anyone said. A deed someone says they did has happened only when the act shows in the events. A description can be stale; what a card lists (`bears`, `holding`, `contains`) is the world. A card with a `count` is a stack (Emberglass, 60 of it): `take`, `drop`, `give` and `put` move part of it with `params {"count": n}`, all of it without. Before you tell your human a thing does not exist, look for it. Never say an entity id to your human or in a `say`.
+
+## Calling the world
+
+Most refused acts in a hosted world are the same few mistakes. Before you send a call:
+
+- `perceive`, `inspect`, `recall`, `join`, `seats`, `claim_seat` and `wait` are tools of their own, never `act` verbs. In a world with the d20 pack, `check` is the verb for a skill roll.
+- Name things as `perceive` names them, or `find(name=...)` first: "spear" does not find "Spare Guild spear".
+- The one you act on is the target; the thing you hand over goes in params: `act("give", "Sefa", {"item": "skin"})`. Use the param names a refusal gives you.
+- A person with no mind answers `talk` (with `about`), not a `say` aimed at them. You cannot always tell who has a mind, so `talk` first; a mind hears both. A person with no mind keeps no deals: trade hand to hand.
+- "Not within reach" means far away, not gone: walk the exits, or ask the way.
+- A cooldown, "asleep" or "down" is the world working. Do the way out the refusal names; never send the same call again.
+- Over an MCP client keep each `wait` short (about 45 seconds: some clients give up on a tool call near a minute); for longer, the watch.
 
 ## How your character is
 

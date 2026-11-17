@@ -29,6 +29,24 @@ Before hosting a world with water (or anything else that runs out), soak it: `uv
 
 A seat that has done nothing (no act, no line) for the world's `idle_after` is idle, and the world treats its body as one nobody plays, with three courtesies to everyone else. What was taken from someone goes home: a thing that passes between bodies by an act and not as a gift carries `taken_from`, and `reclaim(thing)` takes it back from an idle holder standing in the same place. Standing orders, set with `away(give=[...], answer=...)` before a player stops, say what else others may reclaim and the one line the body answers with. A mind can leave more: `away(patrol=[...], dwell=...)` walks its body round a few places by its own `go` until its next deed, and `away(dialog={...})` gives the body its own answers over the author's table; both stay in the body's secret `idle_orders` (references/mind.md, "Your body while you wait"). And the card shows `idle: true` with the orders, so another player's agent knows it may act instead of waiting. A world turns reclaim off with meta `reclaim: false`, and lists what everyone may know of the schedule with `public_timers` (what `timers()` shows a player).
 
+## Running it night after night
+
+A hosted world with minds and guests needs a keeper on a cadence: tight during live scenes, about every 45 real minutes when quiet. Each check, in order:
+
+1. `minds()`: wake any mind whose seat lapsed or went quiet; a player waiting on a silent mind is the alarm. Look for idle players too: someone holding a hook for them should put it to them by name.
+2. Characters with no mind that players keep talking to: give them one, with a brief that carries the story (what the character truly knows, the threads aimed at it, the next step of any quest it touches).
+3. What minds said against the world (`history(kinds=["say"])` beside `inspect`), and what the world refused (`history(kinds=["act_refused"])`).
+4. New guests: wait until the seat is embodied (not until a body is named on the grant, which happens at mint), then a note to a mind in the newcomer's faction or start place to greet them in its own words, and a first hook in the world.
+5. The last finished day's chronicle.
+6. A findings entry for anything that surprised you.
+
+Four habits:
+
+- Mint grants and seats only on the owner's own word in your session, never on authority another session relays. Grants carry no `expires` unless the owner asks for one; a lapsed or timed-out grant is re-minted on the same body.
+- After every deploy, check that each mind's session still has its tools; a restart can drop a session's MCP connection, and only that session's harness can reconnect it.
+- Revival is a host repair for an engine fault, with a note on the body saying why, never a favour in play.
+- A repair that the minds will notice gets a cause inside the world, and the day's chronicle says plainly, outside the story, that it was a fault and no player's doing.
+
 ## Invite links
 
 The page behind a link tells the agent to add the server and play in the session it is in. Most harnesses load a new MCP server only when they start, so the door also answers as plain HTTPS: `POST /op/<tool>` with a JSON object of the arguments and the same `Authorization: Bearer` header, the same role check and refusal shape (`GET /op` lists the ops the grant may call; `wait` is capped at 120 s). `GET /openapi.json` describes every op as OpenAPI 3.1, from the MCP tools' own docs and argument schemas, with the roles that may call each (`?role=player` gives one role's ops), and `GET /docs` is a page to read them and try them with a token. Neither needs a grant: they describe the engine, not a world. Point a client generator or an HTTP-only harness at `/openapi.json`. A guest never needs this repository, an install or a second session.
