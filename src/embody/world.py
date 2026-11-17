@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import time
 from typing import Any, Iterable
 
 from .script import Script, ScriptError, ScriptObject
@@ -96,8 +97,12 @@ def own_verbs(ent: dict[str, Any] | None) -> dict[str, Any]:
 def _programmed(prog: dict[str, Any]) -> dict[str, Any]:
     """A verb put on one thing (its `programmed` state) as an action: its script, doc and params, done near it, at the
     default fuel."""
-    return {"script": prog["script"], "doc": prog.get("doc", ""), "params": prog.get("params") or {}, "reach": "near",
-            "targets": prog.get("targets")}
+    out = {"script": prog["script"], "doc": prog.get("doc", ""), "params": prog.get("params") or {}, "reach": "near",
+           "targets": prog.get("targets")}
+    if prog.get("oracle"):
+        out.update(oracle=True, grant=prog.get("grant"), private=prog.get("private", True),
+                   timeout=prog.get("timeout") or ORACLE_TIMEOUT)
+    return out
 
 
 def rules_only_keys(world: "World", eid: str | None, keys: Any) -> list[str]:
@@ -152,7 +157,17 @@ FRAME_SEES = frozenset({"description", "portable", "count", "kind", "bulk", "loc
 
 # What a frame's code never writes on anything, its own machine included: verbs, frames, canon and access are the
 # owner's (a frame writing `programmed` would skip review; one writing `maker` would make a frame of any reach)
-FRAME_NEVER = frozenset({"programmed", "maker", "canon", "access", "access_groups", "scripts_pending"})
+FRAME_NEVER = frozenset({"programmed", "maker", "canon", "access", "access_groups", "scripts_pending", "oracle"})
+
+# Oracles (docs/ORACLES.md): a thing's verbs whose work is done outside the world, by an app that holds an oracle grant
+# on the thing and calls in like any agent. The world never calls out.
+ORACLE_SCRIPT = "oracle"  # the script name an oracle's verb carries in `programmed`; no script runs for it
+ORACLE_KINDS = ("oracle_called", "oracle_answer", "oracle_lapsed")
+ORACLE_STALE = 90.0  # real seconds without a word from its oracle before a thing has no connection
+ORACLE_TIMEOUT = 30.0  # real seconds a call waits for its answer, unless the verb says (at most ORACLE_TIMEOUT_MAX)
+ORACLE_TIMEOUT_MAX = 120.0
+ORACLE_ARGS = 2000  # characters of params a call may send
+ORACLE_LIMITS = {"per_hour": 30, "max_open": 4, "max_chars": 2000}  # an oracle grant's caps (invite limits)
 
 # What only a world's rules write: a body's sheet and skills (a pack's rules, such as d20's learn, the owner's own world
 # scripts, the owner's hand). A guest's script, a frame's code and a verb programmed on one thing never do: a playtest's
@@ -1061,6 +1076,8 @@ class World:
         self._script_cache: dict[tuple[str, int], Script] = {}
         self._schema_cache: dict[str, dict[str, Any]] = {}
         self._holder_types: set[str] | None = None  # the schemas with a `holder` listener (_holder_listeners)
+        self.wall: Any = time.time  # real time (the engine's clock, which tests set): oracles' timeouts and liveness
+        self._oracle_seen: dict[str, float] = {}  # thing -> when its oracle last called in (wait, offer, answer)
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -2143,6 +2160,119 @@ class World:
         return (f"{e['name']} is locked: unlock " + ("it" if lk["id"] == e["id"] else lk["name"]) + " first"
                 + (", " + ", or ".join(ways) if ways else ""))
 
+    # ---- oracles: a thing's verbs whose work is done outside the world (docs/ORACLES.md) ----------------------------
+
+    def oracle_of(self, eid: str) -> dict[str, Any] | None:
+        """The oracle a thing is bound to (its `oracle` state, which invite('oracle', entity=...) sets), or None."""
+        b = ((self.get(eid) or {}).get("state") or {}).get("oracle")
+        return b if isinstance(b, dict) and b.get("grant") else None
+
+    def oracle_down(self, eid: str, grant: str | None = None) -> str | None:
+        """Why a thing has no connection now, or None: no oracle bound (or another than the verb's), its grant ended,
+        or its oracle has not called in for ORACLE_STALE real seconds."""
+        b = self.oracle_of(eid)
+        name = self.need(eid)["name"] or eid
+        if b is None or (grant is not None and b["grant"] != grant):
+            return f"{name} has no connection: no oracle answers that here now"
+        g = self.store.get("grants", self.id, b["grant"])
+        if g is None or g.get("revoked") or (g.get("expires") is not None and float(g["expires"]) <= self.wall()):
+            return f"{name} has no connection: its oracle's grant has ended"
+        seen = self._oracle_seen.get(eid)
+        if seen is None or self.wall() - seen > ORACLE_STALE:
+            return f"{name} has no connection right now: its oracle ({b.get('label') or b['grant']}) is not listening"
+        return None
+
+    def oracle_open(self, eid: str, emit: bool = False, caused_by: int | None = None) -> list[dict[str, Any]]:
+        """The calls on a thing that wait for an answer, oldest first. A call past its timeout lapses: with emit, its
+        caller is told (`oracle_lapsed`, to them alone)."""
+        rows = self.store.query("event", "world_id=? AND target_id=? AND kind IN (?, ?, ?)", (self.id, eid, *ORACLE_KINDS),
+                                order="seq DESC", limit=500)
+        closed = {(r["payload"] or {}).get("request") for r in rows if r["kind"] != "oracle_called"}
+        now = self.wall()
+        out = []
+        for r in reversed(rows):
+            if r["kind"] != "oracle_called" or r["seq"] in closed:
+                continue
+            p = r["payload"] or {}
+            if now > float(p.get("wall") or 0) + float(p.get("timeout") or ORACLE_TIMEOUT):
+                if emit:
+                    self.emit("oracle_lapsed", actor=None, target=eid, reach=1, caused_by=caused_by,
+                              payload={"request": r["seq"], "verb": p.get("verb"), "to": r["actor_id"],
+                                       "seen_by": [r["actor_id"]]})
+                continue
+            out.append(r)
+        return out
+
+    def oracle_ready(self, eid: str, actor_id: str, params: dict[str, Any] | None,
+                     adef: dict[str, Any]) -> tuple[str, str] | None:
+        """Why a call on an oracle's verb cannot go out now, as (reason, hint), or None: no connection, params past
+        ORACLE_ARGS or not plain JSON, the caller's last call still open, the thing busy (max_open), or the caller past
+        its calls an hour (per_hour)."""
+        why = self.oracle_down(eid, adef.get("grant"))
+        if why:
+            return why, "its oracle is an app outside the world; try again later, or ask the world's owner"
+        b = self.oracle_of(eid) or {}
+        name = self.need(eid)["name"] or eid
+        try:
+            size = len(json.dumps(params or {}))
+        except (TypeError, ValueError):
+            return "what you send an oracle is plain JSON", "params of strings, numbers, lists and dicts"
+        if size > ORACLE_ARGS:
+            return f"what you send {name} is {size} characters; it takes {ORACLE_ARGS}", "send less"
+        waiting = self.oracle_open(eid)
+        if any(r["actor_id"] == actor_id for r in waiting):
+            return f"{name} is still working on your last call", "wait for its oracle_answer, or for the call to lapse"
+        most = int(b.get("max_open") or ORACLE_LIMITS["max_open"])
+        if len(waiting) >= most:
+            return f"{name} is busy: {len(waiting)} calls wait for an answer", "try again in a moment"
+        per = int(b.get("per_hour") or ORACLE_LIMITS["per_hour"])
+        mine = self.store.query("event", "world_id=? AND target_id=? AND actor_id=? AND kind='oracle_called'",
+                                (self.id, eid, actor_id), order="seq DESC", limit=per)
+        if len(mine) >= per and self.wall() - float((mine[-1]["payload"] or {}).get("wall") or 0) < 3600:
+            return f"{name} takes {per} calls an hour from you", "try again later"
+        return None
+
+    def oracle_call(self, eid: str, actor_id: str, verb: str, params: dict[str, Any], adef: dict[str, Any],
+                    caused_by: int) -> dict[str, Any]:
+        """Send a call to the thing's oracle: `oracle_called` on the thing, its seq the request. The oracle learns the
+        verb, the params and a handle for the caller that is the same on this thing every time and names nobody."""
+        b = self.oracle_of(eid) or {}
+        timeout = min(float(adef.get("timeout") or ORACLE_TIMEOUT), ORACLE_TIMEOUT_MAX)
+        caller = "c" + hashlib.sha256(f"{self.id}:{eid}:{actor_id}".encode()).hexdigest()[:10]
+        payload: dict[str, Any] = {"verb": verb, "args": dict(params or {}), "caller": caller, "wall": self.wall(),
+                                   "timeout": timeout, "oracle": b.get("label")}
+        if adef.get("private", True):
+            payload["seen_by"] = [actor_id]
+        ev = self.emit("oracle_called", actor=actor_id, target=eid, reach=1, payload=payload, caused_by=caused_by)
+        self.oracle_open(eid, emit=True, caused_by=caused_by)  # anyone whose call lapsed hears so now
+        name = self.need(eid)["name"] or eid
+        return {"request": ev["seq"], "oracle": b.get("label"), "timeout": timeout,
+                "log": (f"{verb} goes out from {name} to {b.get('label') or 'its oracle'}: the answer comes as an "
+                        f"oracle_answer event (request {ev['seq']}) within {timeout:g} s, or the call lapses "
+                        f"(oracle_lapsed); wait(kinds=['oracle_answer', 'oracle_lapsed']) brings it")}
+
+    def oracle_answer(self, eid: str, request: int, text: str, data: Any, ok: bool) -> dict[str, Any]:
+        """The oracle's answer to one open call, as `oracle_answer` on the thing: to the caller alone for a private
+        verb, to the room for a public one. It is marked untrusted, since it comes from outside the world."""
+        waiting = {r["seq"]: r for r in self.oracle_open(eid, emit=True)}
+        call = waiting.get(request)
+        if call is None:
+            done = self.store.query("event", "world_id=? AND target_id=? AND kind IN (?, ?)",
+                                    (self.id, eid, "oracle_answer", "oracle_lapsed"), order="seq DESC", limit=500)
+            lapsed = any(r["kind"] == "oracle_lapsed" and (r["payload"] or {}).get("request") == request for r in done)
+            raise Rejected(f"call {request} " + ("lapsed before its answer came" if lapsed else "is not open: it was answered"),
+                           hint="answer within the call's lapses_in seconds; wait() lists the calls still open")
+        p = call["payload"] or {}
+        b = self.oracle_of(eid) or {}
+        out: dict[str, Any] = {"request": request, "verb": p.get("verb"), "to": call["actor_id"], "ok": bool(ok),
+                               "text": text, "oracle": b.get("label"), "untrusted": True}
+        if data is not None:
+            out["data"] = data
+        if p.get("seen_by"):
+            out["seen_by"] = list(p["seen_by"])
+        ev = self.emit("oracle_answer", actor=None, target=eid, reach=1, payload=out, caused_by=request)
+        return {"request": request, "seq": ev["seq"], "to": p.get("caller"), "public": not p.get("seen_by")}
+
     def locked_by(self, id: str) -> dict[str, Any] | None:
         """What keeps a box, a door or a place shut: the entity itself when its state says `locked`, or a lock
         attached to it (a child whose state has `attached` and `locked`). None when nothing does."""
@@ -2213,10 +2343,10 @@ class World:
             name = self.need(target_id)["name"] or target_id
             raise Rejected(f"{name} does not answer {verb} from you: that is for {acl.who_may(acc, verb, owner == target_id)}",
                            hint="its owner can chmod or chown it; or find another way")
-        s = self.script(adef["script"])
-        if not s.has("apply"):
+        s = None if adef.get("oracle") else self.script(adef["script"])  # an oracle's verb runs no script here
+        if s is not None and not s.has("apply"):
             raise Rejected(f"script {adef['script']!r} has no apply(ctx)", hint="actions need def apply(ctx)")
-        frame = (s.limits or {}).get("frame")
+        frame = (s.limits or {}).get("frame") if s is not None else None
         if frame and self.maker_of(frame) is None:
             raise Rejected(f"{verb} was made with a frame whose grant is gone", hint="its owner can unprogram it")
         # Rules: before_act bubbles all the way up so world rules see it; a local rule may stop() or reject it.
@@ -2229,7 +2359,11 @@ class World:
         else:
             ev = self.emit("before_act", actor=actor_id, target=target_id or actor_id, reach=-1, payload=payload)
         self._dispatch(ev, actor=actor_id, target=target_id, verb=verb, params=params)
-        if s.has("check"):
+        if s is None:
+            why = self.oracle_ready(owner, actor_id, params, adef)
+            if why:
+                raise Rejected(why[0], hint=why[1])
+        elif s.has("check"):
             ctx = Ctx(self, actor=actor_id, target=target_id, owner=owner, params=params, event=None, verb=verb,
                       caused_by=None, seed=self._seed_for(self.store.next_seq(self.id), "check"))
             ctx._consent = True
@@ -2253,17 +2387,23 @@ class World:
         try:
             adef, owner, s = self._prepare(actor_id, verb, target_id, params, dry=False)
             logs: list[str] = []
+            private = bool(s is None and adef.get("private", True))  # a private oracle call: what was asked is the caller's
             ev = self.emit("act", actor=actor_id, target=target_id or actor_id, reach=1,
-                           payload={"verb": verb, "params": params, "target": target_id})
-            ctx = Ctx(self, actor=actor_id, target=target_id, owner=owner, params=params, event=_event_view(ev),
-                      verb=verb, caused_by=ev["seq"], seed=self._seed_for(ev["seq"], "apply"))
-            ctx._consent = True
-            try:
-                # a verb that walks a big book may ask for more (`fuel` on the action, at most a million)
-                result = ctx.run(s, "apply", [ctx], fuel=min(int(adef.get("fuel") or 50_000), 1_000_000))
-            except ScriptError as e:
-                raise Rejected(f"{verb} failed while applying: {e.reason}", hint=e.hint) from None
-            logs.extend(ctx.logs)
+                           payload={"verb": verb, "params": params, "target": target_id,
+                                    **({"seen_by": [actor_id]} if private else {})})
+            if s is None:
+                result = self.oracle_call(owner, actor_id, verb, params, adef, ev["seq"])
+                logs.append(result.pop("log"))
+            else:
+                ctx = Ctx(self, actor=actor_id, target=target_id, owner=owner, params=params, event=_event_view(ev),
+                          verb=verb, caused_by=ev["seq"], seed=self._seed_for(ev["seq"], "apply"))
+                ctx._consent = True
+                try:
+                    # a verb that walks a big book may ask for more (`fuel` on the action, at most a million)
+                    result = ctx.run(s, "apply", [ctx], fuel=min(int(adef.get("fuel") or 50_000), 1_000_000))
+                except ScriptError as e:
+                    raise Rejected(f"{verb} failed while applying: {e.reason}", hint=e.hint) from None
+                logs.extend(ctx.logs)
             if adef.get("strikes") and target_id and target_id != actor_id:
                 # the verb's own cooldown_x, times the one its apply returns (the weapon it struck with: a maul's 2)
                 x = float(adef.get("cooldown_x") or 1)
@@ -2277,7 +2417,7 @@ class World:
                 self.patch(actor_id, {k: st.get(k, 0) - n for k, n in adef["cost"].items()}, actor=actor_id,
                            caused_by=ev["seq"])
             dur = float(adef.get("duration", 0) or 0)
-            if dur > 0 and s.has("finish"):
+            if dur > 0 and s is not None and s.has("finish"):
                 self.schedule(dur, "finish", entity=owner, caused_by=ev["seq"],
                               payload={"script": adef["script"], "actor": actor_id, "target": target_id,
                                        "verb": verb, "params": params})
@@ -2297,7 +2437,7 @@ class World:
         return {"ok": True, "verb": verb, "target": target_id, "result": result,
                 "duration": float(adef.get("duration", 0) or 0),
                 "events": [_public_event(e) for e in evs if e["kind"] not in _INTERNAL_KINDS], "logs": logs,
-                **({"maker": s.limits["frame"], "untrusted": True} if (s.limits or {}).get("frame") else {})}
+                **({"maker": s.limits["frame"], "untrusted": True} if s is not None and (s.limits or {}).get("frame") else {})}
 
     # ---- strikes: a cooldown per attacker per target (docs/SCRIPTING.md, Strikes) ----------------------------------
 

@@ -18,7 +18,8 @@ from typing import Any
 
 OWNER, AUTHOR_ROLE, NARRATOR, PLAYER, MIND, OBSERVER_ROLE = "owner", "author", "narrator", "player", "mind", "observer"
 BUILDER = "builder"
-ROLES = (OWNER, AUTHOR_ROLE, BUILDER, NARRATOR, PLAYER, MIND, OBSERVER_ROLE)
+ORACLE = "oracle"
+ROLES = (OWNER, AUTHOR_ROLE, BUILDER, NARRATOR, PLAYER, MIND, OBSERVER_ROLE, ORACLE)
 
 # Ops by what they are for. A role is a union of these.
 _ANYONE = {"worlds", "use", "summary", "seats", "leave", "clock", "guide", "report_flaw"}
@@ -43,6 +44,8 @@ ROLE_OPS: dict[str, frozenset[str]] = {
     PLAYER: frozenset(_ANYONE | _PLAY),
     MIND: frozenset(_ANYONE | _PLAY),
     OBSERVER_ROLE: frozenset(_ANYONE | _WATCH),
+    # an app outside the world, bound to things: it offers their verbs, hears the calls on them and answers, nothing else
+    ORACLE: frozenset({"worlds", "use", "summary", "guide", "report_flaw", "wait", "offer", "answer"}),
 }
 
 ROLE_DOC = {
@@ -53,6 +56,8 @@ ROLE_DOC = {
     PLAYER: "one seat: your own eyes, your own deeds",
     MIND: "the NPCs your grant names: their eyes, their secret brief and memory, nothing of anyone else's",
     OBSERVER_ROLE: "read everything, write nothing",
+    ORACLE: "an app outside the world bound to the things the grant names: it offers their verbs, hears the calls on "
+            "them and answers each one; it sees nothing else of the world",
 }
 
 # Capability words the single-player code paths know. A role implies them; a bare list implies a role.
@@ -241,6 +246,17 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                  "says when dusk and dawn come.")
     elif role == OBSERVER_ROLE:
         begin = "2. Call use(world), then perceive(from_entity=...), history() and find(): you watch, you do not act."
+    elif role == ORACLE:
+        who = ", ".join(scope_names or []) or "the things your grant names"
+        begin = (f"2. You are the connection of {who}: an app outside the world, the only way its verbs reach "
+                 "anything. Call offer(verbs=[{\"verb\": \"search\", \"doc\": \"...\", \"params\": {\"q\": \"...\"}}]) "
+                 "once: the world's owner reviews a verb before players see it.\n"
+                 "3. Then loop: wait(since=<the cursor it gave>, timeout=30) returns the calls waiting for you (verb, args, "
+                 "an anonymous caller handle, lapses_in), and answer(request, text, ok=True) sends each its answer before "
+                 "it lapses. Keep the loop going: a thing whose oracle has not called in for 90 seconds has no connection.\n"
+                 "4. You see nothing else: no room, no names, no history. What you answer reaches agents marked untrusted; "
+                 "never put a secret in it, and never fetch an address a caller gives you without checking it is on the "
+                 "public web. guide('hosting') has the oracle's part.")
     elif role == OWNER:
         begin = ("2. Call use(world) for the owner's view, or join(world, entity) to walk in it. invite(role, entity=..., "
                  "label=...) makes a grant for a friend and returns the link to send them; grants() lists them, "

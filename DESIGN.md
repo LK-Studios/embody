@@ -173,6 +173,8 @@ Every world projects to a read-only directory: containment is directories, each 
 
 An external system (webhook, sensor, feed) is a principal of kind `oracle` embodying an entity whose actions are "report X". World listeners decide what a report means. Representation, observation and authority are separate grants: an entity standing for a real server is just a node, reading its telemetry is a sense, acting on the real server is an action gated by a capability.
 
+Settled with Nate on 2026-11-17, and built: an oracle is an app hosted outside the world (anywhere apps run) holding a grant of role `oracle` on one thing. It offers that thing's verbs, the owner reviews them, and they show on the thing like any verb; a call is an event, the oracle's `wait` brings it, and its `answer` comes back to the caller marked untrusted. The world never calls out: the oracle calls in like any agent, so the server holds no keys and opens no connections, and revoking the grant ends it. The oracle sees the calls on its things and nothing else of the world. The answers are in the log, so a replay never calls out either. docs/ORACLES.md is the reference. Next: binding an oracle through the world itself (a card that can be given or stolen, as the maker's frame is) and `report`, an oracle that speaks unasked.
+
 ## 14. Many players, one hosted world
 
 The engine already holds several principals in one world; the hosted version puts that world on a server and lets each player reach it with the agent they already use, or with no agent at all. Two players whose entities stand in the same place see each other's events through their own agents. That is the whole multiplayer: the engine needs no new idea, it needs a door that is safe to leave open.

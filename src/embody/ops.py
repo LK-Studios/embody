@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, OWNER, PLAYER, ROLES, ROLE_DOC,
+from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, ORACLE, OWNER, PLAYER, ROLES, ROLE_DOC,
                      active, allowed, caps_for, new_token, paste, principal_id_for, role_for, token_hash)
 from . import layout as geo
 from . import positions as posn
@@ -31,7 +31,7 @@ from .store import Store
 from . import access as acl
 from . import far as far_mod
 from . import looks as looks_mod
-from .world import ALWAYS_SECRET, LIMITS_HEAD, Rejected, World, rules_only_keys, _HOST_KINDS, _INTERNAL_KINDS, _PRIVATE_KINDS, _public_event, own_verbs
+from .world import ALWAYS_SECRET, LIMITS_HEAD, ORACLE_LIMITS, ORACLE_SCRIPT, ORACLE_TIMEOUT, ORACLE_TIMEOUT_MAX, Rejected, World, rules_only_keys, _HOST_KINDS, _INTERNAL_KINDS, _PRIVATE_KINDS, _public_event, own_verbs
 from .workspace import USE_LINE, Workspace, read_scripts, resolve_uses, restore_world, save_world
 
 AUTHOR = "author"
@@ -308,7 +308,9 @@ class Session:
     def world(self) -> World:
         if not self.world_id:
             raise Rejected("no world chosen", hint="call worlds() then join(world, entity) or author with use(world)")
-        return self.engine.world(self.world_id)
+        w = self.engine.world(self.world_id)
+        w.wall = self.engine.wall  # oracles keep real time by the engine's clock
+        return w
 
     def _principal(self) -> dict[str, Any]:
         p = self.world.principal(self.pid)
@@ -570,7 +572,8 @@ class Session:
         if allowed(self.role, op):
             return
         who = [r for r in ROLES if allowed(r, op)]
-        raise Rejected(f"{op} is not open to a {self.role}; it needs the {' or '.join(who)} role",
+        raise Rejected(f"{op} is not open to {'an' if self.role[0] in 'aeiou' else 'a'} {self.role}; it needs the "
+                       f"{' or '.join(who)} role",
                        hint=ROLE_DOC.get(self.role, ""), alternatives=sorted(allowed_ops(self.role) & _PLAY_OR_WATCH))
 
     def _tick(self) -> None:
@@ -1145,11 +1148,22 @@ class Session:
         once, for a day) and the paste: the link with a line for the friend. Without a public URL the paste is the page."""
         if slots is not None and (not isinstance(slots, int) or slots < 0):
             raise Rejected("slots is a whole number, 0 or more", hint="slots=1")
+        if role == ORACLE:
+            for ref in [entity, *(scope or [])]:
+                if ref is None:
+                    continue
+                b = self.world.oracle_of(self._resolve(ref))
+                g = self.world.store.get("grants", self.world.id, b["grant"]) if b else None
+                if g is not None and active(g, self.engine.wall()):
+                    raise Rejected(f"{ref} already has an oracle (grant {g['id']})",
+                                   hint="revoke that grant first; one oracle answers for a thing")
         out = self._mint(role, entity=entity, template=template, label=label, expires=expires, principal=principal,
                          scope=scope, brief=brief, limits=limits, slots=slots)
         if vouched:
             self.world.store.set("grants", self.world.id, out["id"], vouched=1)
             out["vouched"] = True
+        if role == ORACLE:
+            self._bind_oracle(out)
         if expires:
             out["hints"] = [f"{label or role}: this grant stops working in {float(expires):g} hours, wherever the guest "
                             "is then. Leave expires off unless an end is wanted." + _TAIL]
@@ -1172,6 +1186,9 @@ class Session:
             sc.insert(0, eid)
         if role == MIND and not sc:
             raise Rejected("a mind grant names its NPCs", hint="invite('mind', entity='Mara') or scope=[...]")
+        if role == ORACLE and not sc:
+            raise Rejected("an oracle grant names the things it answers for",
+                           hint="invite('oracle', entity='Terminal', label='wiki') or scope=[...]")
         if template:
             root = w.get(w.root_id)
             if template not in ((root["state"].get("templates") or {}) if root else {}):
@@ -1266,6 +1283,19 @@ class Session:
             return None, ""
         w = self.world
         lim = dict(limits or {})
+        if role == ORACLE:
+            # its caps (ORACLE_LIMITS) and the verbs the owner approves ahead (they go live when offered)
+            bad = sorted(set(lim) - set(ORACLE_LIMITS) - {"verbs"})
+            if bad:
+                raise Rejected(f"an oracle's limits know per_hour, max_open, max_chars and verbs, not {bad}",
+                               hint="limits={'per_hour': 30, 'max_open': 4, 'max_chars': 2000, 'verbs': ['search']}")
+            for k, (lo, hi) in {"per_hour": (1, 3600), "max_open": (1, 64), "max_chars": (100, 20_000)}.items():
+                if k in lim and not (isinstance(lim[k], int) and lo <= lim[k] <= hi):
+                    raise Rejected(f"limits {k} is a whole number from {lo} to {hi}", hint=f"{k}={ORACLE_LIMITS[k]}")
+            if "verbs" in lim and not (isinstance(lim["verbs"], list) and all(isinstance(v, str) for v in lim["verbs"])):
+                raise Rejected("limits verbs is a list of verb names", hint="verbs=['search', 'fetch']")
+            return lim, ("Its caps: " + ", ".join(f"{k} {lim.get(k, v)}" for k, v in ORACLE_LIMITS.items())
+                         + (f"; approved ahead: {', '.join(lim['verbs'])}" if lim.get("verbs") else "") + ".")
         bad = sorted(set(lim) - {"under", "types", "scripts"})
         if bad:
             raise Rejected(f"limits know under, types and scripts, not {bad}",
@@ -1479,6 +1509,156 @@ class Session:
             raise Rejected(f"no grant {grant!r}", hint="grants() lists them")
         w.store.set("grants", w.id, grant, vouched=1 if on else 0)
         return {"ok": True, "grant": grant, "principal": g["principal_id"], "vouched": bool(on)}
+
+    def _bind_oracle(self, g: dict[str, Any]) -> None:
+        """Bind the things an oracle grant names to it: their `oracle` state, with its caps. The verbs a former oracle
+        offered there come off, so a new one answers only what it offers itself."""
+        w = self.world
+        lim = g.get("limits") or {}
+        for eid in g["scope"]:
+            prog = {v: x for v, x in own_verbs(w.need(eid)).items() if not (isinstance(x, dict) and x.get("oracle"))}
+            w.patch(eid, {"oracle": {"grant": g["id"], "label": g["principal"],
+                                     **{k: lim.get(k, v) for k, v in ORACLE_LIMITS.items()}},
+                          "programmed": prog or None}, replace=True)
+            w._oracle_seen.pop(eid, None)
+
+    def _oracle_thing(self, thing: str | None) -> str:
+        """The thing an oracle's op is about: the one its grant names, or `thing` among them."""
+        if self.role != ORACLE:
+            raise Rejected("only an oracle's grant does this", hint="the owner makes one: invite('oracle', entity=...)")
+        if thing is None:
+            if len(self.scope) != 1:
+                raise Rejected("this oracle answers for more than one thing: say which", hint="thing=<its id>")
+            return self.scope[0]
+        eid = thing if thing in self.scope else self._resolve(thing)
+        if eid not in self.scope:
+            raise Rejected(f"{thing} is not one of the things this oracle answers for", hint=f"one of {self.scope}")
+        return eid
+
+    def offer(self, verbs: list[dict[str, Any]], thing: str | None = None) -> dict[str, Any]:
+        """(oracle) The verbs this oracle answers on its thing, the whole list each time: [{verb, doc, params, public,
+        timeout}]. verb: a short lowercase word the thing does not already have. doc: what it does, as players will
+        read it. params: {name: what it is}. public: the room sees the call and the answer (default: the caller alone).
+        timeout: real seconds a call waits for its answer (default 30, at most 120). A verb the owner did not approve
+        ahead (the grant's limits verbs) waits for their review(thing, verb); a verb that changes waits again."""
+        self._tick()
+        w = self.world
+        eid = self._oracle_thing(thing)
+        e = w.need(eid)
+        if not isinstance(verbs, list) or len(verbs) > 12:
+            raise Rejected("verbs is a list of at most 12", hint='offer(verbs=[{"verb": "search", "doc": "...", "params": {"q": "..."}}])')
+        theirs = set(w.schema_actions(e["type"]))
+        before = own_verbs(e)
+        ahead = set(self.limits.get("verbs") or [])
+        new = {v: x for v, x in before.items() if not (isinstance(x, dict) and x.get("oracle"))}
+        live, pending = [], []
+        for spec in verbs:
+            v = spec.get("verb") if isinstance(spec, dict) else None
+            if not (isinstance(v, str) and re.fullmatch(r"[a-z][a-z_]{1,23}", v)):
+                raise Rejected(f"a verb is a short lowercase word, not {v!r}", hint="verb='search'")
+            if v in theirs or v in new:
+                raise Rejected(f"{e['name'] or eid} already has a verb {v!r}", hint="offer another word")
+            doc, params = spec.get("doc", ""), spec.get("params") or {}
+            if not isinstance(doc, str) or len(doc) > 300:
+                raise Rejected(f"{v}: doc is a line of at most 300 characters", hint="say what the verb does, for players")
+            if not (isinstance(params, dict) and len(params) <= 12 and all(
+                    isinstance(k, str) and isinstance(d, str) and len(d) <= 200 for k, d in params.items())):
+                raise Rejected(f"{v}: params is at most 12 names, each with a short description",
+                               hint='params={"q": "what to search for"}')
+            timeout = spec.get("timeout", ORACLE_TIMEOUT)
+            if not (isinstance(timeout, (int, float)) and 5 <= timeout <= ORACLE_TIMEOUT_MAX):
+                raise Rejected(f"{v}: timeout is seconds from 5 to {ORACLE_TIMEOUT_MAX:g}", hint="timeout=30")
+            entry = {"script": ORACLE_SCRIPT, "oracle": True, "grant": self.grant["id"], "doc": doc, "params": params,
+                     "private": not spec.get("public", False), "timeout": float(timeout)}
+            old = before.get(v)
+            same = isinstance(old, dict) and {k: x for k, x in old.items() if k != "pending"} == entry
+            if v not in ahead and not (same and not old.get("pending")):
+                entry["pending"] = True
+            new[v] = entry
+            (pending if entry.get("pending") else live).append(v)
+        w.patch(eid, {"programmed": new or None}, replace=True)
+        w._oracle_seen[eid] = w.wall()
+        return {"ok": True, "thing": eid, "live": live, "pending": pending,
+                "hint": ("pending verbs wait for the owner's review(thing, verb); " if pending else "")
+                        + "now wait(timeout=30) for the calls and answer(request, text) each one"}
+
+    def answer(self, request: int, text: str = "", data: Any = None, ok: bool = True) -> dict[str, Any]:
+        """(oracle) Answer one call wait() gave you, before it lapses: text, what the caller reads (at most the
+        grant's max_chars); data, any JSON for a client (at most twice that); ok=False when the work failed (say why
+        in text). It reaches the caller alone (a public verb: the room), marked untrusted."""
+        self._tick()
+        w = self.world
+        if self.role != ORACLE:
+            raise Rejected("only an oracle's grant answers calls", hint="the owner makes one: invite('oracle', entity=...)")
+        rows = w.store.query("event", "world_id=? AND seq=?", (w.id, int(request)), limit=1)
+        if not rows or rows[0]["kind"] != "oracle_called" or rows[0]["target_id"] not in self.scope:
+            raise Rejected(f"no call {request} for this oracle", hint="wait() lists the calls you may answer")
+        eid = rows[0]["target_id"]
+        b = w.oracle_of(eid)
+        if b is None or b["grant"] != self.grant["id"]:
+            raise Rejected("this oracle no longer answers for that thing", hint="the owner bound another")
+        most = int(b.get("max_chars") or ORACLE_LIMITS["max_chars"])
+        if not isinstance(text, str):
+            raise Rejected("text is a string", hint="answer(request, text='...')")
+        if len(text) > most:
+            raise Rejected(f"the answer is {len(text)} characters; this oracle sends at most {most}",
+                           hint="shorten it, or answer in parts the caller asks for")
+        if data is not None:
+            try:
+                size = len(json.dumps(data))
+            except (TypeError, ValueError):
+                raise Rejected("data is plain JSON", hint="strings, numbers, lists and dicts") from None
+            if size > 2 * most:
+                raise Rejected(f"data is {size} characters as JSON; this oracle sends at most {2 * most}", hint="send less")
+        w.store.begin()
+        try:
+            res = w.oracle_answer(eid, int(request), text, data, bool(ok))
+            w.store.commit()
+        except Exception:
+            w.store.rollback()
+            raise
+        w._oracle_seen[eid] = w.wall()
+        return {"ok": True, **res}
+
+    def _oracle_feed(self, timeout: float, since: int | None, poll: float, clock: Callable[[], float],
+                     sleep: Callable[[float], None]) -> dict[str, Any]:
+        """wait for an oracle: the calls on its things that wait for an answer, oldest first, at most 50: after
+        `since` (default: every open one, so a restarted oracle picks up where it was), with the cursor to pass next
+        time. Each poll tells the world its oracle is listening; calls that ran out of time lapse and their callers
+        hear so."""
+        start = clock()
+        while True:
+            with self.engine.lock:
+                self._tick()
+                w = self.world
+                now = w.wall()
+                found: list[tuple[str, dict[str, Any]]] = []
+                w.store.begin()
+                try:
+                    for eid in self.scope:
+                        w._oracle_seen[eid] = now
+                        found += [(eid, r) for r in w.oracle_open(eid, emit=True)
+                                  if since is None or r["seq"] > int(since)]
+                    w.store.commit()
+                except Exception:
+                    w.store.rollback()
+                    raise
+                if found or clock() - start >= timeout:
+                    found.sort(key=lambda x: x[1]["seq"])
+                    calls = []
+                    for eid, r in found[:50]:
+                        p = r["payload"] or {}
+                        calls.append({"request": r["seq"], "thing": eid, "verb": p.get("verb"), "args": p.get("args") or {},
+                                      "caller": p.get("caller"),
+                                      "lapses_in": round(max(0.0, float(p.get("wall") or 0) + float(p.get("timeout") or 0) - now), 1)})
+                    cursor = max([c["request"] for c in calls], default=int(since) if since is not None else 0)
+                    b: dict[str, Any] = {"world": w.id, "calls": calls, "cursor": cursor}
+                    if len(found) > 50:
+                        b["more"] = True
+                    elif not calls:
+                        b["timed_out"] = True
+                    return b
+            sleep(max(poll, 0.25))
 
     def revoke(self, id: str) -> dict[str, Any]:
         """(owner) End a grant: its token stops working and its principal leaves the world. The seats the world gave
@@ -3260,6 +3440,11 @@ class Session:
                 raise Rejected("a read-only grant's wait is its part's event feed: it takes since, kinds and timeout",
                                hint="wait(since=<the cursor it gave>, kinds=[...], timeout=30)")
             return self._reader_feed(timeout, kinds, since, poll, clock, sleep)
+        if self.role == ORACLE:
+            if until is not None or full or positions or kinds:
+                raise Rejected("an oracle's wait brings the calls on its things: it takes since and timeout",
+                               hint="wait(since=<the cursor it gave>, timeout=30)")
+            return self._oracle_feed(timeout, since, poll, clock, sleep)
         with self.engine.lock:
             self._refuse_stale(until, kinds)
         b = self._wait(timeout, kinds, poll, full, until, since, clock, sleep, positions)
@@ -4281,7 +4466,7 @@ OPS = [
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
-    "vouch", "review_script", "report_flaw", "flaws", "relink", "looks",
+    "vouch", "review_script", "report_flaw", "flaws", "relink", "looks", "offer", "answer",
 ]
 
 

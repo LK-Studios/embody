@@ -12,7 +12,7 @@ from . import __version__
 from .grants import ROLE_DOC, allowed
 
 # the most open role first: an op is filed under the first role that may call it
-ORDER = ("observer", "player", "mind", "narrator", "builder", "author", "owner")
+ORDER = ("observer", "player", "mind", "narrator", "builder", "author", "owner", "oracle")
 # a tool argument the door names as the op does (the tool's own `principal` is the MCP door's sub-principal)
 _RENAMED = {"invite": {"as_principal": "principal"}}
 _WAIT_MAX = 120
@@ -34,7 +34,7 @@ _ABOUT = """embody is a deterministic world engine for agents. This is its plain
 link. The same ops are MCP tools at `/mcp`, with the same role check and the same refusals.
 
 - **Roles.** A grant has one role, and each op names the roles that may call it. `GET /op` lists the ops your grant
-  may call. `/openapi.json?role=player` (or mind, observer, narrator, builder, author, owner) shows one role's ops.
+  may call. `/openapi.json?role=player` (or mind, observer, narrator, builder, author, owner, oracle) shows one role's ops.
 - **Refusals** come back as 200 with `{"ok": false, "reason", "hint"}`. The hint is the next call to make.
 - **wait** is capped at 120 seconds over this door: call it again to keep listening.
 - **Names, not ids.** Ops take a name wherever they take an entity, and refuse when one is ambiguous."""

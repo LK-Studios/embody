@@ -630,6 +630,23 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def offer(verbs: list[dict[str, Any]], thing: str | None = None) -> dict[str, Any]:
+        """(oracle) The verbs you answer on your thing, the whole list each time: [{"verb": "search", "doc": "Search
+        the outside web", "params": {"q": "what to search for"}, "public": false, "timeout": 30}]. The world's owner
+        reviews a verb before players see it (unless the grant approved it ahead); one that changes waits again.
+        Then wait(timeout=30) brings the calls and answer(request, text) answers each."""
+        return s.offer(verbs, thing=thing)
+
+    @tool()
+    @_wrap
+    def answer(request: int, text: str = "", data: Any = None, ok: bool = True) -> dict[str, Any]:
+        """(oracle) Answer a call wait() gave you before it lapses: text is what the caller reads (at most the grant's
+        max_chars), data any JSON for a client, ok=False when the work failed (say why in text). It reaches the
+        caller alone, or the room for a public verb, marked untrusted: never put a secret in it."""
+        return s.answer(request, text=text, data=data, ok=ok)
+
+    @tool()
+    @_wrap
     def review(thing: str, verb: str, approve: bool = True) -> dict[str, Any]:
         """(author) Approve a verb a reviewed frame made, or take it off (approve=False). A verb a hand the owner has
         not vouched for programmed without a frame is the owner's to review."""
