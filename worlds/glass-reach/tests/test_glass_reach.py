@@ -1910,3 +1910,14 @@ def test_dice_lie_where_people_idle_and_a_throw_shows_the_room():
     faces = rolled[0]["payload"]["faces"]
     assert len(faces) == 2 and all(1 <= f <= 6 for f in faces)
     assert any(e["kind"] == "scene" and "throws" in str(e) for e in r["events"])
+
+
+def test_the_reach_carries_its_guides_link_and_logs_it_once():
+    eng, gm, you = reach()
+    root = gm.world.get(gm.world.root_id)
+    assert root["state"]["guides"]["url"].endswith("/reach-roles") and root["state"]["guides"]["for"]["player"] == "roles/player.md"
+    text = you.guide("changes", since=0)["text"]
+    assert "player_guides" in text or "reach-roles" in text
+    v = gm.guide("changes")["version"]
+    load_world(gm, "glass-reach", upgrade=True)
+    assert gm.guide("changes")["version"] == v

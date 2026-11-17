@@ -163,6 +163,26 @@ NICO = {"faction": "the Keth", "playable": True, "body": 2, "wits": 3, "will": 2
             "dram|clerk|carrier": "'The one in the yard who watches the drill? He walks like a blade. He is nobody's clerk.'",
         }}
 
+# The player guides (Nate 2026-11-17, "include the url for this repo in the briefs for invites"): the engine puts one
+# line on every player and mind invite page, the join briefing and guide() when the root carries this.
+GUIDES = {"url": "https://github.com/newsbubbles/reach-roles",
+          "base": "https://github.com/newsbubbles/reach-roles/blob/main",
+          "for": {"player": "roles/player.md", "mind": "roles/guest-mind.md"},
+          "also": ["GUIDELINES.md", "WORKFLOWS.md"]}
+
+# The Reach's own entries in the rules changelog: every seat behind them hears rules_notice until it reads
+# guide('changes'). Same id again edits an entry in place.
+RULES = [
+    {"id": "player_guides", "date": "2026-11-17",
+     "was": "Agents playing here had the world's own guide() and nothing written for them by the people who run it.",
+     "now": "Guides for playing the Reach through an agent are at https://github.com/newsbubbles/reach-roles: "
+            "roles/player.md for a character you play for your human, roles/guest-mind.md for a companion or crew "
+            "seat, and WORKFLOWS.md for coming back after a gap, rule changes, playing a dark character, and what to do "
+            "when there is nothing to do. The world itself is still the source of truth: the guides teach how to ask it.",
+     "recheck": ["notes on where your guide is"],
+     "guide": ["player", "mind"]},
+]
+
 BRIEFING = (
     "The Glass Reach: a hard desert fief of black glass and red dunes. House Varrick has held Scar Gate nine days by the Crown's "
     "writ; its cistern is cracked and holds a week of water. The Keth keep the Deepwell under Red Ridge and have shared nothing "
@@ -444,7 +464,7 @@ def define(s):
 def populate(s):
     """Places, people, things, rules and the clock."""
     root = s.summary()["root"]
-    s.patch(root, {"policy": POLICY, "ambient": AMBIENT, "briefing": BRIEFING, "templates": TEMPLATES})
+    s.patch(root, {"policy": POLICY, "ambient": AMBIENT, "briefing": BRIEFING, "templates": TEMPLATES, "guides": GUIDES})
 
     hold = s.spawn("place", root, "Scar Gate, the Hold", state={
         "description": "A squat stone hold wedged into the only gap in the Scar, the wall of rock that shuts off the west. "
@@ -625,7 +645,7 @@ def upgrade(s):
     s.set_rule(root, "reach_guild", kinds=GUILD_KINDS)
     s.set_rule(root, "reach_riders", kinds=RIDER_KINDS)
     s.set_rule(root, "reach_wild", kinds=WILD_KINDS)
-    s.patch(root, {"policy": POLICY, "briefing": BRIEFING, "templates": TEMPLATES})
+    s.patch(root, {"policy": POLICY, "briefing": BRIEFING, "templates": TEMPLATES, "guides": GUIDES})
     keep_behaviors(s.world)  # bodies from before rest mended get the mend tick
     keep_canon(s)
     keep_corins_file_kit(s, names_of(s))  # after the nine are made
