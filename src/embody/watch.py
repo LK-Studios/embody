@@ -45,7 +45,7 @@ def _loads(v):
 
 
 # What the viewer undoes to show the past: each of these events carries what it changed from.
-_UNDO = ("moved", "patched", "spawned", "destroyed", "renamed")
+_UNDO = ("moved", "patched", "stepped", "spawned", "destroyed", "renamed")
 _UNDO_SQL = ", ".join(f"'{k}'" for k in _UNDO)
 
 
@@ -78,6 +78,14 @@ def _rewind(ents: list[dict], rows) -> list[dict]:
                     e["state"].pop(k, None)
                 else:
                     e["state"][k] = b
+        elif kind == "stepped" and isinstance(p.get("from"), dict):  # a step writes no `patched`: it carries `from`
+            lay = dict(e["state"].get("layout") or {})
+            for k, b in p["from"].items():
+                if b is None:
+                    lay.pop(k, None)
+                else:
+                    lay[k] = b
+            e["state"]["layout"] = lay
         elif kind == "renamed":
             e["name"] = p.get("old", e["name"])
     return [by[i] for i in dict.fromkeys(order) if i in by]

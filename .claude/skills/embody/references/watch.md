@@ -4,7 +4,7 @@ Read this when you would otherwise loop on `wait()`: a mind between beats, a nar
 
 ## wait(until=...)
 
-`wait(until="<expression>", timeout=120)` blocks until the expression is true and returns the light bundle with `fired: true`, every event since the wait began and the cursor moved past them. If the timeout comes first it returns `timed_out: true` with a few fields (the hour, where you are, who is here, how many events it saw) and moves nothing, so the next call still counts what came before. A watcher that is not embodied (the owner, a narrator, an observer) passes back the `since` the reply gave. Without `until`, `wait` wakes on any event near you, as before.
+`wait(until="<expression>", timeout=120)` blocks until the expression is true and returns the light bundle with `fired: true`, every event since the wait began and the cursor moved past them. If the timeout comes first it returns `timed_out: true` with a few fields (the hour, where you are, who is here, how many events it saw) and moves nothing, so the next call still counts what came before. A watcher that is not embodied (the owner, a narrator, an observer) passes back the `since` the reply gave. Without `until`, `wait` wakes on any event near you, as before. Two waits on one principal at once share its one cursor, so what one returns the other never sees; the reply then carries `shared_cursor`. Give each watcher its own principal (`principal=` on the tools, `--principal` on `embody watch`) or pass `since`.
 
 The expression is one line of the engine's script subset (no imports, no assignments, no lambdas), checked by the engine every half second against what you may know, never more:
 
@@ -17,7 +17,7 @@ The expression is one line of the engine's script subset (no imports, no assignm
 | `me` | your own state, the whole of it: `me.get('water', 10)`, `me.get('hp', 0)`, `me.get('wounded')` (read it with `get` and a default: a key the world does not have, or one renamed since you armed it, refuses the whole condition) |
 | `events` | what touched you since the wait began, each with `seq`, `t`, `kind`, `actor`, `target`, `text`, `player` |
 | `heard(word, by='')` | someone said something with that word in it (and the speaker's name has `by` in it) |
-| `did(kind, by='')` | an event of that kind happened, by that one if named (`did('attack', by='Hollis')`, `did('arrived')`) |
+| `did(kind, by='')` | an event of that kind happened, by that one if named (`did('attack', by='Hollis')`, `did('arrived')`); with no kind, any deed (a verb used) by someone else here: `did()`, `did(by='Hollis')` |
 | `came(name)` | someone of that name is here now (true already when you arm it? it fires at once, every time, with `already: true`) |
 | `arrived(name)` | someone of that name walked in since the wait began (`''` for anyone, your own steps included) |
 | `to_me()` | someone else spoke to you (a line said to you, a talk aimed at you) or used your name as the address ("Sefa, the gate", "Hey Sefa", "the gate, Sefa?"), not your name in passing ("where is Sefa?"); "the" and "and" in a name never count |
@@ -32,6 +32,18 @@ Names match by part and any case: `came('reeve')` matches Reeve Ansel Varrick. S
     t >= 43200
     ambient.get('time_of_day') == 'dusk' and came('Keth')
     heard('water', by='Corin') or len(present) == 0
+
+### Watch at the level you will answer at
+
+Every time a watch fires, your model takes a whole turn. So arm the narrowest condition that still catches what your character would answer, and climb this ladder only as far as you need:
+
+1. `to_me()`: words aimed at you. This covers most of what a character answers.
+2. A named verb or person: `did('give', by='Corin')`, `arrived('Reeve')`, `heard('water')`.
+3. A state crossing a line: `me.get('hp', 0) < 3`, `state('Bell').get('hp', 0) >= 2`, `ambient.get('time_of_day') == 'dusk'`.
+4. `did(by='Corin')`: anything one person does.
+5. `did()`: any deed by anyone here.
+
+`did()` is for short, busy scenes you are running, such as a fight, a rite or a market haggle. Never arm it for a long wait: in a place where people work, it wakes you on every pour, every give and every take. On a long wait, name the verbs you would answer with `kinds=[...]` beside the condition, or write it as `any(e['kind'] in ('give', 'attack') for e in events)`.
 
 A bad expression is refused when you arm it, with this grammar in the hint: a name the watch cannot read (`payload`) is named with the names it can, and the whole expression is tried on a sample of every event field before it waits, so a typo in the half that runs only after `heard(...)` comes true fails now, not hours later. `any(e['kind'] == 'attack' for e in events)` works as in Python.
 

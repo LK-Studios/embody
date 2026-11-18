@@ -130,6 +130,12 @@ def spec(tools: list[dict[str, Any]], origin: str | None = None, role: str | Non
                                              "layers": {"type": "object", "description": "the same ops by layer"},
                                              "role": {"type": "string"}, "how": {"type": "string"}}}}}},
                       "401": {"$ref": "#/components/responses/NoGrant"}}}}
+    paths["/op/principals"] = {"post": {
+        "operationId": "principals", "summary": "Who this grant speaks for: its own principal and any sub-principals",
+        "tags": ["door"], "requestBody": {"required": False, "content": {"application/json": {"schema": {"type": "object"}}}},
+        "responses": {"200": {"description": "[{id, role, entity, main}, ...]", "content": {"application/json": {
+            "schema": {"type": "array", "items": {"type": "object"}}}}},
+                      "401": {"$ref": "#/components/responses/NoGrant"}}}}
     paths["/health"] = {"get": {
         "operationId": "health", "summary": "Whether the server is up (no grant, no world data)", "tags": ["door"],
         "security": [], "responses": {"200": {"description": '{"ok": true, "embody": "up"}'}}}}

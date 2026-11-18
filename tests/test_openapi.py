@@ -65,7 +65,7 @@ def test_a_role_sees_its_own_ops(tmp_path):
     srv = build_server(eng.session("host"), tmp_path / "x.db", eng)
     doc = spec(tools_of(srv), role="mind")
     ops = {p.split("/")[-1] for p in doc["paths"] if p.startswith("/op/")}
-    assert ops == {op for op in OPS if allowed("mind", op)} and "step" in ops and "invite" not in ops
+    assert ops - {"principals"} == {op for op in OPS if allowed("mind", op)} and "step" in ops and "invite" not in ops
 
 
 def get(app, path, query=b""):

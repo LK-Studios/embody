@@ -130,3 +130,21 @@ def test_a_script_steps_a_body_about_its_place():
         ctx.step(guard)
     with pytest.raises(Rejected, match="not standing in one"):
         ctx.step(i["Hall"], to=[0, 0])
+
+
+def test_a_step_is_one_event_that_carries_where_it_came_from(tmp_path):
+    from embody.watch import Reader
+    from tests.test_watch_feed import REPO
+    eng, w, i = engine_with_two_rooms()
+    gm, sam, nate = pasture(eng)
+    gm.layout(frame={"units": "m"}, placements=[
+        {"entity": "Hall", "at": [20, 0, 0], "size": [12, 8]}, {"entity": "Nan", "at": [20, 0, 0]}])
+    before = w.store.next_seq(w.id)
+    sam.step([20, 1])
+    kinds = [e["kind"] for e in w.events(since=before - 1, limit=50) if e["target_id"] == gm.inspect("Nan")["id"]]
+    assert "stepped" in kinds and "patched" not in kinds  # the step is its own record
+    st = [e for e in w.events(since=before - 1, kinds=["stepped"], limit=5)][-1]["payload"]
+    assert st["at"] == [20, 1, 0] and st["from"]["at"] == [20, 0, 0]
+    past = Reader(tmp_path / "w.db", REPO, conn=eng.store.conn).state(w.id, 0, 50, at=before - 1)
+    nan = next(e for e in past["entities"] if e["name"] == "Nan")
+    assert nan["state"]["layout"]["at"] == [20, 0, 0]  # the viewer's rewind undoes a step by its `from`

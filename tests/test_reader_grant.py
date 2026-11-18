@@ -91,7 +91,7 @@ def test_a_read_only_grant_is_shown_only_what_it_may_call(tmp_path):
         await http_app(srv)({"type": "http", "method": "GET", "path": "/op", "query_string": b"", "scheme": "http",
                              "headers": [(b"authorization", f"Bearer {inv['token']}".encode())]}, receive, send)
     asyncio.run(get())
-    assert set(json.loads(out["body"])["ops"]) == shown
+    assert set(json.loads(out["body"])["ops"]) - {"principals"} == shown  # its own grant's principals: the door's op
 
 
 def test_a_read_only_grant_hears_what_happens_in_its_part_and_nothing_else():

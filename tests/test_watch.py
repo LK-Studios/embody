@@ -190,3 +190,24 @@ def test_a_watch_that_loses_the_door_says_why_and_wakes_its_runner(tmp_path, cap
     assert cli_main(["watch", "--door", str(door), "--until", "t >= 0", "--for", "1h"]) == 3
     out = capsys.readouterr().out
     assert out.startswith("LOST THE DOOR") and "ExceptionGroup" not in out and "not-a-real-token" not in out
+
+
+def test_did_with_no_verb_fires_on_any_deed_by_someone_else_here():
+    eng, gm, you, mara = two()
+    mara.say("Evening.")  # a line is not a deed
+    you.act("check", "Traveler", params={"skill": "luck"})  # nor is my own
+    assert you.wait(timeout=0, until="did()", **NOW)["timed_out"] is True
+    mara.act("check", "Mara", params={"skill": "luck"})
+    b = you.wait(timeout=0, until="did(by='mara')", **NOW)
+    assert b["fired"] is True and any(e["kind"] == "act" for e in b["events"])
+
+
+def test_the_cli_prints_any_character_on_a_cp1252_console(monkeypatch):
+    import io
+    import sys
+    from embody.cli import _utf8_out
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    _utf8_out()
+    print("about \u2248 two days", flush=True)  # a watch once died on this in a mind's note
+    assert "\u2248".encode("utf-8") in raw.getvalue()

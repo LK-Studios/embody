@@ -1581,9 +1581,10 @@ class World:
         return n
 
     def patch(self, id: str, changes: dict[str, Any], actor: str | None = None, caused_by: int | None = None,
-              replace: bool = False) -> None:
+              replace: bool = False, log: bool = True) -> None:
         """Change state keys. A dict value merges into an existing dict (one new dialog topic does not
-        resend the others); replace=True sets the key whole. A value of None deletes the key."""
+        resend the others); replace=True sets the key whole. A value of None deletes the key. log=False writes no
+        `patched` event: only for a change another event already records whole (a step's `stepped`)."""
         e = self.need(id)
         if not changes:
             return
@@ -1599,8 +1600,9 @@ class World:
             else:
                 e["state"][k] = v
         self._touch(e)
-        self.emit("patched", actor=actor, target=id, reach=1, caused_by=caused_by,
-                  payload={"changes": changes, "before": before, "replace": replace})
+        if log:
+            self.emit("patched", actor=actor, target=id, reach=1, caused_by=caused_by,
+                      payload={"changes": changes, "before": before, "replace": replace})
 
     def rename(self, id: str, name: str, actor: str | None = None, caused_by: int | None = None) -> str:
         """Give an entity a new name, refused when someone else in the world already has it (the rule join keeps).
@@ -1865,6 +1867,8 @@ class World:
             anc = self.ancestors(target)
             path.extend(anc if reach < 0 else anc[:reach])
         p = payload or {}
+        if kind in _WORD_KINDS and "wall" not in p:  # a word's real time: minds() counts an owed answer in real minutes,
+            p = payload = {**p, "wall": self.wall()}  # which a paused clock's world time cannot
         if "seen_by" not in p:
             veil = self._veil((actor, target, p.get("entity"), p.get("who")))
             if veil is not None:  # a veiled body is in it: only those it shows itself to witness it, in every view
@@ -3242,6 +3246,7 @@ def _num(x: float) -> float | int:
 
 # Kinds that never wake a sleeper: the deed's own envelope (its verb's events decide) and sleep itself.
 _NO_WAKE = frozenset({"act", "slept", "woke"})
+_WORD_KINDS = frozenset({"say", "talked"})
 
 
 def tone(text: str, reach: int = 1) -> str:

@@ -986,13 +986,21 @@ class Bearer:
         and refusal shape as the tools. GET /op lists the ops this grant may call. wait is capped at 120 s."""
         from .ops import LAYERS, OPS, call
         if not op:
-            mine = sorted(o for o in OPS if sess.may(o))
+            mine = sorted([o for o in OPS if sess.may(o)] + ["principals"])
             layers = {n: [o for o in ops if o in mine] for n, (_, ops) in LAYERS.items()}
             await _reply(send, 200, {"ops": mine, "layers": {n: v for n, v in layers.items() if v}, "role": sess.role,
                                      "how": "POST /op/<name> with a JSON object of its arguments"})
             return
         if scope.get("method") != "POST":
             await _reply(send, 405, {"ok": False, "reason": "an op is a POST", "hint": f"POST /op/{op} with a JSON body"})
+            return
+        if op == "principals":  # the hub's, not a session's: who this grant speaks for, its sub-principals too
+            tok = _current.set(sess)  # never the host's main principal
+            try:
+                out = self.hub.principals()
+            finally:
+                _current.reset(tok)
+            await _reply(send, 200, json.dumps(out, default=str).encode())
             return
         if op not in OPS:
             await _reply(send, 404, {"ok": False, "reason": f"no op {op!r}", "hint": "GET /op lists the ops this grant may call"})

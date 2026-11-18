@@ -683,14 +683,15 @@ class Session:
         return w.summary()
 
     def join(self, world_id: str | None = None, entity: str | None = None, template: str | None = None,
-             name: str = "", description: str = "") -> dict[str, Any]:
+             name: str = "", description: str = "", world: str | None = None) -> dict[str, Any]:
         """Embody an entity. A grant holder may call it bare: the seat the grant names, or the one they held last.
+        `world` is the same as world_id (the guides write join(world, entity); a JSON body names its keys).
         template=... makes a new character from the world root's `templates` and embodies it; description=... is how
         that newcomer looks to others, set once here (nothing changes it later). Claims are one transaction: two
         agents racing for a seat get one winner and one refusal that lists what is still open."""
         if self.role == OBSERVER_ROLE:
             raise Rejected("observers do not embody", hint="use(world) then perceive(from_entity=...)")
-        world_id = world_id or self.world_id
+        world_id = world_id or world or self.world_id
         if not world_id:
             raise Rejected("no world", hint="join(world_id, entity); worlds() lists them")
         self._own_world(world_id)
@@ -1681,7 +1682,7 @@ class Session:
                 by = w.get(ev["actor_id"])
                 row["owed"] = {"by": by["name"] if by else ev["actor_id"], "text": str((ev.get("payload") or {}).get(
                     "text") or (ev.get("payload") or {}).get("about") or "")[:200],
-                    "min": round(max(w.t - ev["t"], 0) / rate / 60, 1)}
+                    "min": _owed_min(ev, w.t, now, rate)}
             rows.append(row)
             if mind and row["quiet_min"] > quiet_min:
                 alerts.append(f"{e['name']}: its mind ({row['label'] or mind['id']}) quiet {row['quiet_min']} min")
@@ -1983,7 +1984,8 @@ class Session:
         return bundle
 
     def _in_sight(self, me: str, here_id: str | None) -> dict[str, Any]:
-        """What this body sees far off from where it stands (far.py), cached per place and body per world hour."""
+        """What this body sees far off from where it stands (far.py), cached per place and body per world hour (paused:
+        per event)."""
         if not here_id:
             return {"in_sight": [], "note": "nowhere to look from"}
         cache = self.engine.__dict__.setdefault("_far_cache", {})
@@ -2462,8 +2464,9 @@ class Session:
                     if p.get("hidden") or any(unseen(r) for r in refs):
                         continue
             pe = _public_event(e)
-            if not full and sb is not None:
-                pe["payload"] = {k: v for k, v in pe["payload"].items() if k != "seen_by"}  # not who else it shows itself to
+            if not full and (sb is not None or (e["kind"] in _WORD_KINDS and "wall" in (pe["payload"] or {}))):
+                # not who else it shows itself to, nor the real time a word was said (minds() reads that)
+                pe["payload"] = {k: v for k, v in pe["payload"].items() if k not in ("seen_by", "wall")}
             a = e["actor_id"]
             if e["kind"] in ("embodied", "released") and a != me and not self._sees_seats():
                 # someone sat down in a body or got up: the guest sees that, not who (or what) it was
@@ -3661,7 +3664,21 @@ class Session:
             return self._oracle_feed(timeout, since, poll, clock, sleep)
         with self.engine.lock:
             self._refuse_stale(until, kinds)
-        b = self._wait(timeout, kinds, poll, full, until, since, clock, sleep, positions)
+            waits = self.engine.__dict__.setdefault("_waits", {})  # principal -> waits running now (one cursor)
+            waits[self.pid] = waits.get(self.pid, 0) + 1
+            shared = waits[self.pid] > 1
+        try:
+            b = self._wait(timeout, kinds, poll, full, until, since, clock, sleep, positions)
+        finally:
+            with self.engine.lock:
+                shared = shared or waits.get(self.pid, 0) > 1
+                waits[self.pid] = waits.get(self.pid, 1) - 1
+                if waits[self.pid] <= 0:
+                    waits.pop(self.pid, None)
+        if shared:
+            b["shared_cursor"] = ("another wait on this principal ran at the same time, and the two share one cursor: "
+                                  "what one returned the other will not. Give each watcher its own principal "
+                                  "(principal=... on the tools, --principal on embody watch) or pass since=")
         if "rules_notice" not in b:
             with self.engine.lock:
                 p = self.world.principal(self.pid)
@@ -3800,7 +3817,11 @@ class Session:
         def heard(word: str = "", by: str = "") -> bool:
             return any(e["text"] and low(word) in low(e["text"]) and low(by) in low(e["actor"]) for e in data["events"])
 
-        def did(kind: str, by: str = "") -> bool:
+        def did(kind: str = "", by: str = "") -> bool:
+            # no kind: any deed here by someone else (a verb's `act` record), not their steps or the engine's own events
+            if not kind:
+                return any(e["kind"] == "act" and e["actor"] and e["actor"] != mine and low(by) in low(e["actor"])
+                           for e in data["events"])
             return any(e["kind"] == kind and low(by) in low(e["actor"]) for e in data["events"])
 
         def came(name: str) -> bool:
@@ -4536,6 +4557,14 @@ def _in_words(seconds: float) -> str:
     return f"in about {round(h)} hours" if h < 36 else f"in about {round(h / 24)} days"
 
 
+def _owed_min(ev: dict[str, Any], t: float, now: float, rate: float) -> float:
+    """How long a player has waited on a line, in real minutes: the real time since it was said (the word's `wall`),
+    or the world time over the clock's rate, whichever is more. A paused clock's world time stands still."""
+    said = (ev.get("payload") or {}).get("wall")
+    real = now - float(said) if said else 0.0
+    return round(max(real, (t - ev["t"]) / rate, 0.0) / 60, 1)
+
+
 def call(session: Session, op: str, **kw: Any) -> Any:
     """Dispatch by name, with the error shape every harness gets."""
     fn = getattr(session, op, None)
@@ -4552,7 +4581,8 @@ def call(session: Session, op: str, **kw: Any) -> Any:
 UNTIL_DOC = ("until is one Python expression (the embody script subset: no imports, no lambdas) over what you may "
              "know: t (world seconds), ambient (dict: time_of_day, light, ...), here (your place's name), present "
              "(names of who is here), me (your own state: water, hp, wounded, ...), events (since the wait began: "
-             "seq, t, kind, actor, target, text, player), and helpers heard(word, by=''), did(kind, by=''), "
+             "seq, t, kind, actor, target, text, player), and helpers heard(word, by=''), did(kind, by='') (with no kind: any "
+             "deed by someone else here; it wakes you on every one, so name the verb or use to_me() when you can), "
              "came(name) (is here now), arrived(name) (walked in since the wait began; '' for anyone), to_me() "
              "(said to you, or with your name as its address: the default for a mind or a player owed nothing in "
              "particular), named() (your name anywhere in someone's line), state(name) "

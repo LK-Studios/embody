@@ -26,7 +26,8 @@ its description, in ordinary perceive. Only what carries `far` is ever in sight,
 - Nothing from inside a place that is `indoors`. Both ends are measured in one ruler: one frame, or frames that say
   they are `aligned_with` each other (the same origin and units), in metres or km.
 
-Read on demand only (`perceive(far=true)`), cached per place and body per world hour.
+Read on demand only (`perceive(far=true)`), cached per place and body per world hour; while the clock is paused, until
+the next event (a paused world's hour never turns, and a chat-played world may sit paused all session).
 """
 
 from __future__ import annotations
@@ -358,4 +359,5 @@ def carried(w: "World", place: str, body: str | None, at: list[float], unit: flo
 
 def _key(w: "World", place: str, body: str | None) -> str:
     stand = _viewpoint(w, place, body)  # on terrain, where it stands counts too, to ten metres
-    return json.dumps([w.id, place, body, int(w.t // 3600), [round(x / 10) for x in stand[:2]] if stand else None])
+    when = int(w.t // 3600) if w.clock()["running"] else ["seq", w.store.next_seq(w.id)]
+    return json.dumps([w.id, place, body, when, [round(x / 10) for x in stand[:2]] if stand else None])

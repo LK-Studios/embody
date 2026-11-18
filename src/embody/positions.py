@@ -326,11 +326,15 @@ def walk(w: "World", eid: str, to: Any, budget: float | None,
 
 def stepped(w: "World", eid: str, change: dict[str, Any], caused_by: int | None = None) -> tuple[dict[str, Any], str]:
     """Write a step or a turn ({at?, heading?}) to a body's own layout and tell its place: a quiet `stepped {at, frame,
-    heading?}` to everyone there. Returns the event and the frame. No transaction of its own."""
-    w.patch(eid, {"layout": geo.merge(dict(_layout(w, eid)), change)}, actor=eid, replace=True, caused_by=caused_by)
+    heading?, from}` to everyone there, `from` the layout it had ({at, heading}, for the viewer's rewind). The step is
+    its own record: no `patched` beside it (a herd on a 30-second tick wrote two events a step). Returns the event and
+    the frame. No transaction of its own."""
+    was = dict(_layout(w, eid))
+    w.patch(eid, {"layout": geo.merge(dict(was), change)}, actor=eid, replace=True, caused_by=caused_by, log=False)
     frame = frame_of(w, eid)
     lay = _layout(w, eid)
-    pay = {"at": lay.get("at"), "frame": frame, **({"heading": lay["heading"]} if lay.get("heading") is not None else {})}
+    pay = {"at": lay.get("at"), "frame": frame, **({"heading": lay["heading"]} if lay.get("heading") is not None else {}),
+           "from": {"at": was.get("at"), "heading": was.get("heading")}}
     return w.emit("stepped", actor=eid, target=eid, reach=1, payload=pay, caused_by=caused_by), frame
 
 
