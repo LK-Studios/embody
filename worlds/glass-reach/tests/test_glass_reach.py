@@ -472,7 +472,7 @@ def test_hosted_bodies_thirst_at_the_pace_of_the_day():
         return out
 
     assert beats() == {"thirst": {8640}, "quench": {600}, "mend": {21600}, "fighter_tick": {6}, "wasp_tick": {60},
-                       "vehicle_tick": {15}, "beast_amble": {30}}  # Hauler Nine rolls on the vehicles pack; beasts amble
+                       "vehicle_tick": {15}, "beast_amble": {30}, "beast_rest": {10800}}  # Hauler Nine rolls on the vehicles pack; beasts amble and mend by rest
     kit = eng.session_for_token(gm.invite("player", label="Kit")["token"])
     kit.join(template="guard", name="Kit")
     assert beats("Kit") == {"thirst": {8640}, "quench": {600}, "mend": {21600}}
