@@ -36,8 +36,13 @@ LEGACY_DB = Path("worlds") / "embody.db"
 
 def db_path(args: argparse.Namespace) -> Path:
     """--db, then $EMBODY_DB, then embody.db in the current folder (the workspace root). A workspace from before
-    the folders, with its database at worlds/embody.db and none at the root, keeps working."""
+    the folders, with its database at worlds/embody.db and none at the root, keeps working. On a hub's volume
+    (`embody hub`: one file per world at <folder of $EMBODY_DB>/worlds/<world>.db), --world picks that world's own
+    file, so `railway ssh -- embody --world W invite ...` writes where the world lives, not into the old single file."""
     given = args.db or os.environ.get("EMBODY_DB")
+    world = getattr(args, "world", None)
+    if not args.db and given and world and (Path(given).parent / "worlds" / f"{world}.db").is_file():
+        given = str(Path(given).parent / "worlds" / f"{world}.db")
     if given:
         p = Path(given)
     elif not DEFAULT_DB.exists() and LEGACY_DB.exists():
@@ -347,7 +352,18 @@ def init_workspace(root: Path) -> dict[str, Any]:
 # ---- commands --------------------------------------------------------------------------
 
 
+def _utf8_out() -> None:
+    """Print UTF-8 whatever the console's code page: a Windows console's cp1252 cannot print a '≈' in someone's note,
+    and an `embody watch` that crashed on one line kept losing its door and watched nothing."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_out()
     ap = argparse.ArgumentParser(prog="embody", description="A deterministic world engine for agents.")
     ap.add_argument("--db", help=f"database file (default {DEFAULT_DB} or $EMBODY_DB)")
     ap.add_argument("--as", dest="as_", help="principal id (default $EMBODY_AS, then the last used)")
@@ -447,6 +463,17 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--site", help="a folder served at / beside the door (default $EMBODY_SITE, or worlds/<world>/site)")
     c.add_argument("--log-level", dest="log_level", default=None)
 
+    c = sub.add_parser("hub", help="host many worlds on one port: one `serve` per world, each on its own database file "
+                                   "(EMBODY_WORLDS=a,b embody hub --data /data); src/embody/hub.py has the routing")
+    c.add_argument("--worlds", help="the worlds, comma-separated, the first the default (default $EMBODY_WORLDS)")
+    c.add_argument("--data", help="the folder for worlds/<id>.db, hub.json and maintenance/ (default the folder of $EMBODY_DB)")
+    c.add_argument("--domains", help="host=world,host=world (default $EMBODY_DOMAINS, then hub.json)")
+    c.add_argument("--legacy", help="the old single database to move into the first world's file (default <data>/embody.db)")
+    c.add_argument("--host", default="0.0.0.0")
+    c.add_argument("--port", type=int, default=None, help="default $PORT, else 8900")
+    c.add_argument("--base-port", dest="base_port", type=int, default=9100, help="the first world's own port, on 127.0.0.1")
+    c.add_argument("--log-level", dest="log_level", default=None)
+
     c = sub.add_parser("invite", help="(owner) make a grant and print the link to send: embody --author --world W invite player --entity reeve --label Sam")
     c.add_argument("role", help="owner (the host's own agent), author, builder, narrator, player, mind or observer")
     c.add_argument("--entity", help="the seat kept for them (player) or the NPC they hold (mind)")
@@ -479,6 +506,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "serve":
         from .mcp_server import serve
         return serve(args)
+    if args.cmd == "hub":
+        from .hub import main as hub_main
+        return hub_main(args)
     if args.cmd == "watch" and args.door:
         from .watch_door import watch_door
         return watch_door(args)
