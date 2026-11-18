@@ -2029,6 +2029,18 @@ def test_the_reach_beasts_amble_like_the_packs_do():
     assert any(after[i] != before[i] for i in before)
 
 
+def test_a_hurt_goat_mends_by_rest_at_the_reachs_pace_through_an_upgrade():
+    eng, gm = hosted()
+    load_world(gm, "glass-reach", upgrade=True)
+    goat = [e for e in gm.find(type="beast") if e["state"].get("species") == "ridge goat"][0]["id"]
+    ticks = [i for i in gm.world.pending() if i["kind"] == "tick" and i["entity_id"] == goat
+             and (i["payload"] or {}).get("script") == "beast_rest"]
+    assert len(ticks) == 1 and float(ticks[0]["every"]) == 10800
+    gm.patch(goat, {"hp": 1})
+    gm.clock(step=10900)
+    assert gm.inspect(goat)["state"]["hp"] == 2
+
+
 def test_hunters_stalk_at_dusk_and_strike_at_night_through_an_upgrade():
     eng, gm = hosted()
     load_world(gm, "glass-reach", upgrade=True)

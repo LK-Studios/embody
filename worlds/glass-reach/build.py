@@ -275,8 +275,10 @@ HOSTED = {"rate": 4, "claim_lapse": 3600,
           "public_timers": ["heat", "dusk", "night", "dawn", "moon_turns"],
           # a body's water in the hosted day: one point every 2.4 world hours (36 real minutes of play at 4x), a look for
           # water every ten world minutes; a point of HP mended every six world hours (a wound closes in a day or
-          # two, a body a wound put down gets up in half a day); the turn-based story keeps the pack's beats
-          "pace": {"thirst": 8640, "quench": 600, "mend": 21600},
+          # two, a body a wound put down gets up in half a day); a beast mends a point every three world hours by rest
+          # (Nate 2026-11-18: "beast heal by rest"), so a hurt goat is whole in a day; the turn-based story keeps the
+          # pack's beats
+          "pace": {"thirst": 8640, "quench": 600, "mend": 21600, "beast_rest": 10800},
           "spine": [("heat", 21600, 86400), ("dram_moves", 28800, None), ("dusk", 43200, 86400),
                     ("night", 54000, 86400), ("cistern_cracks", 64800, None), ("dawn", 86400, 86400)],
           # the routines ride the spine: (routine, the spine event it starts with)
@@ -463,7 +465,8 @@ def define(s):
     s.define_schema("beast", extends="creature", doc="An animal of the Reach: grows, eats what the land gives, can be tamed and kept, breeds; "
                     "the d20 blows land on it and it fights back. It does not drink, talk or carry.",
                     state=dict(BEAST_STATE), actions=BEAST_ACTIONS,
-                    behaviors=[{"script": "fighter_tick", "every": 6}, {"script": "beast_amble", "every": 30}])  # the pack's two
+                    behaviors=[{"script": "fighter_tick", "every": 6}, {"script": "beast_amble", "every": 30},
+                               {"script": "beast_rest", "every": 600, "always": True}])  # the pack's three
     s.define_schema("dice", extends="thing", doc="Dice anyone can throw: everyone here sees how they fall.",
                     state={"portable": True, "dice": 2, "sides": 6},
                     actions={"roll": {"script": "roll_dice", "duration": 2,
@@ -669,7 +672,7 @@ def upgrade(s):
     s.set_rule(root, "reach_riders", kinds=RIDER_KINDS)
     s.set_rule(root, "reach_wild", kinds=WILD_KINDS)
     s.patch(root, {"policy": POLICY, "briefing": BRIEFING, "templates": TEMPLATES, "guides": GUIDES})
-    keep_behaviors(s.world, scripts=("mend", "beast_amble"))  # bodies from before rest mended get the mend tick; beasts from before 11-17 the amble
+    keep_behaviors(s.world, scripts=("mend", "beast_amble", "beast_rest"))  # bodies from before rest mended get the mend tick; beasts from before 11-17 the amble, from before 11-18 rest
     keep_canon(s)
     keep_corins_file_kit(s, names_of(s))  # after the nine are made
     keep_faction_stores(s, names_of(s))  # last, so everyone made above learns the word
