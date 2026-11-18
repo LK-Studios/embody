@@ -35,7 +35,7 @@ def test_until_fires_only_on_its_condition_and_keeps_what_came_before():
     eng, gm, you, mara = two()
     mara.say("Psst.", to="Traveler")
     b = you.wait(timeout=0, until="heard('ale')", **NOW)
-    assert b["timed_out"] is True and b["fired"] is False and "events" not in b
+    assert b["timed_out"] is True and b["fired"] is False and b["events"] == [] and "cursor" in b  # nothing taken
     assert b["here"] == "Ashford Square" and "Mara" in b["present"] and b["seen"] >= 1
     mara.say("Want an ale?", to="Traveler")
     b = you.wait(timeout=0, until="heard('ALE', by='mara')", **NOW)

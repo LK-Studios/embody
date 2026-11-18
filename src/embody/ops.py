@@ -49,6 +49,7 @@ _SAY_BURST = 30
 _NOTE_MAX = 2000  # a guest's remember() note, in characters
 _DESCRIPTION_MAX = 800  # how a newcomer looks, set once at join(template=..., description=...)
 _WAIT_BATCH = 50  # events one wait returns at most; the cursor stops at the last of a full batch
+_PATCH_HIDDEN = frozenset({"rules", "secret", "space", "policy"})  # kept out of the patched events a body sees
 _WAIT_IDLE = 1.0  # the longest a wait sleeps with no event put: the clock and the timeout are looked at this often
 _BOND_DATA_MAX = 300  # a seat's own bond (relate by a player or mind): a line or two of data
 _SAY_WINDOW = 60.0
@@ -2483,6 +2484,15 @@ class Session:
                     if p.get("hidden") or any(unseen(r) for r in refs):
                         continue
             pe = _public_event(e)
+            if not full and e["kind"] == "patched":
+                # your own card never shows its rules, its secret list, its space or the host's policy: nor does
+                # the diff of a patch to them (a rule growing `secret` named every hidden field to the player)
+                p = pe["payload"] or {}
+                changes = {k: v for k, v in (p.get("changes") or {}).items() if k not in _PATCH_HIDDEN}
+                if not changes:
+                    continue
+                pe["payload"] = {**p, "changes": changes,
+                                 "before": {k: v for k, v in (p.get("before") or {}).items() if k not in _PATCH_HIDDEN}}
             if not full and (sb is not None or (e["kind"] in _WORD_KINDS and "wall" in (pe["payload"] or {}))):
                 # not who else it shows itself to, nor the real time a word was said (minds() reads that)
                 pe["payload"] = {k: v for k, v in pe["payload"].items() if k not in ("seen_by", "wall")}
@@ -3851,9 +3861,10 @@ class Session:
                                      "for someone to walk in after the wait begins. Change the condition first.")
                     return b
                 first = False
-                if timed_out:
+                if timed_out:  # the shape a fire has, with the cursor where it stood: call again from there
                     return {"world": w.id, "t": w.t, "timed_out": True, "fired": False, "until": until,
-                            "since": since, "seen": len(seen), "here": view["here"], "present": view["present"]}
+                            "since": since, "cursor": since, "seen": len(seen), "ambient": view["ambient"],
+                            "here": view["here"], "present": view["present"], "events": []}
             sleep(poll)
 
     def _watch_view(self, me: str | None, seen: list[dict[str, Any]]) -> dict[str, Any]:
@@ -3865,9 +3876,9 @@ class Session:
                 and w.is_a(c["type"], "creature")] if here else []  # who is here: people, not the jars by the cistern
         names: dict[str, str] = {}
 
-        def nm(i: str | None) -> str | None:
-            if not i:
-                return None
+        def nm(i: Any) -> str | None:
+            if not i or not isinstance(i, str):
+                return None  # a list of ids (a watch event's who) names no one person
             if i not in names:
                 e = w.get(i)
                 names[i] = e["name"] if e else i
