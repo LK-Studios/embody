@@ -3664,7 +3664,8 @@ class Session:
              clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
         """Block until an event touches me (or the timeout). Returns the light bundle: the hour, where I am,
         who is here and the new events, with the cursor moved past them. `full=True` returns perceive()
-        instead. A mind loops on this, so a quiet minute costs a few lines, not the whole card.
+        instead. A mind loops on this, so a quiet minute costs a few lines, not the whole card. A mind whose grant
+        names several bodies hears for each one nobody else holds, and each event says `for` which bodies it reached.
 
         `until`: a condition, one expression in the script subset, checked by the engine against what this
         principal may know (see UNTIL_DOC). The wait returns only when it is true, so a quiet hour of chatter that
@@ -3734,12 +3735,18 @@ class Session:
         self._tick()
         w = self.world
         since = p["cursor_seq"] if since is None else int(since)
-        raw = w.events(since=since, touching=me, limit=_WAIT_BATCH)
-        evs = [e for e in self._events_for(me, raw) if not kinds or e["kind"] in kinds]
-        more = len(raw) >= _WAIT_BATCH
+        bodies = self._minded(me)
+        if len(bodies) == 1:
+            raw = w.events(since=since, touching=me, limit=_WAIT_BATCH)
+            evs = [e for e in self._events_for(me, raw) if not kinds or e["kind"] in kinds]
+            more, last = len(raw) >= _WAIT_BATCH, (raw[-1]["seq"] if raw else since)
+        else:
+            evs, more, last = self._heard_by(bodies, since, kinds)
         if evs or timed_out:
             if full:
                 b = self.perceive()
+                if len(bodies) > 1:  # perceive is the seat's; what reached only the other bodies comes beside it
+                    b["heard"] = [e for e in evs if me not in e["for"]]
             else:
                 ent = w.need(me)
                 here = w.get(ent["parent_id"]) if ent["parent_id"] else None
@@ -3747,7 +3754,7 @@ class Session:
                      "here": {"id": here["id"], "name": here["name"]} if here else None,
                      "present": [{"id": c["id"], "name": c["name"]} for c in w.children(ent["parent_id"])
                                  if c["id"] != me and w.sees(me, c)] if here else [],
-                     "events": evs, "cursor": raw[-1]["seq"] if more else w.store.next_seq(w.id) - 1}
+                     "events": evs, "cursor": last if more else w.store.next_seq(w.id) - 1}
                 w.set_cursor(self.pid, b["cursor"])
                 if more:
                     b["more"] = True  # a full batch: wait() again (or with since=cursor) for the rest
@@ -3757,6 +3764,44 @@ class Session:
                 b["timed_out"] = True
             return b
         return None
+
+    def _minded(self, me: str) -> list[str]:
+        """The bodies a wait hears for: the seat, and for a mind whose grant names several bodies, each of them that
+        nobody else holds, so one mind can answer whoever is owed wherever they stand."""
+        if self.role != MIND or len(self.scope) < 2:
+            return [me]
+        w = self.world
+        out = [me]
+        for x in self.scope:
+            held = w.embodied(x) if x != me and w.get(x) else None
+            if x != me and w.get(x) and (held is None or held["id"] == self.pid):
+                out.append(x)
+        return out
+
+    def _heard_by(self, bodies: list[str], since: int, kinds: list[str] | None
+                  ) -> tuple[list[dict[str, Any]], bool, int]:
+        """What reached any of these bodies after `since`, each event once, oldest first, with `for`: the bodies it
+        reached. A body with a full batch caps the read at its last event, so nothing past it is skipped; returns
+        (events, more, the last seq read)."""
+        w = self.world
+        got: dict[int, dict[str, Any]] = {}
+        cut: int | None = None
+        for b in bodies:
+            raw = w.events(since=since, touching=b, limit=_WAIT_BATCH)
+            if len(raw) >= _WAIT_BATCH:
+                cut = raw[-1]["seq"] if cut is None else min(cut, raw[-1]["seq"])
+            for e in self._events_for(b, raw):
+                if kinds and e["kind"] not in kinds:
+                    continue
+                if e["seq"] in got:
+                    got[e["seq"]]["for"].append(b)
+                else:
+                    got[e["seq"]] = {**e, "for": [b]}
+        evs = sorted((e for s, e in got.items() if cut is None or s <= cut), key=lambda e: e["seq"])
+        if len(evs) > _WAIT_BATCH:
+            evs = evs[:_WAIT_BATCH]
+            cut = evs[-1]["seq"]
+        return evs, cut is not None, cut if cut is not None else since
 
     def _watch(self, until: str, timeout: float, kinds: list[str] | None, full: bool, since: int | None,
                clock: Callable[[], float], sleep: Callable[[float], None], poll: float = 0.5) -> dict[str, Any]:

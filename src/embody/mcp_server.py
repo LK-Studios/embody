@@ -557,7 +557,9 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         embodied). For hours of waiting, run `embody watch` from a shell instead; it loops this for you.
         positions=true adds {id: [x, y, z]} for each body here whose spot changed (a step, or walking in).
         since=N reads every event after N you could perceive, whatever your cursor says (catching up on a
-        scene another wait took). `more: true`: a full batch of 50; wait again for the rest."""
+        scene another wait took). `more: true`: a full batch of 50; wait again for the rest. A mind whose grant names
+        several bodies hears for each of them nobody else holds: every event carries `for`, the bodies it reached
+        (with full=true, `heard` holds what reached only the others)."""
         import anyio
         sess = S(principal)
         try:
