@@ -1969,6 +1969,43 @@ def test_nicos_jackal_watch_is_night_work_for_those_the_keth_trust():
     assert "hung on a peg" in gm.inspect("Nico's tally stick")["state"]["description"]
 
 
+def test_the_herds_hurts_pays_for_tending_a_goat_and_nicos_pouch_fills_at_dawn():
+    eng, gm, you = reach()
+    root = gm.world.root_id
+    assert where(gm, "The herd's hurts") == "Nico" and where(gm, "Nico's herd pouch") == "Nico"
+    goat = [e for e in gm.find(type="beast") if e["state"].get("species") == "ridge goat"][0]["id"]
+    gm.patch(goat, {"hp": 1})
+    me, keth = gm.inspect("Reeve Ansel Varrick")["id"], gm.inspect("the Keth")["id"]
+    gm.move("Reeve Ansel Varrick", "Red Ridge")
+    gm.move("Nico", "Red Ridge")
+    gm.unlink(me, keth, "standing")
+    gm.link(me, keth, "standing", {"value": 0, "public": True})
+    nico_seat = eng.session("nico")
+    nico_seat.join("glass-reach", "Nico")
+    nico_seat.act("offer_job", "Reeve Ansel Varrick", params={"job": "The herd's hurts"})
+    r = you.act("take_job", params={"job": "The herd's hurts"})
+    assert "job_taken" in kinds(r)
+    gm.move("Nico's herd pouch", "Reeve Ansel Varrick")
+    r = you.act("tend", goat)
+    assert "tended" in kinds(r)
+    gm.clock(step=2)
+    job = gm.world.get(gm.inspect("The herd's hurts")["id"])["state"]
+    assert not job["open"] and job["done_by"][me] == 1 and gm.inspect(goat)["state"]["hp"] == 4
+    assert {e["target"]: e["data"]["value"] for e in gm.world.edges(me, "standing", "out")}[keth] == 1
+    gm.schedule(1, "hit", entity=goat, payload={"by": goat, "dmg": 1})
+    gm.clock(step=2)
+    assert gm.world.get(gm.inspect("The herd's hurts")["id"])["state"]["open"]  # a hurt goat opens it again
+    gm.patch("Nico's herd pouch", {"doses": 0})
+    gm.schedule(1, "dawn", entity=root)
+    gm.clock(step=2)
+    assert gm.inspect("Nico's herd pouch")["state"]["doses"] == 0  # away from Nico it is not packed
+    gm.move("Nico's herd pouch", "Nico")
+    gm.schedule(1, "dawn", entity=root)
+    gm.clock(step=2)
+    pouch = gm.inspect("Nico's herd pouch")["state"]
+    assert pouch["doses"] == 3 and "packs it fresh" in pouch["description"]
+
+
 def test_a_tally_stick_from_before_the_jobs_pack_becomes_the_sign_on_upgrade():
     eng, gm, you = reach()
     stick = gm.inspect("Nico's tally stick")["id"]

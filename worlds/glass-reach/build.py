@@ -2820,7 +2820,8 @@ def keep_dice(s, names):
 # distrust; at night, bring a jackal down or drive the pack off the herd, and the world pays. By day the pack lies up
 # under the burned crawler in the Bone Field (scripts/jackal_den.py), so the work is night work. Trouble from the
 # jackals opens it again, and his tally stick on Red Ridge shows whether it is open (scripts/reach_jobs.py).
-JOB_KINDS = ["beast_hungry", "beast_stalks", "beast_prowls", "beast_hunts", "job_done", "job_reopened"]
+JOB_KINDS = ["beast_hungry", "beast_stalks", "beast_prowls", "beast_hunts", "job_done", "job_reopened",
+             "tended", "hit", "wounded", "downed", "dawn"]
 DEN_KINDS = ["dawn", "dusk", "arrived", "beast_went_home"]
 JOB_NAME = "The jackal watch"
 JACKAL_JOB = {
@@ -2842,15 +2843,39 @@ STICK = {
                  "them to anyone the Keth trust.",
     "look_closed": "A goat-herder's tally stick of pale thornwood, notched along one edge, lying off its peg in a crack "
                    "of the rock by Nico's post: the jackals are no trouble just now."}
+# The second (Nate 2026-11-18: "whatever nico can do... perhaps can also let people like in the quest, heal the herd"):
+# Nico's herd pouch of glassroot salve, filled again each dawn while it is in his hands (he chews fresh root on the
+# ridge), and a job he offers the same people, to see to a hurt goat with `tend`. The jobs pack does not count a
+# tending yet, so scripts/reach_jobs.py does: a holder's tending of a hurt ridge goat closes it, and a goat hit,
+# wounded or downed opens it again.
+HERD_JOB_NAME = "The herd's hurts"
+HERD_JOB = {
+    "hidden": True,
+    "terms": "The herd's hurts, for Nico of the Keth: see to a hurt goat of the ridge herd (tend it). Salve in hand "
+             "heals it, a dose at a time; with no salve, water to wash the wound and a steady hand can get a downed "
+             "goat back on its feet. Nico lends his herd pouch to whoever takes it on. It pays standing with the Keth, "
+             "and what the work teaches of survival.",
+    "gate": {"standing": {"the Keth": 0}},
+    "done": {"kind": "tended", "species": "ridge goat"},
+    "pay": {"standing": 1, "deed": {"skill": "survival", "amount": 1}},
+    "repeat": "reopen", "slots": 3, "open": True}
+HERD_POUCH_NAME = "Nico's herd pouch"
+HERD_POUCH_LOOK = ("A goat-herder's pouch of glassroot salve, the hide rubbed dark with handling and a knot of goat "
+                   "hair tied at the neck. Root chewed with fat, bitter and green-smelling; Nico packs it fresh from "
+                   "the ridge at dawn.")
+HERD_POUCH = {"doses": 3, "heals": 3, "refill": 3, "refills_with": "Nico", "description_full": HERD_POUCH_LOOK,
+              "description": HERD_POUCH_LOOK,
+              "description_empty": "A goat-herder's pouch, empty, the inside smeared green. Nico packs it fresh "
+                                   "at dawn when it is back with him."}
 JACKALS_EARTH = ("Holes in the sand under the burned crawler's ribs, three or four, the mouths worn smooth and the sand "
                  "around them printed over and over with narrow feet. A sour animal smell. By day the jackals lie up "
                  "deep in there where no arm or blade reaches; they come up at dusk.")
 
 
 def keep_jobs(s, names):
-    """The jobs pack's rule on the Reach's dusk and dawn, Nico's jackal watch (a job he carries), his tally stick on
-    Red Ridge that shows it, the jackals' earth in the Bone Field, and the two rules. A stick from before the pack
-    (its job inside it, 2026-11-17) becomes the sign."""
+    """The jobs pack's rule on the Reach's dusk and dawn, Nico's jackal watch and the herd's hurts (jobs he carries),
+    his herd pouch, his tally stick on Red Ridge that shows the watch, the jackals' earth in the Bone Field, and the
+    two rules. A stick from before the pack (its job inside it, 2026-11-17) becomes the sign."""
     root = s.summary()["root"]
     install_jobs(s, root, dusk="dusk", dawn="dawn")
     if JOB_NAME not in names and "Nico" in names:
@@ -2861,6 +2886,10 @@ def keep_jobs(s, names):
         old = s.world.get(names[STICK_NAME])["state"]["job"]
         s.patch(names[STICK_NAME], {"job": None})
         s.patch(names[STICK_NAME], dict(STICK, description=STICK["look_open" if old.get("open") else "look_closed"]))
+    if HERD_JOB_NAME not in names and "Nico" in names:
+        s.spawn("job", names["Nico"], HERD_JOB_NAME, state=dict(HERD_JOB, giver=names["Nico"]))
+    if HERD_POUCH_NAME not in names and "Nico" in names:
+        s.spawn("medicine", names["Nico"], HERD_POUCH_NAME, state=dict(HERD_POUCH))
     if "The jackals' earth" not in names and "The Bone Field" in names:
         s.spawn("thing", names["The Bone Field"], "The jackals' earth", state={"portable": False, "description": JACKALS_EARTH})
     s.set_rule(root, "reach_jobs", kinds=JOB_KINDS)
