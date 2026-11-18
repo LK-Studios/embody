@@ -14,7 +14,8 @@ Routing, in order:
 
 Files under --data: worlds/<id>.db, one database per world; hub.json, the domain map ({"domains": {"host": id}});
 maintenance/<id>, a flag whose text is the message while a world is down for upkeep on purpose. A first boot finds
-the old single database (embody.db) and copies it to the first world's file, keeping the old file as the backup.
+the old single database (embody.db) and copies it to the first world's file, keeping the old file as the backup;
+the files kept beside it (seat requests, flaw reports, asks) are copied beside the new file, where that world reads them.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -36,6 +38,7 @@ from .grants import token_hash
 _HOP = {b"connection", b"keep-alive", b"proxy-authenticate", b"proxy-authorization", b"te", b"trailers",
         b"transfer-encoding", b"upgrade", b"host"}
 _STATES = ("up", "maintenance", "down")
+_BESIDE = ("seat-requests.jsonl", "flaw-reports.jsonl", "asks.jsonl")  # what a world keeps beside its database file
 
 
 class World:
@@ -168,6 +171,9 @@ class Hub:
             tmp.unlink()
             raise SystemExit(f"copying {legacy} to {w.db}: counts differ {counts}; nothing moved")
         tmp.rename(w.db)
+        for name in _BESIDE:  # the world reads these beside its database: they follow it, the old ones stay
+            if legacy.with_name(name).is_file() and not w.db.with_name(name).exists():
+                shutil.copy2(legacy.with_name(name), w.db.with_name(name))
         return f"moved {legacy} to {w.db} (entities, grants, events: {counts[0]}); the old file stays as the backup"
 
     def _env(self, w: World) -> dict[str, str]:

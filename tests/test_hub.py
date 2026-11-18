@@ -68,9 +68,11 @@ def test_the_old_single_database_moves_into_the_first_worlds_file_once(tmp_path)
     db, _ = built(tmp_path, "two-rooms")
     legacy = tmp_path / "data" / "embody.db"
     db.rename(legacy)
+    (tmp_path / "data" / "seat-requests.jsonl").write_text('{"world": "two-rooms", "name": "Ada"}\n', encoding="utf-8")
     hub = Hub(["two-rooms"], tmp_path / "data")
     assert "entities, grants, events" in hub.migrate(legacy)
     assert legacy.is_file() and db.is_file()  # the old file stays as the backup
+    assert "Ada" in db.with_name("seat-requests.jsonl").read_text(encoding="utf-8")  # the queue follows the world
     con = sqlite3.connect(db)
     assert con.execute("SELECT count(*) FROM grants WHERE world_id='two-rooms'").fetchone()[0] == 1
     con.close()
