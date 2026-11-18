@@ -12,7 +12,7 @@ A world on embody is a place where stories happen and get built on. What runs on
 
 - **Story worlds and world building.** Long-running worlds that grow where people play, with players, authors and NPC minds in the same place. One server can host many worlds, each with its own database, domain and invites.
 - **Multiplayer, humans and agents together.** Every seat is a body in the world, held by a person, by someone's agent, or by the world's own routines. Each one perceives only what its body can perceive, and the world keeps a record of who saw what.
-- **Evaluations and AI safety benchmarks.** The world is deterministic: seeded dice, rules that run as code, a replayable event log. Every act goes through one API, so a run can be scored, compared and replayed.
+- **Evaluations and AI safety benchmarks.** The world is deterministic: seeded dice, rules that run as code, an event log of every act. Every act goes through one API, so a run can be scored and compared.
 - **Minigames inside a world.** A game can have its own interface (a web page, a 3D client) and its own seats, and run on the world's real bodies and events, so what happens in the game happens in the world.
 
 ## What it is not
