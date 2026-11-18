@@ -326,7 +326,7 @@ class Ctx(ScriptObject):
         "actor", "target", "self", "params", "event", "t", "rand", "verb",
         "get", "find", "children", "parent", "peers", "linked", "edges", "relations", "distance", "root",
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
-        "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
+        "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
         "may_write_sheet", "mark", "unmark", "regrow", "step", "leak",
     )
@@ -565,6 +565,18 @@ class Ctx(ScriptObject):
             raise Rejected("a script under a grant's limits can't offer seats", hint="the world's own rules offer seats")
         return self._w.offer_seat(_ev(self._w, entity), _ev(self._w, to), str(why or ""), actor=self._actor,
                                   caused_by=self._caused_by)["id"]
+
+    def move_seat(self, to: Any, from_: Any = None, notes: bool = True) -> str:
+        """Move whoever holds `from_` (default: the acting body) into `to` at once: the same principal, now playing
+        `to` (its perceive, verbs, senses and meters), with no offer, no claim and no new token. `to` must be
+        `seatable`, alive and free; the old body is left as it is, for the rule to decide its fate. notes=True carries
+        the engine notes (`memory`) with the mind; notes=False leaves them on the old body. Returns the principal."""
+        if self._limits:
+            raise Rejected("a script under a grant's limits can't move seats", hint="the world's own rules move seats")
+        src = _ev(self._w, from_) if from_ is not None else self._actor
+        if not src:
+            raise Rejected("no body to move a seat from", hint="ctx.move_seat(to, from_=<the body someone holds>)")
+        return self._w.move_seat(src, _ev(self._w, to), bool(notes), actor=self._actor, caused_by=self._caused_by)
 
     def withdraw_seat(self, entity: Any, why: str = "") -> list[str]:
         """The entity no longer qualifies (the beast went feral, the thing was given away): its open offers close,
@@ -2879,6 +2891,44 @@ class World:
                   payload={"offer": o["id"], "seat": entity_id, "name": e["name"], "why": why,
                            "hint": "seats() lists it; claim_seat(offer) gives you a paste to play it in a session of its own"})
         return o
+
+    def move_seat(self, from_id: str, to_id: str, notes: bool = True, actor: str | None = None,
+                  caused_by: int | None = None) -> str:
+        """The seat holding `from_id` moves to `to_id` (ctx.move_seat): one principal row changes body, its grant and
+        any claimed seat offer follow it, its feed starts fresh at the move, and `released` then `embodied` tell the
+        log. Returns the principal."""
+        if from_id == to_id:
+            raise Rejected("a seat moves to another body")
+        src, dst = self.need(from_id), self.need(to_id)
+        p = self.embodied(from_id)
+        if p is None:
+            raise Rejected(f"nobody holds {src['name'] or from_id}", hint="ctx.embodied(body) says whether someone does")
+        if self.is_a(dst["type"], "place") or not dst["state"].get("seatable", self.schema_defaults(dst["type"]).get("seatable")):
+            raise Rejected(f"{dst['name'] or to_id} is not seatable",
+                           hint="mark it seatable: true (its state or its schema) when the world may put a mind in it")
+        if dst["state"].get("dead"):
+            raise Rejected(f"{dst['name'] or to_id} is dead")
+        if self.embodied(to_id) is not None:
+            raise Rejected(f"{dst['name'] or to_id} is already held", hint="a seat moves only into a body nobody holds")
+        if notes and src["state"].get("memory"):  # the notes are the mind's: they go where it goes
+            dst["state"]["memory"] = sorted(list(dst["state"].get("memory") or []) + list(src["state"].pop("memory")),
+                                            key=lambda n: n.get("seq", 0))
+            self._touch(src)
+            self._touch(dst)
+        self.store.set("principal", self.id, p["id"], entity_id=to_id, acted_t=self.t,
+                       cursor_seq=self.store.next_seq(self.id) - 1)
+        g = self.store.get("grants", self.id, p["grant_id"]) if p.get("grant_id") else None
+        if g is not None:
+            swap = lambda x: to_id if x == from_id else x
+            self.store.set("grants", self.id, g["id"], entity_id=swap(g.get("entity_id")), made=swap(g.get("made")),
+                           scope=[swap(x) for x in (g.get("scope") or [])])
+            for o in self.store.query("seat_offer", "world_id=? AND grant_id=? AND status='claimed'", (self.id, g["id"])):
+                self.store.set("seat_offer", self.id, o["id"], entity_id=swap(o["entity_id"]))
+        self.emit("released", actor=from_id, target=from_id, reach=1, caused_by=caused_by,
+                  payload={"principal": p["id"], "to": to_id})
+        self.emit("embodied", actor=to_id, target=to_id, reach=1, caused_by=caused_by,
+                  payload={"principal": p["id"], "as": p["kind"], "from": from_id})
+        return p["id"]
 
     def withdraw_seat(self, entity_id: str, why: str = "", actor: str | None = None,
                       caused_by: int | None = None) -> list[str]:
