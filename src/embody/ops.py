@@ -48,6 +48,7 @@ _STEP_MAX_S = 2.0  # a step covers at most this many world seconds of walking, h
 _SAY_BURST = 30
 _NOTE_MAX = 2000  # a guest's remember() note, in characters
 _DESCRIPTION_MAX = 800  # how a newcomer looks, set once at join(template=..., description=...)
+_BOND_DATA_MAX = 300  # a seat's own bond (relate by a player or mind): a line or two of data
 _SAY_WINDOW = 60.0
 # A mind's idle orders: how many stops a patrol has, how long it dwells at each (world s), how many own lines.
 _PATROL_STOPS = 12
@@ -4420,16 +4421,56 @@ class Session:
         return {"ok": True, "removed": n}
 
     def relate(self, relation: str, participants: list[str], data: dict[str, Any] | None = None) -> dict[str, Any]:
+        """A relation among entities (a hyperedge: a duel, a debt, a name given). The author's hand writes any. A seat
+        (player, mind) writes only its own body's bonds, of the kinds the world's root lists in `bonds` (say
+        ["named", "owes", "trusts", "wronged"]): its body is one of the participants, and data is a line or two."""
+        if not self._authors():
+            me = self._bond_kind(relation)
+            ids = [self._resolve(p) for p in participants]
+            if me not in ids:
+                ids = [me] + ids  # your own bond: you are in it
+            if len(json.dumps(data or {}, ensure_ascii=False)) > _BOND_DATA_MAX:
+                raise Rejected(f"a bond's data is a line or two ({_BOND_DATA_MAX} characters at most)",
+                               hint='data={"what": "a short line"}')
+            hid = self.world.relate(relation, ids, data, actor=me)
+            return {"ok": True, "relation": hid, "participants": ids}
         self._need(AUTHOR)
         self._record("relate", relation=relation, participants=participants, data=data)
         hid = self.world.relate(relation, [self._resolve(p) for p in participants], data)
         return {"ok": True, "relation": hid}
 
     def unrelate(self, id: str) -> dict[str, Any]:
+        """Remove a relation. A seat removes only its own body's bonds, of the kinds the world's root lists."""
+        if not self._authors():
+            w = self.world
+            h = w.store.get("hyperedge", w.id, str(id))
+            if h is None:
+                raise Rejected(f"no relation {id!r}", hint="recall() lists your bonds")
+            me = self._bond_kind(h["relation"])
+            if me not in h["participants"]:
+                raise Rejected("that bond is not yours", hint="you may remove only a bond your own body is in")
+            w.unrelate(h["id"], actor=me)
+            return {"ok": True}
         self._need(AUTHOR)
         self._record("unrelate", id=id)
         self.world.unrelate(id)
         return {"ok": True}
+
+    def _authors(self) -> bool:
+        """The author's hand (author capability, or a narrator's), as _need(AUTHOR) asks it, without refusing."""
+        return AUTHOR in self.capabilities or NARRATOR in self.capabilities
+
+    def _bond_kind(self, relation: str) -> str:
+        """A seat's own bond: refuse a kind the world's root does not list in `bonds`; return the body it holds."""
+        w = self.world
+        root = w.get(w.root_id) or {"state": {}}
+        kinds = [str(k) for k in (root["state"].get("bonds") or [])]
+        if str(relation) not in kinds:
+            raise Rejected(f"{relation!r} is not a bond a seat may write here" if kinds else
+                           "this world lets no seat write its own relations",
+                           hint=("the kinds you may write are the world's bonds: " + ", ".join(kinds)) if kinds else
+                                "the host writes relations here", alternatives=kinds)
+        return self._me()
 
     def set_rule(self, entity: str, script: str, kinds: list[str] | None = None,
                  fuel: int | None = None) -> dict[str, Any]:

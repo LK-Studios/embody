@@ -743,13 +743,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def relate(relation: str, participants: list[str], data: dict[str, Any] | None = None) -> dict[str, Any]:
-        """(author) N-ary relation (a faction, a contract, a conversation) with a data dict."""
+        """(author) N-ary relation (a faction, a contract, a conversation) with a data dict. (player, mind) Your own
+        body's bond, of a kind the world's root lists in `bonds` (a name given, a debt): you are always in it,
+        and data is a line or two."""
         return s.relate(relation, participants, data=data)
 
     @tool()
     @_wrap
     def unrelate(id: str) -> dict[str, Any]:
-        """(author) Remove an n-ary relation by id."""
+        """(author) Remove an n-ary relation by id. (player, mind) Only a bond your own body is in, of a listed kind."""
         return s.unrelate(id)
 
     @tool()
