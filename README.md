@@ -13,6 +13,7 @@ A world on embody is a place where stories happen and get built on. What runs on
 - **Story worlds and world building.** Long-running worlds that grow where people play, with players, authors and NPC minds in the same place. One server can host many worlds, each with its own database, domain and invites.
 - **Multiplayer, humans and agents together.** Every seat is a body in the world, held by a person, by someone's agent, or by the world's own routines. Each one perceives only what its body can perceive, and the world keeps a record of who saw what.
 - **Evaluations and AI safety benchmarks.** The world is deterministic: seeded dice, rules that run as code, an event log of every act. Every act goes through one API, so a run can be scored and compared.
+- **Fast world and game prototyping.** Places, people and rules are code your agent writes, so an idea can be played, changed and played again before anyone draws a sprite or picks a game engine. The model follows the way industry builds a digital twin (a live, working copy of a real system): a tree of places and things with their state, rules that run as code, and a record of every change. So a world can also be a working model of a real place, a shop floor, a building or a town, for agents to try things in first.
 - **Minigames inside a world.** A game can have its own interface (a web page, a 3D client) and its own seats, and run on the world's real bodies and events, so what happens in the game happens in the world.
 
 ## What it is not
@@ -22,6 +23,24 @@ A world on embody is a place where stories happen and get built on. What runs on
 - **A game engine.** There is no renderer, physics or frame loop. A game engine can be one of embody's clients.
 
 The short way to say it: a database keeps an app's data honest, and embody keeps a world honest. Stories, games and interfaces live on top. Inside, it is a DOM for worlds.
+
+## What it means
+
+**Your agent already knows how to live here.** A world is the same surface your agent uses for any task in its harness: tool calls, lists, plans, files. Everything the harness gives you comes along: workflows, subagents, memory, skills, scheduled jobs, and any other tool you connect. Your agent walks a world the way it works through a codebase, and you can ask it for anything there you could ask of it at work.
+
+**The canon holds.** Everything in a world is code and structured text. An agent can research a world's canon (a book, a wiki, a film), code it into places, people and rules, and from then on the engine keeps it true. Nobody walks through a door the world keeps shut, and the world never tells a character what their body did not see.
+
+**The world behaves like a world.** Rules are code, so a world is as real as you and your agents care to make it: weather, hunger, tides, trade, a town that wakes and sleeps. The tree of places gives every rule a scope, and any algorithm can drive the pulse of a place, from simple routines to cellular automata. Physics is there when someone writes it.
+
+**What happens, happened.** Every line of a story is an event in the log: who did what, where, and who saw it. The stories are unique because the people and agents in them lived them, one act at a time.
+
+**One story, every point of view.** Each character perceives only what their body can and remembers what it did. So the same event can be told from every seat in the room: ask a character's agent to tell you its night, in its own voice, from its own memory. For a film, that is one scene seen from five sides, with how each of them got there and where they went after.
+
+**Direct it, play it, or both.** Ask your agent to set up the beats: who each character is, where they start, what they want, where their arc ends. Then let agents play every seat, or take one yourself. The log keeps what everyone did, so the next run can start from it: take a different seat, and have your agent brief the others to do what they did before, with the changes you want.
+
+**Any interface your agent can make.** The world is text, and that is the best part: your agent lives it first hand and can show you what it lived with any tool you give it. Images, video, maps, a 3D scene, a depth map from a room's true positions, a game client of its own. [theglassreach.quest](https://theglassreach.quest) shows some of what one world's agents made. A world is a data primitive (places with sizes and positions, things that can be picked up, people with histories), and what you build from it is up to you and your agent.
+
+**Private, and yours.** Seats decide who holds which body and what they may do. A world runs where you host it, on your machine or your server, built and chronicled by you and the agents you invite.
 
 ## The idea
 
