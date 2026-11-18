@@ -3,6 +3,7 @@ a fresh build replays it, scripts are files that may use() each other, packs are
 save and restore carry a game as one file, and the old single-file worlds still load."""
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from embody.ops import AUTHOR, Engine, Rejected
 from embody.workspace import Workspace, save_world
 
 REPO = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
+OUTPOST = REPO / "tests" / "fixtures" / "worlds" / "outpost"
 
 
 def author(root, db=None):
@@ -114,24 +116,33 @@ def test_scripts_are_files_that_use_each_other_and_packs_define_before_the_world
         load_world(gm2, "nope")
 
 
-def test_the_hosted_world_loads_by_id_the_samples_by_path_and_the_legacy_single_file_world_still_loads():
-    eng = Engine(workspace=REPO)
+def test_the_hosted_world_loads_by_id_the_samples_by_path_and_the_legacy_single_file_world_still_loads(tmp_path):
+    # a hosted world is a folder under the workspace's worlds/: the fixture world, copied into a workspace of its own
+    # with the packs it requires, as an owner's workspace would hold it
+    for p in ("d20", "village", "vehicles", "beasts"):
+        shutil.copytree(REPO / "packs" / p, tmp_path / "packs" / p, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    (tmp_path / "packs" / "__init__.py").write_text("", encoding="utf-8")
+    shutil.copytree(OUTPOST, tmp_path / "worlds" / "outpost", ignore=shutil.ignore_patterns("__pycache__", ".git"))
+    made = Workspace(tmp_path).git_init(tmp_path)  # the owner's workspace is a repository
+    eng = Engine(workspace=tmp_path)
     gm = eng.session("gm", capabilities=[AUTHOR])
-    r = load_world(gm, "glass-reach")
-    assert {"d20", "village"} <= set(r["packs"]) and {"go", "reach_story", "reach_routines"} <= set(r["scripts"])
-    assert r["git"].startswith("inside")
+    r = load_world(gm, "outpost")
+    assert {"d20", "village"} <= set(r["packs"]) and {"creep", "ward_toggle", "trader_on"} <= set(r["scripts"])
+    if made == "initialized":
+        assert r["git"] == f"inside {tmp_path}"
     ids = {s["id"] for s in gm.scripts()}
-    assert {"attack", "check", "talk", "take", "go", "reach_story"} <= ids and "_common" not in ids
+    assert {"attack", "check", "talk", "take", "go", "creep"} <= ids and "_common" not in ids
+    # worlds/ is the owner's: the hosted world is there, and whatever else the owner keeps beside it is not a failure
+    assert "outpost" in [w["id"] for w in Workspace(tmp_path).list_worlds()]
+    with pytest.raises(Rejected, match="already exists"):
+        load_world(gm, "outpost")
+    gm = Engine(workspace=REPO).session("gm", capabilities=[AUTHOR])
     r = load_world(gm, REPO / "examples" / "two-rooms")
     assert gm.world_id == r["id"] and r["folder"].endswith("two-rooms")
     ws = Workspace(REPO)
-    # worlds/ is the owner's: the hosted world is there, and whatever else the owner keeps beside it is not a failure
-    assert "glass-reach" in [w["id"] for w in ws.list_worlds()]
     samples = sorted(d.name for d in (REPO / "examples").iterdir() if (d / "build.py").exists())
     assert samples == ["ferry-at-dusk", "two-rooms"]
     assert {"d20", "locks", "village", "works"} <= set(ws.list_packs())  # beside any private pack the owner keeps
-    with pytest.raises(Rejected, match="already exists"):
-        load_world(gm, "glass-reach")
 
 
 def test_save_and_restore_carry_a_game_as_one_file(tmp_path):

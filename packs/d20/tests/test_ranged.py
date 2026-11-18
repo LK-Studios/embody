@@ -4,7 +4,7 @@ fighters who cover a road, and a fighter's blows waiting out the engine's strike
 import pytest
 
 from embody.ops import Rejected
-from packs.d20.tests.test_rules_d20 import reach, state
+from packs.d20.tests.test_rules_d20 import outpost, state
 
 
 def kinds(r):
@@ -12,15 +12,15 @@ def kinds(r):
 
 
 def range_of(gm):
-    """Two open places side by side and a third behind a hidden way, the Reeve in the first with a bow."""
+    """Two open places side by side and a third behind a hidden way, the Warden in the first with a bow."""
     root = gm.world.root_id
     for name in ("Range A", "Range B", "Range C"):
         gm.spawn("place", root, name)
     gm.connect("Range A", "Range B")
     gm.patch("Range C", {"hidden": True, "known_to": []})
     gm.connect("Range A", "Range C")
-    gm.move("Reeve Ansel Varrick", "Range A")
-    me = gm.inspect("Reeve Ansel Varrick")["id"]
+    gm.move("Warden", "Range A")
+    me = gm.inspect("Warden")["id"]
     gm.spawn("thing", me, "Short bow", state={"weapon": True, "ranged": True, "ammo": "arrow", "damage": 2, "portable": True})
     gm.spawn("thing", me, "Arrows", state={"ammo": "arrow", "count": 3, "portable": True})
     return me
@@ -31,7 +31,7 @@ def shootable(you):
 
 
 def test_a_shot_one_way_over_spends_an_arrow_that_lands_where_they_stand():
-    eng, gm, you = reach()
+    eng, gm, you = outpost()
     me = range_of(gm)
     gm.spawn("person", "Range B", "Bandit", state={"hp": 30, "max_hp": 30})
     gm.spawn("person", "Range C", "Lurker", state={"hp": 30, "max_hp": 30})
@@ -72,7 +72,7 @@ def test_a_shot_one_way_over_spends_an_arrow_that_lands_where_they_stand():
 
 
 def test_a_weapon_that_must_be_loaded_and_a_blade_still_strikes():
-    eng, gm, you = reach()
+    eng, gm, you = outpost()
     me = range_of(gm)
     gm.patch("Short bow", {"loaded": False})
     gm.spawn("person", "Range A", "Bandit", state={"hp": 30, "max_hp": 30})
@@ -88,19 +88,19 @@ def test_a_weapon_that_must_be_loaded_and_a_blade_still_strikes():
     assert [e for e in r["events"] if e["kind"] == "hit"][0]["payload"]["weapon"] != "Short bow"
 
 
-def test_a_warden_with_a_bow_covers_the_road():
-    eng, gm, you = reach()
+def test_a_sentry_with_a_bow_covers_the_road():
+    eng, gm, you = outpost()
     me = range_of(gm)
     gm.patch(me, {"hp": 50, "max_hp": 50})
-    gm.spawn("fighter", "Range B", "Warden", state={"faction": "House Varrick", "wits": 40})
-    warden = gm.inspect("Warden")["id"]
-    gm.spawn("thing", warden, "Long bow", state={"weapon": True, "ranged": True, "ammo": "arrow", "damage": 1})
-    gm.spawn("thing", warden, "Quiver", state={"ammo": "arrow", "count": 5})
-    varrick = [f for f in gm.find(type="faction") if f["name"] == "House Varrick"][0]["id"]
-    gm.patch(varrick, {"hostile": {me: True}})
-    shots = lambda: [e for e in gm.world.events(0, kinds=["hit", "missed", "warded"], limit=5000) if e["payload"].get("by") == warden]
+    gm.spawn("fighter", "Range B", "Sentry", state={"faction": "the Garrison", "wits": 40})
+    sentry = gm.inspect("Sentry")["id"]
+    gm.spawn("thing", sentry, "Long bow", state={"weapon": True, "ranged": True, "ammo": "arrow", "damage": 1})
+    gm.spawn("thing", sentry, "Quiver", state={"ammo": "arrow", "count": 5})
+    garrison = [f for f in gm.find(type="faction") if f["name"] == "the Garrison"][0]["id"]
+    gm.patch(garrison, {"hostile": {me: True}})
+    shots = lambda: [e for e in gm.world.events(0, kinds=["hit", "missed", "warded"], limit=5000) if e["payload"].get("by") == sentry]
     gm.clock(step=6)
-    assert not shots()  # his belt ward is on: a shot would only be stopped, so the warden holds it
+    assert not shots()  # his belt ward is on: a shot would only be stopped, so the sentry holds it
     gm.patch("Belt ward", {"on": False})
     gm.clock(step=6)
     assert shots() and shots()[0]["payload"]["ranged"] is True and shots()[0]["target_id"] == me
@@ -108,7 +108,7 @@ def test_a_warden_with_a_bow_covers_the_road():
 
 
 def test_a_fighter_waits_out_its_cooldown_longer_on_a_seated_player():
-    eng, gm, you = reach()
+    eng, gm, you = outpost()
     me = range_of(gm)
     gm.patch(me, {"hp": 80, "max_hp": 80})
     gm.spawn("fighter", "Range A", "Brute", state={"body": 40, "attacked_by": me})
@@ -119,7 +119,7 @@ def test_a_fighter_waits_out_its_cooldown_longer_on_a_seated_player():
     assert len(blows()) == 1
     for _ in range(30):  # in small steps, as hosted: a big step runs a repeating tick once
         gm.clock(step=6)
-    assert len(blows()) == 1  # the Reeve is held: a minute of real time, 240 world seconds at 4x
+    assert len(blows()) == 1  # the Warden is held: a minute of real time, 240 world seconds at 4x
     you.act("brace")  # acting does not hurry the brute
     for _ in range(12):
         gm.clock(step=6)
@@ -131,7 +131,7 @@ def test_a_fighter_waits_out_its_cooldown_longer_on_a_seated_player():
 
 
 def test_a_heavy_weapon_holds_a_players_next_blow_longer_and_a_light_one_shorter():
-    eng, gm, you = reach()
+    eng, gm, you = outpost()
     me = range_of(gm)
     gm.spawn("person", "Range B", "Bandit", state={"hp": 30, "max_hp": 30})
     gm.spawn("person", "Range A", "Thug", state={"hp": 30, "max_hp": 30})
@@ -144,9 +144,9 @@ def test_a_heavy_weapon_holds_a_players_next_blow_longer_and_a_light_one_shorter
     assert gm.world.strike_wait(me, bandit) == pytest.approx(2 * base, abs=1)
     for _ in range(40):
         gm.clock(step=6)
-    gm.spawn("thing", me, "Glass needle", state={"weapon": True, "damage": 1, "portable": True, "cooldown_x": 0.5})
+    gm.spawn("thing", me, "Steel needle", state={"weapon": True, "damage": 1, "portable": True, "cooldown_x": 0.5})
     for c in gm.world.children(me):
-        if c["state"].get("weapon") and not c["state"].get("ranged") and c["name"] != "Glass needle":
+        if c["state"].get("weapon") and not c["state"].get("ranged") and c["name"] != "Steel needle":
             gm.patch(c["id"], {"weapon": False})  # the needle is the only blade he holds
     you.act("attack", "Thug")
     assert gm.world.strike_wait(me, thug) == pytest.approx(0.5 * base, abs=1)

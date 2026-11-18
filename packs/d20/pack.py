@@ -6,7 +6,7 @@ Nothing here is a world. It is a pack: a world names it in its manifest (`"requi
 defines the scripts in scripts/ (every rules script starts with `use("common")`, the helpers in scripts/_common.py)
 and runs `define(s)` for the base schemas (`combatant`, `faction`, `waterskin`, `vein`, `thresher`). The world's
 build.py imports `install_rules` from here and puts the four world rules on its root. It then extends `combatant`
-with its own verbs (go, take, talk) and spawns the people. `worlds/glass-reach` is the worked example.
+with its own verbs (go, take, talk) and spawns the people. `tests/fixtures/worlds/outpost` is the worked example.
 
 The numbers, so a narrator can explain a roll:
 

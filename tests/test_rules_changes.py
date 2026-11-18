@@ -9,6 +9,7 @@ from embody.cli import load_world
 from embody.ops import AUTHOR, Engine, Rejected
 
 REPO = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
+OUTPOST = REPO / "tests" / "fixtures" / "worlds" / "outpost"
 
 
 def _ferry(tmp_path):
@@ -81,11 +82,11 @@ def test_a_watch_on_a_retired_field_is_refused(tmp_path):
 def test_packs_log_their_own_rules_once(tmp_path):
     eng = Engine(tmp_path / "w.db", workspace=REPO, record=False)
     gm = eng.session("gm", capabilities=[AUTHOR])
-    load_world(gm, REPO / "worlds" / "glass-reach")
+    load_world(gm, OUTPOST)  # requires d20 and beasts, and both log an hp-bar entry
     ch = gm.guide("changes", since=0)
     assert "(d20:hp-bar)" in ch["text"] and "(beasts:hp-bar)" in ch["text"]
     v = ch["version"]
-    load_world(gm, REPO / "worlds" / "glass-reach", upgrade=True)
+    load_world(gm, OUTPOST, upgrade=True)
     assert gm.guide("changes", since=0)["version"] == v  # an upgrade logs nothing it logged before
 
 

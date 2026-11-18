@@ -6,8 +6,8 @@ asleep; `--seats none` leaves them empty), and the clock runs in steps. What com
 water, hours thirsty, whether thirst put it down and when) and per source (lowest, when it ran dry, how often
 something filled it again). A world whose routines keep it alive shows nobody down and no source dry for good.
 
-    uv run python packs/d20/soak.py glass-reach --days 7
-    uv run python packs/d20/soak.py glass-reach --days 7 --set "Story.truce=true" --json
+    uv run python packs/d20/soak.py tests/fixtures/worlds/outpost --days 7
+    uv run python packs/d20/soak.py tests/fixtures/worlds/outpost --days 7 --set "Captain.water=2" --json
 
 `--set "Name.key=value"` patches an entity's state before the soak (a value is read as JSON when it parses, so
 true, 3 and "x" all work), to soak the world as a story left it. Exit code 1 when thirst put anyone down.
@@ -116,7 +116,7 @@ def render(r: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="soak", description=__doc__.split("\n\n")[0])
-    ap.add_argument("world", help="a world folder under worlds/")
+    ap.add_argument("world", help="a world id under worlds/, or a world folder")
     ap.add_argument("--days", type=float, default=7)
     ap.add_argument("--seats", choices=["held", "none"], default="held", help="held: every seat taken by someone who never acts")
     ap.add_argument("--set", action="append", default=[], metavar="NAME.KEY=VALUE")
