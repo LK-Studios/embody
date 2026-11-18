@@ -127,6 +127,13 @@ out instead of standing on one point. `amble` on the species or the beast tunes 
 before ambling gets the tick for its beasts on its next upgrade (`load --upgrade` adds every behavior a body's schema
 names that it lacks).
 
+Resting. A hurt beast heals by rest, as people do with d20's `mend`, but with no water to pay (Nate 2026-11-18): the
+`beast_rest` behavior, a point of `hp` a beat (ten world minutes, the world's own with `set_pace({"beast_rest": s})`),
+`mended` {hp, wounded, by: "rest"} at reach 0. Not while it fights or hunts (`attacked_by`, `stalking`, `prowling`);
+while `hungry` a point every second beat; `asleep` two a beat. Above half hp the wound closes; one a wound put down
+gets up at 2 (`rose`, by rest). `rest_mends` on the species or the beast sets the points a beat (0: none). A world
+that defines its own beast schema names `beast_rest` among its behaviors, and an upgrade gives old beasts the tick.
+
 What a world does not need: no ticks of its own for hunger or growth (the day does it), no follow code (village `go`
 moves whoever `follows` the walker), and no fight code (beasts run d20's `fighter_tick`, so a struck beast or a kept
 guard whose owner is struck fights back). A wild beast a person hurts to half its hp breaks off: it drops its grudge and
@@ -153,6 +160,12 @@ RULES = [
      "now": "A beast someone plays can graze: a meal off its place's forage when it likes, up to fed_max, once in "
             "six world hours (grazed). What it eats, the herd there goes without.",
      "recheck": ["notes that say a played beast can only eat at dawn"], "guide": ["player", "mind"]},
+    {"id": "beasts-rest", "date": "2026-11-18",
+     "was": "A hurt beast stayed hurt until someone tended it.",
+     "now": "Rest heals a beast, as it heals people, with no water to pay: a point of hp a beat at the world's pace, "
+            "half that while hungry, double asleep, none while it fights or hunts (mended, by rest). One a wound put "
+            "down gets up at 2 (rose).",
+     "recheck": ["notes on hurt beasts that wait on a tend"], "guide": ["player", "mind"]},
 ]
 
 BEAST_STATE = {"beast": True, "species": None, "sex": None, "age": 0, "stage": None, "fed": 3, "hungry": False,
@@ -186,7 +199,8 @@ def define(s):
     s.define_schema("beast", extends="creature",
                     doc="An animal: grows, eats, can be tamed and kept, breeds. d20 blows land on it and it fights back.",
                     state=BEAST_STATE, actions=BEAST_ACTIONS,
-                    behaviors=[{"script": "fighter_tick", "every": 6}, {"script": "beast_amble", "every": 30}])
+                    behaviors=[{"script": "fighter_tick", "every": 6}, {"script": "beast_amble", "every": 30},
+                               {"script": "beast_rest", "every": 600, "always": True}])
 
 
 FUEL = 400_000  # one day's walk: the ninety-day hunters test peaks near 21,000, the Reach at twelve beasts 15,500
