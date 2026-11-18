@@ -39,6 +39,10 @@ _HOP = {b"connection", b"keep-alive", b"proxy-authenticate", b"proxy-authorizati
         b"transfer-encoding", b"upgrade", b"host"}
 _STATES = ("up", "maintenance", "down")
 _BESIDE = ("seat-requests.jsonl", "flaw-reports.jsonl", "asks.jsonl")  # what a world keeps beside its database file
+# the hub's calls to a world's server. The longest call a world answers is a wait (120 s), so a reply silent for 180 s
+# is a stuck call and is cut off; a call that finds every connection busy for 10 s gets a 503 instead of a queue
+_UPSTREAM = {"connect": 5.0, "read": 180.0, "write": 30.0, "pool": 10.0}
+_CONNECTIONS = 1000
 
 
 class World:
@@ -297,7 +301,9 @@ class Router:
     def client(self) -> Any:
         if self._client is None:
             import httpx2
-            self._client = httpx2.AsyncClient(timeout=httpx2.Timeout(None, connect=5.0), follow_redirects=False)
+            self._client = httpx2.AsyncClient(timeout=httpx2.Timeout(**_UPSTREAM), follow_redirects=False,
+                                              limits=httpx2.Limits(max_connections=_CONNECTIONS,
+                                                                   max_keepalive_connections=100))
         return self._client
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
@@ -357,11 +363,27 @@ class Router:
         url = f"http://127.0.0.1:{w.port}{scope.get('raw_path', b'').decode('latin-1') or scope['path']}"
         if qs and "?" not in url:
             url += "?" + qs.decode("latin-1")
+        work = asyncio.ensure_future(self._forward(scope.get("method") or "GET", url, out, body, send, w))
+        gone = asyncio.ensure_future(_disconnected(receive))
+        await asyncio.wait({work, gone}, return_when=asyncio.FIRST_COMPLETED)
+        for t in (work, gone):  # a client that went away cancels its call, and the connection goes back to the pool
+            t.cancel()
+        if work.done() and not work.cancelled():
+            work.result()
+
+    async def _forward(self, method: str, url: str, headers: list[tuple[bytes, bytes]], body: bytes, send: Any,
+                       w: World) -> None:
+        import httpx2
         client = self.client()
         try:
-            req = client.build_request(scope.get("method") or "GET", url, headers=out, content=body)
+            req = client.build_request(method, url, headers=headers, content=body)
             resp = await client.send(req, stream=True)
-        except Exception as e:  # the world's process died between the check and the call
+        except httpx2.PoolTimeout:
+            await _reply(send, 503, {"ok": False, "reason": f"the world {w.id} has {_CONNECTIONS} calls open; this one "
+                                                            "waited its turn and gave up",
+                                     "hint": "try again in a few seconds"}, extra=((b"retry-after", b"5"),))
+            return
+        except Exception as e:  # the world's process died between the check and the call, or never answered
             await _reply(send, 502, {"ok": False, "reason": f"the world {w.id} did not answer ({type(e).__name__})",
                                      "hint": "GET /status, then try again"})
             return
@@ -371,8 +393,17 @@ class Router:
             async for chunk in resp.aiter_raw():
                 await send({"type": "http.response.body", "body": chunk, "more_body": True})
             await send({"type": "http.response.body", "body": b""})
+        except Exception as e:  # cut off midway: the reply is left unfinished, so the client sees it broke
+            print(f"hub: {w.id} {method} {url.split('?')[0].split(str(w.port), 1)[-1]}: reply cut off "
+                  f"({type(e).__name__})", flush=True)
         finally:
             await resp.aclose()
+
+
+async def _disconnected(receive: Any) -> None:
+    """Returns when the client is gone (the server says so once the reply is done, too)."""
+    while (await receive())["type"] != "http.disconnect":
+        pass
 
 
 def parse_domains(text: str | None) -> dict[str, str]:

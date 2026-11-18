@@ -963,6 +963,12 @@ class Bearer:
         if path == "/op" or path.startswith("/op/"):
             await self._op(scope, receive, sess, path[len("/op/"):] if path.startswith("/op/") else "", send)
             return
+        if path == "/mcp" and scope.get("method") == "GET":  # stateless: no stream of the server's own to hold open
+            await _reply(send, 405, {"ok": False, "reason": "the MCP door answers each POST in full; it has no event "
+                                                            "stream to open",
+                                     "hint": "POST your calls; wait() is how a seat listens"},
+                         extra=((b"allow", b"POST"),))
+            return
         tok = _current.set(sess)
         try:
             await self.app(scope, receive, send)
