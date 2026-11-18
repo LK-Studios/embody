@@ -927,9 +927,15 @@ class Session:
         if grown:
             state["looks"] = {**lk, "marks": {**(lk.get("marks") or {}), **grown["marks"]}, "next": grown["next"]}
         parent = self._resolve(t["place"]) if t.get("place") else w.root_id
+        if t.get("at"):
+            posn.resolve_at(w, parent, t["at"])  # a template's bad landmark refuses before anyone is made
         eid = w.spawn(t.get("type", "creature"), parent, name=name, state=state)
         for item in t.get("kit") or []:  # what a newcomer of this kind carries in: a skin, a blade, whatever the world says
             w.spawn(item.get("type", "thing"), eid, name=item["name"], state=dict(item.get("state") or {}))
+        if t.get("at"):  # the template's own arrival spot: a landmark, coordinates, or beside something
+            self._place_at(eid, t["at"])
+        else:
+            self._settle(eid)
         if g is not None:
             w.store.set("grants", w.id, g["id"], made=eid)
         return eid
@@ -2047,6 +2053,16 @@ class Session:
         spot, _ = posn.resolve_at(w, e["parent_id"], at, skip=eid)
         w.patch(eid, {"layout": geo.merge(self._own_layout(eid), {"at": spot})}, actor=self._actor_or_none(),
                 replace=True)
+
+    def _settle(self, eid: str) -> None:
+        """A new body directly in a laid-out place takes the spot verify would give it (near the place's centre, so
+        the landmark its card names is the one it stands by), instead of only inheriting the centre and being flagged
+        "no position" later."""
+        w = self.world
+        for p in posn.problems(w, w.need(eid)):
+            if p["problem"] == "no position" and isinstance(p["fix"], dict) and p["fix"].get("at"):
+                w.patch(eid, {"layout": geo.merge(self._own_layout(eid), {"at": p["fix"]["at"]})},
+                        actor=self._actor_or_none(), replace=True)
 
     def _path_rows(self, ids: set[str]) -> list[dict[str, Any]]:
         """The connects_to paths between the given places, one row a pair: the drawn route (or the straight line when
@@ -4042,11 +4058,20 @@ class Session:
 
     def patch(self, entity: str, changes: dict[str, Any], replace: bool = False) -> dict[str, Any]:
         """Dict values merge into existing dicts (add one dialog topic without resending the rest);
-        replace=True sets each key whole; a None value deletes the key."""
+        replace=True sets each key whole; a None value deletes the key. `at` is not a state key: it places the
+        entity in its container, as move(at=...) does (coordinates, a landmark's name, or beside something)."""
         self._need(AUTHOR)
         eid = self._resolve(entity)
+        at = changes.get("at")
+        if at is not None:
+            posn.resolve_at(self.world, self.world.need(eid)["parent_id"], at, skip=eid)  # a bad name refuses first
         self._record("patch", entity=entity, changes=changes, replace=replace or None)
-        self.world.patch(eid, changes, actor=self._actor_or_none(), replace=replace)
+        if at is not None:
+            changes = {k: v for k, v in changes.items() if k != "at"}
+        if changes:
+            self.world.patch(eid, changes, actor=self._actor_or_none(), replace=replace)
+        if at is not None:
+            self._place_at(eid, at)
         out = self._card(self.world.need(eid), full=True)
         if (h := self._author_hints([eid])):
             out["hints"] = h
@@ -4286,8 +4311,9 @@ class Session:
         self._need(AUTHOR)
         eid = self._resolve(entity)
         to = self._resolve(parent)
-        if quiet and (at is not None or pos is not None):
-            raise Rejected("a quiet move keeps the spot it has", hint="move quietly, then lay it out with layout(placements=...)")
+        if quiet and (at is not None or pos is not None) and posn.resolve(self.world, eid)["how"] in ("own", "grid"):
+            raise Rejected("a quiet move keeps the spot it has (one with no spot yet may take its first with at=)",
+                           hint="move quietly, then lay it out with layout(placements=...)")
         if at is not None:
             posn.resolve_at(self.world, to, at, skip=eid)  # a bad name refuses before anything moves
         self._record("move", entity=entity, parent=parent, pos=pos, at=at, quiet=quiet or None)
