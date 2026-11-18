@@ -49,6 +49,7 @@ _SAY_BURST = 30
 _NOTE_MAX = 2000  # a guest's remember() note, in characters
 _DESCRIPTION_MAX = 800  # how a newcomer looks, set once at join(template=..., description=...)
 _WAIT_BATCH = 50  # events one wait returns at most; the cursor stops at the last of a full batch
+_WAIT_IDLE = 1.0  # the longest a wait sleeps with no event put: the clock and the timeout are looked at this often
 _BOND_DATA_MAX = 300  # a seat's own bond (relate by a player or mind): a line or two of data
 _SAY_WINDOW = 60.0
 # A mind's idle orders: how many stops a patrol has, how long it dwells at each (world s), how many own lines.
@@ -3714,12 +3715,17 @@ class Session:
             me = self._me()
             p = self._principal()
         start = clock()
+        store = self.engine.store
         while True:
             with self.engine.lock:  # one poll at a time shares the store with every other caller; the sleep does not
+                seen = store.events_written
                 b = self._wait_poll(me, p, kinds, full, clock() - start >= timeout, positions, since)
             if b is not None:
                 return b
-            sleep(poll)
+            if sleep is time.sleep:  # a real wait sleeps until an event lands; the clock's ticker puts one a second
+                store.wait_event(seen, min(_WAIT_IDLE, max(poll, timeout - (clock() - start))))
+            else:
+                sleep(poll)
 
     def _wait_poll(self, me: str, p: dict[str, Any], kinds: list[str] | None, full: bool,
                    timed_out: bool, positions: bool = False, since: int | None = None) -> dict[str, Any] | None:

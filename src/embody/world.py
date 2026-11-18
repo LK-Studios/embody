@@ -1431,10 +1431,10 @@ class World:
     def ancestors(self, id: str) -> list[str]:
         """Parent, grandparent, ... root."""
         out = []
-        cur = self.get(id)
-        while cur and cur["parent_id"]:
-            out.append(cur["parent_id"])
-            cur = self.get(cur["parent_id"])
+        found, parent = self.store.parent_of(self.id, id)
+        while found and parent:
+            out.append(parent)
+            found, parent = self.store.parent_of(self.id, parent)
         return out
 
     def subtree_ids(self, id: str) -> list[str]:
@@ -1936,11 +1936,11 @@ class World:
                       payload={"by": ev["actor_id"], "why": ev["kind"]})
 
     def _listeners_for(self, entity_id: str, rules_only: bool = False) -> list[dict[str, Any]]:
-        e = self.get(entity_id)
-        if e is None:
+        found = self.store.rules_of(self.id, entity_id) if entity_id else None
+        if found is None:
             return []
-        out = [] if rules_only else list(self.schema_components(e["type"], "listeners"))
-        out.extend(e["state"].get("rules", []))
+        out = [] if rules_only else list(self.schema_components(found[0], "listeners"))
+        out.extend(found[1])
         return out
 
     def _dispatch(self, ev: dict[str, Any], actor: str | None = None, target: str | None = None,
@@ -2061,13 +2061,17 @@ class World:
         `from`/`to`), walking back from where it stands now, so walking into a square does not hand you what
         was said there before you came. Its sleep is reconstructed the same way (`slept`, `woke`): asleep, it
         keeps only what was done to it and what was loud."""
+        if not rows:
+            return []
         e = self.get(who)
         here = e["parent_id"] if e else None
-        moves = self.store.query("event", "world_id=? AND kind='moved' AND actor_id=?", (self.id, who), order="seq")
+        lo = rows[0]["seq"]  # only moves and sleeps after the first row change where or how it stood for these rows
+        moves = self.store.query("event", "world_id=? AND actor_id=? AND kind='moved' AND seq>?", (self.id, who, lo),
+                                 order="seq")
         moves = [m for m in moves if m["payload"].get("from") != m["payload"].get("to")]
         asleep = bool(e and e["state"].get("asleep"))
-        sleeps = self.store.query("event", "world_id=? AND kind IN ('slept', 'woke') AND target_id=?", (self.id, who),
-                                  order="seq")
+        sleeps = self.store.query("event", "world_id=? AND target_id=? AND kind IN ('slept', 'woke') AND seq>?",
+                                  (self.id, who, lo), order="seq")
         out = []
         for r in reversed(rows):
             while moves and moves[-1]["seq"] > r["seq"]:
@@ -3199,11 +3203,11 @@ class World:
 
     def exchanges(self, a: str, b: str, limit: int = 5) -> list[dict[str, Any]]:
         """The last spoken exchanges between two entities, from the log. Newest last."""
-        rows = self.store.query(
-            "event",
-            "world_id=? AND kind IN ('say','talked') AND ((actor_id=? AND target_id=?) OR (actor_id=? AND target_id=?))",
-            (self.id, a, b, b, a), order="seq DESC", limit=limit)
-        return [_public_event(r) for r in reversed(rows)]
+        rows = [r for x, y in ((a, b), (b, a))  # one indexed read a side: an OR over both reads the whole log
+                for r in self.store.query("event", "world_id=? AND actor_id=? AND kind IN ('say','talked') AND target_id=?",
+                                          (self.id, x, y), order="seq DESC", limit=limit)]
+        rows = sorted(rows, key=lambda r: r["seq"])[-limit:] if limit else []
+        return [_public_event(r) for r in rows]
 
     def known_places(self, entity_id: str) -> list[str]:
         """Places this entity has arrived at, from its own moved events, plus where it stands."""

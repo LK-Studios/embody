@@ -55,7 +55,7 @@ def camp(tmp_path):
 
 def kinds(eng, kind):
     w = eng.world("camp")
-    return [e for e in w.store.query("event", "world_id=? AND kind=?", (w.id, kind))]
+    return [e for e in w.store.query("event", "world_id=? AND kind=?", (w.id, kind), order="seq")]
 
 
 def test_away_with_sleep_lies_down_and_the_card_says_so(camp):

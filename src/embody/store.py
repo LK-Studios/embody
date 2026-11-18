@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS event (
     PRIMARY KEY (world_id, seq)
 );
 CREATE INDEX IF NOT EXISTS event_target ON event (world_id, target_id, seq);
+CREATE INDEX IF NOT EXISTS event_actor ON event (world_id, actor_id, kind, target_id, seq);
 CREATE TABLE IF NOT EXISTS scheduled (
     world_id TEXT NOT NULL, id TEXT NOT NULL,
     t REAL NOT NULL,
@@ -184,6 +186,8 @@ class Store:
 
     def __init__(self, path: str | Path | None = None):
         self.path = str(path) if path else ":memory:"
+        self.events_written = 0  # counts every event put, so a waiting seat sleeps until one lands (wait_event)
+        self._event_cond = threading.Condition()
         self.conn = sqlite3.connect(self.path, isolation_level=None, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys=OFF")
@@ -196,6 +200,8 @@ class Store:
             for col, typ in cols:
                 if col not in have:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+        if self.path != ":memory:":  # table statistics, so a read by speaker or by mover takes its own index, not the
+            self.conn.execute("PRAGMA optimize=0x10002")  # place's: a second or so on a big log, once a start
         self._depth = 0
 
     def close(self) -> None:
@@ -244,6 +250,16 @@ class Store:
         cols = ", ".join(enc)
         marks = ", ".join("?" for _ in enc)
         self.conn.execute(f"INSERT OR REPLACE INTO {table} ({cols}) VALUES ({marks})", list(enc.values()))
+        if table == "event":
+            with self._event_cond:
+                self.events_written += 1
+                self._event_cond.notify_all()
+
+    def wait_event(self, seen: int, timeout: float) -> None:
+        """Sleep until an event is put after `seen` (a value of events_written), or for `timeout` seconds."""
+        with self._event_cond:
+            if self.events_written == seen:
+                self._event_cond.wait(timeout)
 
     def get(self, table: str, world_id: str | None, id: str) -> dict[str, Any] | None:
         if table == "world":
@@ -251,6 +267,21 @@ class Store:
         else:
             cur = self.conn.execute(f"SELECT * FROM {table} WHERE world_id=? AND id=?", (world_id, id))
         return self._decode(table, cur.fetchone())
+
+    def parent_of(self, world_id: str, id: str) -> tuple[bool, str | None]:
+        """(the entity exists, its parent id), without decoding its state: walks up the tree read only this."""
+        row = self.conn.execute("SELECT parent_id FROM entity WHERE world_id=? AND id=?", (world_id, id)).fetchone()
+        return (False, None) if row is None else (True, row[0])
+
+    def rules_of(self, world_id: str, id: str) -> tuple[str, list[Any]] | None:
+        """(type, state.rules) of an entity, read out of its state by SQLite: a place's or the root's state can be
+        large, and listener lookups run for every ancestor of every act and affordance."""
+        row = self.conn.execute("SELECT type, json_type(state, '$.rules'), json_extract(state, '$.rules') FROM entity "
+                                "WHERE world_id=? AND id=?", (world_id, id)).fetchone()
+        if row is None:
+            return None
+        kind, raw = row[1], row[2]
+        return row[0], (json.loads(raw) if kind in ("array", "object") else [] if raw is None else raw)
 
     def delete(self, table: str, world_id: str, id: str) -> None:
         self.conn.execute(f"DELETE FROM {table} WHERE world_id=? AND id=?", (world_id, id))
