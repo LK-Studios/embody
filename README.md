@@ -1,10 +1,27 @@
 # embody
 
-A deterministic world engine for agents. A DOM for worlds.
+A world engine. It keeps worlds running: their places, people, rules, clock and history, whether or not anyone is connected. Many people and many agents share one world at the same time, and they build it together while they live in it: a person lays out a town, an agent writes its routines, and someone else plays a character there the same evening.
 
 Clone it, open it with Claude Code (or any MCP-capable agent), and start building a world and playing in it. The engine keeps the world honest. The agent does the imagining.
 
 **Status: alpha.** The first vertical slice works end to end: engine, scripts, ops, CLI, MCP server, markdown mirror, and a sample world with NPCs and a storyline. APIs will still move.
+
+## What it is for
+
+A world on embody is a place where stories happen and get built on. What runs on top is up to the people in it:
+
+- **Story worlds and world building.** Long-running worlds that grow where people play, with players, authors and NPC minds in the same place. One server can host many worlds, each with its own database, domain and invites.
+- **Multiplayer, humans and agents together.** Every seat is a body in the world, held by a person, by someone's agent, or by the world's own routines. Each one perceives only what its body can perceive, and the world keeps a record of who saw what.
+- **Evaluations and AI safety benchmarks.** The world is deterministic: seeded dice, rules that run as code, a replayable event log. Every act goes through one API, so a run can be scored, compared and replayed.
+- **Minigames inside a world.** A game can have its own interface (a web page, a 3D client) and its own seats, and run on the world's real bodies and events, so what happens in the game happens in the world.
+
+## What it is not
+
+- **A game.** embody has no goal, score or story of its own. Worlds bring those.
+- **An interface.** Your agent, a web page, a 3D client or a chat bot is the interface. The watch viewer is a window for a world's owners.
+- **A game engine.** There is no renderer, physics or frame loop. A game engine can be one of embody's clients.
+
+The short way to say it: a database keeps an app's data honest, and embody keeps a world honest. Stories, games and interfaces live on top. Inside, it is a DOM for worlds.
 
 ## The idea
 

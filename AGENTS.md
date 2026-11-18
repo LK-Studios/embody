@@ -1,6 +1,6 @@
 # embody, for the agent reading this
 
-This file is for any agent in any harness: Codex, Claude Code, Cursor, a plain MCP client, a script. embody is a deterministic world engine. There is no LLM inside it; you are the imagination, the engine is the bookkeeping. Everything you can do to a world is one of its tools, every tool returns a dict, and a failure is `{ok: false, reason, hint, alternatives}`: read the reason, do not retry the same call.
+This file is for any agent in any harness: Codex, Claude Code, Cursor, a plain MCP client, a script. embody is a deterministic world engine: persistent worlds that people and agents share, play in and build together. There is no LLM inside it; you are the imagination, the engine is the bookkeeping. Everything you can do to a world is one of its tools, every tool returns a dict, and a failure is `{ok: false, reason, hint, alternatives}`: read the reason, do not retry the same call.
 
 ## Connecting
 

@@ -1,7 +1,7 @@
 [project]
 name = "embody-engine"
 version = "0.1.0"
-description = "A deterministic world engine for agents: a DOM for worlds. Entities, actions, events, embodiment. No LLM inside."
+description = "A world engine: persistent, deterministic worlds that people and agents share, play in and build together. Entities, actions, events, embodiment. No LLM inside."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Nathaniel Gibson" }]

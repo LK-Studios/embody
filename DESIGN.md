@@ -4,11 +4,11 @@ Status: pre-alpha, the first vertical slice is being built. This document is the
 
 ## 1. What it is
 
-A deterministic world engine for agents. A server holds one or more worlds. A world is a hierarchical entity graph: a root entity, locations inside it, things and characters inside those. Every entity has a type, state, and actions. Every change to a world is an action. Every action emits events that propagate up the tree. Anyone, human or agent, participates by embodying an entity through whatever harness they already use: MCP, the CLI, or the Python library.
+A deterministic world engine: persistent worlds that people and agents share, play in and build together. A server holds one or more worlds. A world is a hierarchical entity graph: a root entity, locations inside it, things and characters inside those. Every entity has a type, state, and actions. Every change to a world is an action. Every action emits events that propagate up the tree. Anyone, human or agent, participates by embodying an entity through whatever harness they already use: MCP, the CLI, or the Python library.
 
 The engine stores, validates and steps world state. It does not narrate, plan, roleplay or judge. Those jobs belong to whoever is connected. There is no LLM inside the engine.
 
-The short way to say it: Unity for text and logic games, where the editor is an agent.
+The short way to say it: a database keeps an app's data honest, and embody keeps a world honest. Stories, world building, benchmarks, minigames and their interfaces are built on top. embody is not a game (it has no goal or story of its own), not an interface (the connected agent or client is), and not a game engine (it has no renderer, physics or frame loop; a game engine can be one of its clients).
 
 ## 2. Why this shape
 
@@ -264,6 +264,7 @@ Discord ties a look and a permission to one role. embody splits them: a sheet on
   - Declarations: a look line on a region with its band, the same shape as a mark (`torso: "an ochre wrap" near`), and a few plain fields a renderer reads: `palette`, `model`, `scale`, `gait`, `sound`.
   - Variables: `--keth-dye: ochre` declared once, used in many lines. A rule that changes one variable restyles everyone who uses it (the dry season fades the dye).
 - Selectors read only public state, by construction: the view an observer standing there would get. Nothing hidden steers a look.
+- **Viewer queries** (asked by the Gossip Goblin world's builders, 2026-11-18). `@viewer(<selector>)` wraps rules that apply only when the one looking matches: a wanted tag that only networked viewers see, a guild's chalk mark that only its members read. The selector reads the viewer's own state and roles, its secret roles too, since a viewer may know what it is itself. The rule's target is still selected on public state only. Viewer queries are one more input to the compile, after the band. A computed look is cached per target and per the set of viewer queries the viewer matches, so a thousand viewers in three classes cost three compiles. A target never learns who sees what: no event says that a viewer saw an overlay.
 - The selector language is one language. The same parser serves `find(select=...)`, so a script, a sheet and an agent's query name a group of entities the same way.
 
 ### One compile: looks has inputs
@@ -274,7 +275,8 @@ Discord ties a look and a permission to one role. embody splits them: a sheet on
 2. sheet rules that match, lowest role rank first;
 3. the body's own marks (the inline style: they win over any sheet);
 4. what it wears on top (`covers` hides what is under);
-5. the viewer's band (close, near, far).
+5. the viewer's band (close, near, far);
+6. viewer queries (`@viewer`) that this viewer matches.
 
 A sheet rule yields computed marks of kind `styled`, never stored. So covers, bands, the `looks()` op for renderers and the watch page all take sheets with no change of their own.
 
