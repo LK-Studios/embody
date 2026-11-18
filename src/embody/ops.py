@@ -48,6 +48,7 @@ _STEP_MAX_S = 2.0  # a step covers at most this many world seconds of walking, h
 _SAY_BURST = 30
 _NOTE_MAX = 2000  # a guest's remember() note, in characters
 _DESCRIPTION_MAX = 800  # how a newcomer looks, set once at join(template=..., description=...)
+_WAIT_BATCH = 50  # events one wait returns at most; the cursor stops at the last of a full batch
 _BOND_DATA_MAX = 300  # a seat's own bond (relate by a player or mind): a line or two of data
 _SAY_WINDOW = 60.0
 # A mind's idle orders: how many stops a patrol has, how long it dwells at each (world s), how many own lines.
@@ -3715,18 +3716,21 @@ class Session:
         start = clock()
         while True:
             with self.engine.lock:  # one poll at a time shares the store with every other caller; the sleep does not
-                b = self._wait_poll(me, p, kinds, full, clock() - start >= timeout, positions)
+                b = self._wait_poll(me, p, kinds, full, clock() - start >= timeout, positions, since)
             if b is not None:
                 return b
             sleep(poll)
 
     def _wait_poll(self, me: str, p: dict[str, Any], kinds: list[str] | None, full: bool,
-                   timed_out: bool, positions: bool = False) -> dict[str, Any] | None:
+                   timed_out: bool, positions: bool = False, since: int | None = None) -> dict[str, Any] | None:
+        """One look at the log from `since` (else this principal's cursor). The cursor moves past what was read: to
+        the last event of a full batch, so the rest comes next time, else to the head."""
         self._tick()
         w = self.world
-        since = p["cursor_seq"]
-        evs = [e for e in self._events_for(me, w.events(since=p["cursor_seq"], touching=me, limit=50))
-               if not kinds or e["kind"] in kinds]
+        since = p["cursor_seq"] if since is None else int(since)
+        raw = w.events(since=since, touching=me, limit=_WAIT_BATCH)
+        evs = [e for e in self._events_for(me, raw) if not kinds or e["kind"] in kinds]
+        more = len(raw) >= _WAIT_BATCH
         if evs or timed_out:
             if full:
                 b = self.perceive()
@@ -3737,8 +3741,10 @@ class Session:
                      "here": {"id": here["id"], "name": here["name"]} if here else None,
                      "present": [{"id": c["id"], "name": c["name"]} for c in w.children(ent["parent_id"])
                                  if c["id"] != me and w.sees(me, c)] if here else [],
-                     "events": evs, "cursor": w.store.next_seq(w.id) - 1}
+                     "events": evs, "cursor": raw[-1]["seq"] if more else w.store.next_seq(w.id) - 1}
                 w.set_cursor(self.pid, b["cursor"])
+                if more:
+                    b["more"] = True  # a full batch: wait() again (or with since=cursor) for the rest
             if positions:
                 b["positions"] = self._positions(me, since)
             if timed_out:

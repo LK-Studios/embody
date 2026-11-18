@@ -555,7 +555,9 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         me.get('hp', 0) < 3, t >= 43200, ambient.get('time_of_day') == 'dusk'. It returns with fired=true and the
         events since it began, or timed_out with nothing moved: call again (pass back `since` if you are not
         embodied). For hours of waiting, run `embody watch` from a shell instead; it loops this for you.
-        positions=true adds {id: [x, y, z]} for each body here whose spot changed (a step, or walking in)."""
+        positions=true adds {id: [x, y, z]} for each body here whose spot changed (a step, or walking in).
+        since=N reads every event after N you could perceive, whatever your cursor says (catching up on a
+        scene another wait took). `more: true`: a full batch of 50; wait again for the rest."""
         import anyio
         sess = S(principal)
         try:
