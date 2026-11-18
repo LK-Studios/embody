@@ -20,3 +20,5 @@ mirror/
 *.db-shm
 *.db-wal
 worlds/*/site/
+# worlds with a repository of their own (linked in, never committed here)
+worlds/glass-reach
