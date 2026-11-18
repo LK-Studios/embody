@@ -2956,10 +2956,12 @@ class Session:
                     continue
                 told_today.add(p["text"])
                 scenes.append({"t": t, "place": place(r), "text": p["text"]})
-            elif k == "say" and p.get("text"):
+            elif k in ("say", "gestured") and p.get("text"):
                 who = r["actor_id"]
                 people.add(who) if who else None
                 row = {"t": t, "who": name(who), "place": place(r), "text": p["text"]}
+                if k == "gestured":
+                    row["gesture"] = True  # done, not said
                 if p.get("to"):
                     row["to"] = name(p["to"])
                 if seat(who) == "player":

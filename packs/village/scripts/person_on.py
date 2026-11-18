@@ -50,6 +50,26 @@ def hand_over(ctx, g, asker):
     ctx.spawn(g["type"], asker, name=g["name"], state=g.get("state"))
     return True
 
+def speak(ctx, line, asker):
+    # Text in double quotes is said and the rest is done, in the order written:
+    # 'Varn doesn't look up. "Bench is busy, love."' is a gesture, then a line said. A line with no double
+    # quotes is said whole, unless the person (or the world's root) keeps lines: "quoted", where it is a gesture.
+    text = str(line).replace("“", "\"").replace("”", "\"")
+    if "\"" not in text:
+        if (ctx.self.state.lines or ctx.root().state.lines) == "quoted":
+            ctx.gesture(text, to=asker)
+        else:
+            ctx.say(text, to=asker)
+        return
+    i = 0
+    for part in text.split("\""):  # even pieces lie outside the quotes
+        if part.strip():
+            if i % 2 == 1:
+                ctx.say(part.strip(), to=asker)
+            else:
+                ctx.gesture(part.strip(), to=asker)
+        i = i + 1
+
 def on(ctx, event):
     # Someone talked to me. Answer from my dialog table with the best-matching entry; hand over anything I
     # give for that topic. Skipped while an agent embodies me (unless_embodied): then the agent answers.
@@ -71,17 +91,17 @@ def on(ctx, event):
             best = key
             best_s = s
     if best is None:
-        ctx.say(me.default_line or (me.standing_orders or {}).get("answer") or "Hm.", to=asker)
+        speak(ctx, me.default_line or (me.standing_orders or {}).get("answer") or "Hm.", asker)
         return
     got = given_to(me, best)
     had = asker in got or "*" in got
     line = pick(ctx, dialog[best], had)
     if line:
-        ctx.say(line, to=asker)
+        speak(ctx, line, asker)
     if best in gives and not had:
         g = gives[best]
         if hand_over(ctx, g, asker):
-            ctx.say(g.get("line") or "Here, take the " + str(g.get("name") or g.get("item")).lower() + ".", to=asker)
+            speak(ctx, g.get("line") or "Here, take the " + str(g.get("name") or g.get("item")).lower() + ".", asker)
             ctx.patch(ctx.self, {"gave": {best: got + [asker]}})
         else:
-            ctx.say(g.get("gone_line") or "I had one of those somewhere. Gone now.", to=asker)
+            speak(ctx, g.get("gone_line") or "I had one of those somewhere. Gone now.", asker)

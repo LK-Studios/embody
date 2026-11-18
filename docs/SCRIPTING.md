@@ -121,6 +121,7 @@ Events and time:
 
 - `ctx.emit(kind, target=None, reach=1, **payload)` a semantic event (`opened`, `hit`, `arrived`). reach 0 = the target only, 1 = its container hears it, -1 = all the way to the root
 - `ctx.say(text, reach=1, to=None)` speech from `ctx.self` (or the actor). With `to` the `say` event targets the listener (`payload.to` names them) and the room still hears it. Without `to` the line is said into the room: the event targets the speaker's place, so everyone standing there hears it and a listener on the place sees it
+- `ctx.gesture(text, to=None, reach=1)` a deed in words, seen and not said ("The cat opens one eye, and closes it."): a `gestured` event {text, to} by the same body `ctx.say` speaks for, which the room sees. The village pack's person_on uses it: in a table line, text in double quotes is said and the rest is a gesture, in the order written
 - `ctx.schedule(after, kind, target=None, payload=None, every=None)` an event later; listeners react to it
 - `ctx.log(msg)` text returned with the act result
 

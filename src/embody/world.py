@@ -326,7 +326,7 @@ class Ctx(ScriptObject):
         "actor", "target", "self", "params", "event", "t", "rand", "verb",
         "get", "find", "children", "parent", "peers", "linked", "edges", "relations", "distance", "root",
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
-        "emit", "say", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
+        "emit", "say", "gesture", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
         "may_write_sheet", "mark", "unmark", "regrow", "step", "leak",
     )
@@ -1033,6 +1033,19 @@ class Ctx(ScriptObject):
         frame = (self._limits or {}).get("frame")
         return self._w.say(who, text, reach=reach, to=_ev(self._w, to) if to is not None else None,
                            caused_by=self._caused_by, mark={"maker": frame} if frame else None)["seq"]
+
+    def gesture(self, text: str, to: Any = None, reach: int = 1) -> int:
+        """A deed in words, seen and not said ("The cat opens one eye, and closes it."): a `gestured` event {text, to}
+        by the same body ctx.say speaks for, which the room sees. An empty line makes nothing."""
+        who = self._owner or self._actor
+        if not str(text or "").strip() or not who:
+            return 0
+        p: dict[str, Any] = {"text": str(text).strip()}
+        if to is not None:
+            p["to"] = _ev(self._w, to)
+        if (self._limits or {}).get("frame"):
+            p["maker"] = self._limits["frame"]
+        return self._w.emit("gestured", actor=who, target=who, reach=reach, payload=p, caused_by=self._caused_by)["seq"]
 
     def schedule(self, after: float, kind: str, target: Any = None, payload: dict[str, Any] | None = None,
                  every: float | None = None, **kw: Any) -> str:
