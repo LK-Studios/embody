@@ -210,18 +210,22 @@ class Store:
     # ---- transactions ---------------------------------------------------
 
     def begin(self) -> None:
-        if self._depth == 0:
-            self.conn.execute("BEGIN")
+        """A transaction, or a savepoint inside one: a rollback undoes only its own level, so a rejected op inside a
+        world load leaves the rest of the load to decide."""
+        self.conn.execute("BEGIN" if self._depth == 0 else f"SAVEPOINT s{self._depth}")
         self._depth += 1
 
     def commit(self) -> None:
         self._depth -= 1
-        if self._depth == 0:
-            self.conn.execute("COMMIT")
+        self.conn.execute("COMMIT" if self._depth == 0 else f"RELEASE s{self._depth}")
 
     def rollback(self) -> None:
-        self._depth = 0
-        self.conn.execute("ROLLBACK")
+        self._depth = max(self._depth - 1, 0)
+        if self._depth == 0:
+            self.conn.execute("ROLLBACK")
+        else:
+            self.conn.execute(f"ROLLBACK TO s{self._depth}")
+            self.conn.execute(f"RELEASE s{self._depth}")
 
     # ---- generic row helpers --------------------------------------------
 

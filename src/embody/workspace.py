@@ -345,11 +345,32 @@ def load_world(session: "Session", ref: str | Path, upgrade: bool = False, works
     hosted=True also runs the folder's `host(s)` after populate or upgrade: how this world differs as a hosted
     place (its pace, its seats' lapse, timers scaled to real time). A build without one hosts as it is.
 
-    A legacy single file with `build(session)` (or define/populate/upgrade) still loads as before."""
+    A legacy single file with `build(session)` (or define/populate/upgrade) still loads as before.
+
+    A load is one transaction: a rejection anywhere in it (a module, a placement, a pack) undoes all of it, so a world
+    is never left half built or half upgraded. A line of changes.jsonl that fails is skipped and reported, as before."""
     ws = workspace or session.engine.workspace or Workspace(Path.cwd())
     target = ws.resolve(ref)
     if target.is_file() and target.name != "build.py":
         return _load_legacy(session, target, upgrade)
+    eng, before = session.engine, session.world_id
+    eng.store.begin()
+    try:
+        r = _load_folder(session, ws, target, upgrade, hosted)
+        eng.store.commit()
+        return r
+    except BaseException as e:
+        eng.store.rollback()
+        eng._worlds.clear()  # reopened from the database: nothing in memory stays ahead of it
+        eng.__dict__.pop("_far_cache", None)
+        session.world_id = before
+        if isinstance(e, Rejected):
+            e.reason = f"{e.reason}. Nothing of this load was kept: the world is as it was before it began"
+            e.args = (e.reason,)
+        raise
+
+
+def _load_folder(session: "Session", ws: Workspace, target: Path, upgrade: bool, hosted: bool) -> dict[str, Any]:
     folder = target if target.is_dir() else target.parent
     mod = _import(folder / "build.py", f"embody_world_{folder.name}", [folder, ws.root])
     manifest = getattr(mod, "WORLD", None)

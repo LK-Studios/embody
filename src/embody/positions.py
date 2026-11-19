@@ -264,7 +264,10 @@ def resolve_at(w: "World", parent: str, spec: Any, skip: str | None = None) -> t
                 return find_spot(w, parent, cat, within=reach + 3.0, skip=skip), f"beside {c['name']}"
     names = landmark_names(w, parent)
     pname = (w.get(parent) or {}).get("name", parent)
-    raise Rejected(f"no landmark or thing called {spec!r} in {pname}",
+    sname = (w.get(skip) or {}).get("name", skip) if skip else None
+    raise Rejected((f"placing {sname} ({skip}): " if skip else "")
+                   + f"no landmark or thing called {spec!r} in {pname} ({parent}), "
+                   + (f"where {sname} is, " if skip else "") + f"or in any place {pname} is in",
                    hint=("landmarks here: " + ", ".join(names)) if names else
                    f"{pname} has no landmarks yet: layout(placements=[{{\"entity\": \"{pname}\", \"landmarks\": "
                    "{\"the gate\": {\"at\": [x, y, z], \"radius\": 3}}}]) names its spots, or give at=[x, y, z]")
