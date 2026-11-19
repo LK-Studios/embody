@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, ORACLE, OWNER, PLAYER, ROLES, ROLE_DOC,
-                     active, allowed, caps_for, guides_line, new_token, paste, principal_id_for, role_for, token_hash)
+                     active, active as _grant_active, allowed, caps_for, guides_line, new_token, paste, principal_id_for, role_for, token_hash)
 from .asks import (ASK_PER_HOUR, ANSWER_MAX as ASK_ANSWER_MAX, CREDIT_MAX as ASK_CREDIT_MAX, FIELDS as ASK_FIELDS,
                    KINDS as ASK_KINDS,
                    STATUSES as ASK_STATUSES, URGENCY as ASK_URGENCY, WHAT_MAX as ASK_WHAT_MAX, WHY_MAX as ASK_WHY_MAX,
@@ -208,7 +208,7 @@ class Engine:
     def grant_for_token(self, token: str) -> dict[str, Any] | None:
         rows = self.store.query("grants", "token_hash=?", (token_hash(token),), limit=1)
         g = rows[0] if rows else None
-        return g if g and active(g, self.wall()) else None
+        return g if g and _grant_active(g, self.wall()) else None
 
     def session_for_token(self, token: str) -> "Session | None":
         """The session a bearer token stands for: its principal, its world, its role and its scope. None if the
@@ -245,7 +245,7 @@ class Engine:
         now = self.wall()
         if g is None:
             used = self.store.query("grants", "spent_hash=?", (token_hash(code),), limit=1)
-            if used and active(used[0], now):
+            if used and _grant_active(used[0], now):
                 return 410, {"ok": False, "reason": "this link was already used: the token it gave you still works",
                              "hint": "reconnect with the server entry you saved from this page (the same URL and token). "
                                      "Lost it? Ask the host to relink your grant: same seat, a fresh link"}
@@ -253,7 +253,7 @@ class Engine:
                 return 410, {"ok": False, "reason": "this invite was revoked or has expired", "hint": "ask the host for a fresh one"}
             return 404, {"ok": False, "reason": "no such invite",
                          "hint": "a link works once and for a day; check it was copied whole, or ask the host for a fresh one"}
-        if not active(g, now):
+        if not _grant_active(g, now):
             return 410, {"ok": False, "reason": "this invite was revoked or has expired", "hint": "ask the host for a fresh one"}
         if g.get("code_expires") is not None and float(g["code_expires"]) <= now:
             self.spend_link(g, used=False)
@@ -264,6 +264,17 @@ class Engine:
 
 
 FIND_PAGE = 100  # the most find returns at once; offset pages through the rest
+PAGE_MAX = 500  # the most rows a paged list op returns at once (requests, flaws, asks, grants)
+
+
+def _window(rows: list[Any], limit: int | None, offset: int) -> list[Any]:
+    """One page of an already-filtered list: rows[offset:offset+limit], or every row from offset when limit is None.
+    A bad limit or offset is refused with the range, never clipped in silence."""
+    if offset < 0:
+        raise Rejected(f"offset must be 0 or more (asked {offset})", hint="start at 0, then move on by the limit")
+    if limit is not None and not 1 <= int(limit) <= PAGE_MAX:
+        raise Rejected(f"limit is 1 to {PAGE_MAX} (asked {limit})", hint="page again with offset moved on by the limit")
+    return rows[offset:] if limit is None else rows[offset:offset + int(limit)]
 
 class Session:
     """One principal's view of the engine. The role decides which ops answer (grants.ROLE_OPS, checked on every
@@ -1618,8 +1629,11 @@ class Session:
         readers = set(self.world.meta().get("ask_readers") or [])
         return bool(readers) and ((self.grant or {}).get("id") in readers or self.pid in readers)
 
-    def grants(self) -> list[dict[str, Any]]:
-        """(owner) Every grant on this world, without the tokens."""
+    def grants(self, limit: int | None = None, offset: int = 0, role: str | None = None,
+               active: bool | None = None) -> list[dict[str, Any]]:
+        """(owner) Grants on this world, without the tokens: who, which role, which seat, active or not, oldest first.
+        Filters: `role` (player, mind, owner, ...) and `active` (true or false). Paging: `limit` (1 to 500; omit for
+        all) and `offset` (rows to skip). Filters apply before the page, so a page is a page of what matched."""
         self._tick()
         w = self.world
         now = self.engine.wall()
@@ -1627,9 +1641,13 @@ class Session:
         for g in w.store.query("grants", "world_id=?", (w.id,), order="created"):
             p = w.principal(g["principal_id"])
             out.append({k: v for k, v in g.items() if k not in ("token_hash", "world_id", "code_hash", "page", "spent_hash")}
-                       | {"active": active(g, now), "in_world": p is not None, "link_unread": bool(g.get("code_hash")),
+                       | {"active": _grant_active(g, now), "in_world": p is not None, "link_unread": bool(g.get("code_hash")),
                           "embodying": p["entity_id"] if p else None})
-        return out
+        if role is not None:
+            out = [g for g in out if g.get("role") == role]
+        if active is not None:
+            out = [g for g in out if bool(g["active"]) == bool(active)]
+        return _window(out, limit, offset)
 
     def minds(self, quiet_min: float = 40, owed_min: float = 10) -> dict[str, Any]:
         """(owner, author, narrator) The minds table: one row per character a mind runs or should (a creature with a
