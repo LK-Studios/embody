@@ -3675,14 +3675,16 @@ class Session:
                 "goals": [x for x in goals if x.get("status", "active") == "active"]}
 
     def recall(self, about: str | None = None, relation: str | None = None, limit: int = 20,
-               entity: str | None = None, offset: int = 0) -> dict[str, Any]:
+               entity: str | None = None, offset: int = 0, before: int | None = None) -> dict[str, Any]:
         """A graph query from one entity's point of view, with its permissions. Without `about`: everyone and
         everything linked to you (edges, group relations), with the data you are allowed to read. With `about`:
         all you know about one entity, drawn from the graph, the log and your own notes: your edge to them,
         what they have told you, what you have said and done to each other, the notes and goals that name them.
         Edge data is yours to read when the edge starts at you or is world structure; what others think of you
         stays theirs. Authors and observers read everything and may pass entity=<id or name>. Without `about`, `limit`
-        and `offset` page the edges and the groups; with `about`, the exchanges and notes are the latest `limit`, as before."""
+        and `offset` page the edges and the groups. With `about`, the exchanges and the between-events are the latest
+        `limit` by default; `before` (an event sequence number, from history or a previous page) gives the page that
+        comes before it. The notes and goals are not paged."""
         self._tick()
         w = self.world
         full = self._privileged()
@@ -3727,16 +3729,17 @@ class Session:
         mine = [edge_view(e) for e in w.edges(me, relation, "both") if e["source"] == them or e["target"] == them]
         shared = [{"relation": h["relation"], "participants": h["participants"], "data": h["data"], "id": h["id"]}
                   for h in w.hyperedges(me, relation) if them in h["participants"]]
+        cut = " AND seq<?" if before is not None else ""
         rows = w.store.query(
-            "event", "world_id=? AND ((actor_id=? AND target_id=?) OR (actor_id=? AND target_id=?))",
-            (w.id, me, them, them, me), order="seq DESC", limit=limit)
+            "event", "world_id=? AND ((actor_id=? AND target_id=?) OR (actor_id=? AND target_id=?))" + cut,
+            (w.id, me, them, them, me) + ((int(before),) if before is not None else ()), order="seq DESC", limit=limit)
         between = self._events_for(me, list(reversed(rows)))
         notes = [n for n in (ent["state"].get("memory") or []) if name and name in str(n.get("text", "")).lower()]
         goals = [g for g in (ent["state"].get("goals") or [])
                  if name and (name in str(g.get("text", "")).lower() or name in str(g.get("why") or "").lower())]
         return {"entity": me, "about": self._card(o, full=full and self._sees(o["id"])), "edges": mine, "groups": shared,
                 "exchanges": [_exchange(x, full or x["actor"] == me or w.understands(me))
-                              for x in w.exchanges(me, them, limit=min(limit, 10))],
+                              for x in w.exchanges(me, them, limit=min(limit, 10), before=before)],
                 "between": between[-limit:], "notes": notes[-limit:], "goals": goals,
                 "here": o["parent_id"] == ent["parent_id"]}
 

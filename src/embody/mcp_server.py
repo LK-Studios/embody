@@ -524,12 +524,13 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def recall(about: str | None = None, relation: str | None = None, limit: int = 20, entity: str | None = None,
-               principal: str | None = None, offset: int = 0) -> dict[str, Any]:
+               principal: str | None = None, offset: int = 0, before: int | None = None) -> dict[str, Any]:
         """Graph query from your character's point of view, within what it may know. recall(): everyone linked to
         you (edges with the data you may read, groups, goals, known places). recall(about=<id or name>): all you
         know about one entity: your edge to them, your exchanges, what passed between you, the notes and goals
         that name them. What others think of you stays theirs. Authors see everything and may pass entity=."""
-        return S(principal).recall(about=about, relation=relation, limit=limit, entity=entity, offset=offset)
+        return S(principal).recall(about=about, relation=relation, limit=limit, entity=entity, offset=offset,
+                                   before=before)
 
     @tool()
     @_wrap
