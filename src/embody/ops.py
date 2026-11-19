@@ -276,6 +276,31 @@ def _window(rows: list[Any], limit: int | None, offset: int) -> list[Any]:
         raise Rejected(f"limit is 1 to {PAGE_MAX} (asked {limit})", hint="page again with offset moved on by the limit")
     return rows[offset:] if limit is None else rows[offset:offset + int(limit)]
 
+
+def _sort_rows(rows: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+    """Sort rows by one field: sort='name' ascending, sort='-quiet_min' descending. Missing values go last. A field the
+    rows do not have is refused, with the fields they do have."""
+    if not sort or not rows:
+        return rows
+    key, desc = sort.lstrip("-"), sort.startswith("-")
+    if key not in rows[0]:
+        raise Rejected(f"cannot sort by {key!r}", hint="sort by a field these rows have: " + ", ".join(sorted(rows[0])[:12]))
+
+    def k(r: dict[str, Any]) -> tuple[bool, int, Any]:
+        v = r.get(key)
+        if v is None:
+            return (True, 0, 0)
+        return (False, 0, v) if isinstance(v, (int, float)) else (False, 1, str(v).lower())
+    return sorted(rows, key=k, reverse=desc)
+
+
+def _view(rows: list[dict[str, Any]], limit: int | None = None, offset: int = 0, sort: str = "",
+          keep: Callable[[dict[str, Any]], bool] | None = None) -> list[dict[str, Any]]:
+    """Filter, then sort, then take one page: the order every paged list op uses."""
+    if keep is not None:
+        rows = [r for r in rows if keep(r)]
+    return _window(_sort_rows(rows, sort), limit, offset)
+
 class Session:
     """One principal's view of the engine. The role decides which ops answer (grants.ROLE_OPS, checked on every
     op); the capability list is the single-player shorthand for it (`author` means owner of this database). The
@@ -605,10 +630,12 @@ class Session:
 
     # ---- choosing a world -----------------------------------------------------
 
-    def worlds(self) -> list[dict[str, Any]]:
-        """Every world on this server; over a grant, only the grant's own (a token is one world)."""
+    def worlds(self, limit: int | None = None, offset: int = 0, sort: str = "") -> list[dict[str, Any]]:
+        """Every world on this server; over a grant, only the grant's own (a token is one world). Paging: `limit`,
+        `offset`; `sort` by a field (name, running, entities, t; '-' for descending)."""
         out = self.engine.worlds()
-        return [x for x in out if x["id"] == self.grant["world_id"]] if self.grant is not None else out
+        rows = [x for x in out if x["id"] == self.grant["world_id"]] if self.grant is not None else out
+        return _view(rows, limit, offset, sort)
 
     def _own_world(self, world_id: str) -> None:
         """A grant holds one world: its session never points at another, whatever a caller names."""
@@ -812,7 +839,8 @@ class Session:
                         "open": emb is None and (not res or e["id"] in self.scope)})
         return out
 
-    def seats(self, world_id: str | None = None) -> dict[str, Any]:
+    def seats(self, world_id: str | None = None, limit: int | None = None, offset: int = 0, held: bool | None = None,
+              type: str = "", place: str = "", sort: str = "") -> dict[str, Any]:
         """What a newcomer may become: the `playable` seats (who holds them, which are kept for someone) and the
         world root's `templates` for a new character."""
         if world_id:
@@ -828,7 +856,10 @@ class Session:
                                    "place": templates.get(mine, {}).get("place"), "doc": templates.get(mine, {}).get("doc", "")}],
                     "hint": f"your invite makes a {mine}: ask the human for a name, then join(template='{mine}', name=...); "
                             "description=... (how they look to others) may be set then, and only then"}
-        out = {"world": w.id, "seats": self._seat_rows(self.engine.wall()),
+        seat_rows = _view(self._seat_rows(self.engine.wall()), limit, offset, sort, keep=lambda r: (
+            (held is None or (r["embodied_by"] is not None) == bool(held))
+            and (not type or r["type"] == type) and (not place or (r["place"] or "").lower() == place.lower())))
+        out = {"world": w.id, "seats": seat_rows,
                "templates": [{"template": k, "type": t.get("type"), "place": t.get("place"), "doc": t.get("doc", "")}
                              for k, t in templates.items()],
                "hint": "join(world, entity) takes an open seat; join(world, template=..., name=..., description=...) makes "
@@ -1661,7 +1692,8 @@ class Session:
             out = [g for g in out if bool(g["active"]) == bool(active)]
         return _window(out, limit, offset)
 
-    def minds(self, quiet_min: float = 40, owed_min: float = 10) -> dict[str, Any]:
+    def minds(self, quiet_min: float = 40, owed_min: float = 10, limit: int | None = None, offset: int = 0,
+              seated: bool | None = None, where: str = "", sort: str = "") -> dict[str, Any]:
         """(owner, author, narrator) The minds table: one row per character a mind runs or should (a creature with a
         `brief`, or a body a mind principal holds). Each row: who holds it and whether the seat is still held, real
         minutes since that hand was last heard from, the players in its place, and `owed`: a player's line said to it
@@ -1731,6 +1763,9 @@ class Session:
                               + ("" if mind else " and no mind holds it"))
             elif not pid and talked_to.get(eid):
                 alerts.append(f"{e['name']}: no mind, and players spoke to it {talked_to[eid]} time(s) lately")
+        rows = _view(rows, limit, offset, sort, keep=lambda r: (
+            (seated is None or bool(r["seated"]) == bool(seated))
+            and (not where or (r["place"] or "").lower() == where.lower())))
         return {"world": w.id, "t": w.t, "minds": rows, "alerts": alerts,
                 "hint": "wake the mind's own session for a quiet or lapsed seat; a body with no mind that players "
                         "rely on needs one (invite('mind', entity=...))" if alerts else ""}
@@ -2802,7 +2837,7 @@ class Session:
             out.append({"relation": h["relation"], "participants": h["participants"], "data": h["data"], "id": h["id"]})
         return out[:50]
 
-    def inspect(self, entity: str) -> dict[str, Any]:
+    def inspect(self, entity: str, limit: int | None = None, offset: int = 0) -> dict[str, Any]:
         self._tick()
         w = self.world
         eid = self._resolve(entity)
@@ -2842,6 +2877,9 @@ class Session:
             card["version"] = e["version"]
         if own:
             card["knows"] = self._knows(eid)
+        # paging: `limit` and `offset` apply to contents and to relations alike; omit limit for all
+        card["contents"] = _window(card["contents"], limit, offset)
+        card["relations"] = _window(card["relations"], limit, offset)
         return card
 
     def find(self, type: str | None = None, name: str | None = None, under: str | None = None,
@@ -3637,13 +3675,14 @@ class Session:
                 "goals": [x for x in goals if x.get("status", "active") == "active"]}
 
     def recall(self, about: str | None = None, relation: str | None = None, limit: int = 20,
-               entity: str | None = None) -> dict[str, Any]:
+               entity: str | None = None, offset: int = 0) -> dict[str, Any]:
         """A graph query from one entity's point of view, with its permissions. Without `about`: everyone and
         everything linked to you (edges, group relations), with the data you are allowed to read. With `about`:
         all you know about one entity, drawn from the graph, the log and your own notes: your edge to them,
         what they have told you, what you have said and done to each other, the notes and goals that name them.
         Edge data is yours to read when the edge starts at you or is world structure; what others think of you
-        stays theirs. Authors and observers read everything and may pass entity=<id or name>."""
+        stays theirs. Authors and observers read everything and may pass entity=<id or name>. Without `about`, `limit`
+        and `offset` page the edges and the groups; with `about`, the exchanges and notes are the latest `limit`, as before."""
         self._tick()
         w = self.world
         full = self._privileged()
@@ -3674,7 +3713,7 @@ class Session:
             edges = [edge_view(e) for e in w.edges(me, relation, "both") if e["relation"] != "connects_to"]
             groups = [{"relation": h["relation"], "participants": h["participants"], "data": h["data"], "id": h["id"]}
                       for h in w.hyperedges(me, relation)]
-            return {"entity": me, "edges": edges[:limit], "groups": groups[:limit],
+            return {"entity": me, "edges": _window(edges, limit, offset), "groups": _window(groups, limit, offset),
                     "goals": [g for g in ent["state"].get("goals") or [] if g.get("status", "active") == "active"],
                     "known_places": [{"id": pid, "name": w.get(pid)["name"]} for pid in w.known_places(me) if w.get(pid)]}
 
@@ -4052,18 +4091,24 @@ class Session:
                 r["file"] = str(p)
         return r
 
-    def schemas(self) -> list[dict[str, Any]]:
+    def schemas(self, limit: int | None = None, offset: int = 0, extends: str = "", sort: str = "") -> list[dict[str, Any]]:
+        """The kinds of thing this world defines. Filter: `extends` (the kind a kind extends). Paging: `limit`, `offset`;
+        `sort` by id or extends."""
         self._need(AUTHOR)
-        return [{"id": s["id"], "extends": s["extends"], "doc": s["doc"], "actions": sorted(s["actions"]),
+        rows = [{"id": s["id"], "extends": s["extends"], "doc": s["doc"], "actions": sorted(s["actions"]),
                  "listeners": s["listeners"], "behaviors": s["behaviors"], "state": s["state"]}
                 for s in self.world.schemas()]
+        return _view(rows, limit, offset, sort, keep=(lambda r: r["extends"] == extends) if extends else None)
 
-    def scripts(self) -> list[dict[str, Any]]:
+    def scripts(self, limit: int | None = None, offset: int = 0, name: str = "", sort: str = "") -> list[dict[str, Any]]:
+        """The scripts this world stores. Filter: `name` (a substring of the id). Paging: `limit`, `offset`; `sort` by id,
+        version or lines."""
         self._need(AUTHOR)
         held = self.world.meta().get("scripts_pending") or {}
-        return [{"id": s["id"], "doc": s["doc"], "version": s["version"], "lines": s["source"].count("\n") + 1}
+        rows = [{"id": s["id"], "doc": s["doc"], "version": s["version"], "lines": s["source"].count("\n") + 1}
                 | ({"pending": True, "by": held[s["id"]]["by"]} if s["id"] in held else {})
                 for s in self.world.scripts()]
+        return _view(rows, limit, offset, sort, keep=(lambda r: name in r["id"]) if name else None)
 
     def review_script(self, id: str, approve: bool = True) -> dict[str, Any]:
         """(owner) Your word on a script a hand you have not vouched for defined (scripts() marks it pending, by whom;
@@ -4329,7 +4374,16 @@ class Session:
         self._drop_program(eid, verb)
         return {"ok": True, "thing": eid, "verb": verb}
 
-    def programs(self, thing: str | None = None, frame: str | None = None) -> dict[str, Any]:
+    def programs(self, thing: str | None = None, frame: str | None = None, limit: int | None = None,
+                 offset: int = 0) -> dict[str, Any]:
+        """Paged: `limit` and `offset` page the verbs (with a thing) or the made verbs (without one)."""
+        res = self._programs(thing=thing, frame=frame)
+        key = "verbs" if "verbs" in res else "frames" if "frames" in res else None
+        if key is None or not isinstance(res.get(key), list):
+            return res
+        return {**res, key: _window(res[key], limit, offset)}
+
+    def _programs(self, thing: str | None = None, frame: str | None = None) -> dict[str, Any]:
         """The verbs put on a thing (with their source when the frame that made them is in your hands, or you are
         the owner or author), or with no thing, what your frames (the owner: frame=...) have made."""
         self._tick()
@@ -4620,7 +4674,7 @@ class Session:
         out["timers"] = self._timers()
         return out
 
-    def _timers(self, limit: int = 20) -> list[dict[str, Any]]:
+    def _timers(self, limit: int | None = 20) -> list[dict[str, Any]]:
         """Pending scheduled events, soonest first. Behaviors' ticks are left out."""
         w = self.world
         out = []
@@ -4631,23 +4685,23 @@ class Session:
             out.append({"id": s["id"], "kind": s["kind"], "at": s["t"], "in": round(s["t"] - w.t, 3),
                         "entity": s.get("entity_id"), "name": e["name"] if e else None,
                         "every": s.get("every"), "payload": s.get("payload") or {}})
-            if len(out) >= limit:
+            if limit is not None and len(out) >= limit:
                 break
         return out
 
-    def timers(self) -> list[dict[str, Any]]:
+    def timers(self, limit: int | None = None, offset: int = 0, sort: str = "") -> list[dict[str, Any]]:
         """What is scheduled and when (fog in 38 s, dawn in 200 s). Ticks of behaviors are left out. A player or a
         mind sees what everyone in the world knows: the next of each kind the world's meta lists as `public_timers`
         (the day's round, a market day), in world words, without what the timer carries."""
         self._tick()
         if self._privileged():
-            return self._timers()
+            return _view(self._timers(limit=None), limit, offset, sort)
         public = set(self.world.meta().get("public_timers") or [])
         out: dict[str, dict[str, Any]] = {}
-        for t in self._timers(limit=500):
+        for t in self._timers(limit=None):
             if t["kind"] in public and t["kind"] not in out:
                 out[t["kind"]] = {"kind": t["kind"], "in": t["in"], "when": _in_words(t["in"]), "every": t["every"]}
-        return list(out.values())
+        return _view(list(out.values()), limit, offset, sort)
 
     def summary(self) -> dict[str, Any]:
         self._tick()

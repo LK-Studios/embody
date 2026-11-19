@@ -402,6 +402,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--cursor", type=int)
     c = sub.add_parser("inspect", help="one entity in full")
     c.add_argument("entity")
+    c.add_argument("--limit", type=int, default=None, help="contents and relations: at most this many (default all)")
+    c.add_argument("--offset", type=int, default=0, help="contents and relations: skip this many")
     c = sub.add_parser("find", help="search entities")
     c.add_argument("--type")
     c.add_argument("--name")
@@ -442,6 +444,11 @@ def main(argv: list[str] | None = None) -> int:
                                       "its seat, minutes quiet, players waiting on it, and the alerts")
     c.add_argument("--quiet", type=float, default=40, help="alert on a mind quiet this many real minutes (default 40)")
     c.add_argument("--owed", type=float, default=10, help="alert on a player owed an answer this long (default 10)")
+    c.add_argument("--limit", type=int, default=None, help="rows: at most this many (alerts are always whole)")
+    c.add_argument("--offset", type=int, default=0, help="rows: skip this many")
+    c.add_argument("--seated", choices=["yes", "no"], default=None, help="only minds whose seat is held (yes) or not (no)")
+    c.add_argument("--where", default="", help="only minds at this place")
+    c.add_argument("--sort", default="", help="sort by a field, e.g. quiet_min or -quiet_min")
     c = sub.add_parser("clock", help="show or set the world clock (author to set)")
     c.add_argument("--run", action="store_true")
     c.add_argument("--pause", action="store_true")
@@ -488,9 +495,19 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--types", nargs="*", default=None, help="the types the grant may spawn (default any)")
     c.add_argument("--scripts", help="the prefix of the grant's scripts, schemas and event kinds")
     c = sub.add_parser("grants", help="(owner) list the grants on the world, without tokens")
+    c.add_argument("--limit", type=int, default=None, help="at most this many (default all)")
+    c.add_argument("--offset", type=int, default=0, help="skip this many")
+    c.add_argument("--role", default=None, help="only this role (player, mind, owner, ...)")
+    c.add_argument("--active", choices=["yes", "no"], default=None, help="only active (yes) or ended (no) grants")
     c = sub.add_parser("revoke", help="(owner) end a grant")
     c.add_argument("id")
     c = sub.add_parser("seats", help="the open seats and templates of the world")
+    c.add_argument("--limit", type=int, default=None, help="seats: at most this many (default all)")
+    c.add_argument("--offset", type=int, default=0, help="seats: skip this many")
+    c.add_argument("--held", choices=["yes", "no"], default=None, help="only seats held (yes) or not (no)")
+    c.add_argument("--type", default="", help="only this type of seat")
+    c.add_argument("--place", default="", help="only seats at this place")
+    c.add_argument("--sort", default="", help="sort by a field, e.g. name or -type")
     # the global flags again on every subcommand, so they may follow it (`embody serve --as claude --author` is how
     # .mcp.json files are written); a subcommand that already has one keeps its own
     for p in sub.choices.values():
@@ -551,14 +568,17 @@ def main(argv: list[str] | None = None) -> int:
             emit(args, r, f"grant {r['id']} for {r['principal']} ({r['role']}). Send them this:\n\n{r['paste']}"
                  + (f"\n\n(What the link serves, in case they cannot fetch it:\n\n{r['page']})" if r.get("link") else ""))
         elif args.cmd == "grants":
-            r = s.grants()
+            r = s.grants(limit=args.limit, offset=args.offset, role=args.role,
+                         active=None if args.active is None else args.active == "yes")
             emit(args, r, "\n".join(f"{g['id']:10} {g['role']:9} {g['principal_id']:24} seat={g['entity_id'] or '-':8} "
                                     f"{'active' if g['active'] else 'ended'}" + (f" in as {g['embodying']}" if g['embodying'] else "")
                                     for g in r) or "no grants")
         elif args.cmd == "revoke":
             emit(args, s.revoke(args.id))
         elif args.cmd == "seats":
-            r = s.seats()
+            r = s.seats(limit=args.limit, offset=args.offset,
+                        held=None if args.held is None else args.held == "yes",
+                        type=args.type, place=args.place, sort=args.sort)
             emit(args, r, "\n".join(f"{x['id']:6} {x['name']:20} {x['type']:10} at {x['place'] or '-':16} "
                                     + ("open" if x["open"] else ("held by " + x["embodied_by"] if x["embodied_by"] else "kept"))
                                     for x in r["seats"]) + ("\ntemplates: " + ", ".join(t["template"] for t in r["templates"])
@@ -569,7 +589,7 @@ def main(argv: list[str] | None = None) -> int:
             b = s.perceive(cursor=args.cursor, from_entity=args.from_entity)
             emit(args, b, render_perceive(b))
         elif args.cmd == "inspect":
-            emit(args, s.inspect(args.entity))
+            emit(args, s.inspect(args.entity, limit=args.limit, offset=args.offset))
         elif args.cmd == "find":
             r = s.find(type=args.type, name=args.name, under=args.under, limit=args.limit, offset=args.offset)
             emit(args, r, "\n".join(f"{c['id']:6} {c['type']:12} {c['name']}" for c in r) or "nothing")
@@ -593,7 +613,8 @@ def main(argv: list[str] | None = None) -> int:
             r["rearm"] = rearm_line(args)
             emit(args, r, render_watch(r) + "\n" + r["rearm"])
         elif args.cmd == "minds":
-            r = s.minds(quiet_min=args.quiet, owed_min=args.owed)
+            r = s.minds(quiet_min=args.quiet, owed_min=args.owed, limit=args.limit, offset=args.offset,
+                        seated=None if args.seated is None else args.seated == "yes", where=args.where, sort=args.sort)
             emit(args, r, render_minds(r))
         elif args.cmd == "clock":
             run = True if args.run else (False if args.pause else None)
