@@ -163,9 +163,9 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def worlds() -> list[dict[str, Any]]:
-        """List the worlds in this database."""
-        return s.worlds()
+    def worlds(limit: int = 0, offset: int = 0, sort: str = "") -> list[dict[str, Any]]:
+        """List the worlds in this database. Page with limit (0 for all) and offset; sort by name, running, entities or t."""
+        return s.worlds(limit or None, offset, sort)
 
     @tool()
     @_wrap
@@ -229,10 +229,11 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def seats(world_id: str | None = None, principal: str | None = None) -> dict[str, Any]:
+    def seats(world_id: str | None = None, principal: str | None = None, limit: int = 0, offset: int = 0,
+              held: bool | None = None, type: str = "", place: str = "", sort: str = "") -> dict[str, Any]:
         """What a newcomer may become: the playable seats (who holds them, which are kept) and the templates for a
         new character. `offers`: seats the world gave the body you hold (a tamed beast, a quest's reward)."""
-        return S(principal).seats(world_id)
+        return S(principal).seats(world_id, limit or None, offset, held, type, place, sort)
 
     @tool()
     @_wrap
@@ -270,13 +271,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def minds(quiet_min: float = 40, owed_min: float = 10) -> dict[str, Any]:
+    def minds(quiet_min: float = 40, owed_min: float = 10, limit: int = 0, offset: int = 0,
+              seated: bool | None = None, where: str = "", sort: str = "") -> dict[str, Any]:
         """(owner, author, narrator) The minds table: one row per character a mind runs or should (a creature with a
         brief, or a mind grant's seat): who holds it and whether the seat is held, real minutes since that mind was
         heard from, the players in its place, and `owed` (a player's line to it still unanswered). `alerts` lists
         what needs a host now: a seat lapsed or quiet past quiet_min, a player waiting past owed_min real minutes, a
         character with no mind that players talk to. The engine cannot wake a mind's harness; wake its session."""
-        return S(None).minds(quiet_min=quiet_min, owed_min=owed_min)
+        return S(None).minds(quiet_min=quiet_min, owed_min=owed_min, limit=limit or None, offset=offset, seated=seated,
+                             where=where, sort=sort)
 
     @tool()
     @_wrap
@@ -304,11 +307,11 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def asks_to_owner(status: str = "", kind: str = "", mine: bool = False, limit: int = 50,
-                      principal: str | None = None) -> dict[str, Any]:
+                      offset: int = 0, principal: str | None = None) -> dict[str, Any]:
         """(to the owner, outside the story) Asks made with ask_owner(), newest first: yours with their status (open, seen, escalated, answered, declined)
         and the answer, which listing marks read. The owner and the readers the owner names get every ask they may
         read (mine=true for only your own) and answer with answer_ask."""
-        return S(principal).asks_to_owner(status=status, kind=kind, mine=mine, limit=limit)
+        return S(principal).asks_to_owner(status=status, kind=kind, mine=mine, limit=limit, offset=offset)
 
     @tool()
     @_wrap
@@ -341,16 +344,18 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def flaws(limit: int = 50) -> list[dict[str, Any]]:
-        """(owner) Holes reported with report_flaw, newest first: who, which body, what, how, severity."""
-        return S(None).flaws(limit)
+    def flaws(limit: int = 50, offset: int = 0, severity: str = "") -> list[dict[str, Any]]:
+        """(owner) Holes reported with report_flaw, newest first: who, which body, what, how, severity. Filter by
+        severity (low, medium, high); page with limit (1 to 500) and offset."""
+        return S(None).flaws(limit, offset, severity)
 
     @tool()
     @_wrap
-    def requests(limit: int = 50) -> list[dict[str, Any]]:
+    def requests(limit: int = 50, offset: int = 0, side: str = "") -> list[dict[str, Any]]:
         """(owner) Seat requests people left on the world's page, newest first: name, how to reach them, the side
-        that draws them, why. Answer one with invite(...) and send the paste where they asked."""
-        return S(None).requests(limit)
+        that draws them, why. Filter by side; page with limit (1 to 500) and offset. Answer one with invite(...) and
+        send the paste where they asked."""
+        return S(None).requests(limit, offset, side)
 
     @tool()
     @_wrap
@@ -403,9 +408,10 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def inspect(entity: str, principal: str | None = None) -> dict[str, Any]:
-        """One entity in full: state, contents, relations, actions, schema chain. Must be within reach unless you are an author or observer."""
-        return S(principal).inspect(entity)
+    def inspect(entity: str, principal: str | None = None, limit: int = 0, offset: int = 0) -> dict[str, Any]:
+        """One entity in full: state, contents, relations, actions, schema chain. Must be within reach unless you are an
+        author or observer. limit (0 for all) and offset page the contents and the relations."""
+        return S(principal).inspect(entity, limit or None, offset)
 
     @tool()
     @_wrap
@@ -518,19 +524,20 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def recall(about: str | None = None, relation: str | None = None, limit: int = 20, entity: str | None = None,
-               principal: str | None = None) -> dict[str, Any]:
+               principal: str | None = None, offset: int = 0, before: int | None = None) -> dict[str, Any]:
         """Graph query from your character's point of view, within what it may know. recall(): everyone linked to
         you (edges with the data you may read, groups, goals, known places). recall(about=<id or name>): all you
         know about one entity: your edge to them, your exchanges, what passed between you, the notes and goals
         that name them. What others think of you stays theirs. Authors see everything and may pass entity=."""
-        return S(principal).recall(about=about, relation=relation, limit=limit, entity=entity)
+        return S(principal).recall(about=about, relation=relation, limit=limit, entity=entity, offset=offset,
+                                   before=before)
 
     @tool()
     @_wrap
-    def timers() -> list[dict[str, Any]]:
+    def timers(limit: int = 0, offset: int = 0, sort: str = "") -> list[dict[str, Any]]:
         """What is scheduled and when: each pending timer with its kind, entity, world time and seconds to go. A
         player or a mind sees what everyone in the world knows: the next dusk, the next dawn, in words."""
-        return S(None).timers()
+        return S(None).timers(limit or None, offset, sort)
 
     @tool()
     @_wrap
@@ -593,15 +600,17 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def schemas() -> list[dict[str, Any]]:
-        """(author) Every schema in the world."""
-        return s.schemas()
+    def schemas(limit: int = 0, offset: int = 0, extends: str = "", sort: str = "") -> list[dict[str, Any]]:
+        """(author) Every schema in the world. Filter by extends (the kind it extends); page with limit (0 for all) and
+        offset; sort by id or extends."""
+        return s.schemas(limit or None, offset, extends, sort)
 
     @tool()
     @_wrap
-    def scripts() -> list[dict[str, Any]]:
-        """(author) Every script in the world, with version and length."""
-        return s.scripts()
+    def scripts(limit: int = 0, offset: int = 0, name: str = "", sort: str = "") -> list[dict[str, Any]]:
+        """(author) Every script in the world, with version and length. Filter by name (a substring of the id); page with
+        limit (0 for all) and offset; sort by id, version or lines."""
+        return s.scripts(limit or None, offset, name, sort)
 
     @tool()
     @_wrap
@@ -667,9 +676,11 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def programs(thing: str | None = None, frame: str | None = None) -> dict[str, Any]:
-        """The verbs put on a thing, or with no thing what the frames in your hands have made, with their source."""
-        return s.programs(thing=thing, frame=frame)
+    def programs(thing: str | None = None, frame: str | None = None, limit: int = 0,
+                 offset: int = 0) -> dict[str, Any]:
+        """The verbs put on a thing, or with no thing what the frames in your hands have made, with their source.
+        Page the verbs or made verbs with limit (0 for all) and offset."""
+        return s.programs(thing=thing, frame=frame, limit=limit or None, offset=offset)
 
     @tool()
     @_wrap

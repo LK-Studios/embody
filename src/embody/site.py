@@ -329,8 +329,8 @@ class Site:
         await answer(201)
 
 
-def read_requests(path: str | Path | None, world_id: str, limit: int = 50) -> list[dict[str, Any]]:
-    """The seat requests kept for one world, newest first."""
+def read_requests(path: str | Path | None, world_id: str, limit: int | None = 50) -> list[dict[str, Any]]:
+    """The seat requests kept for one world, newest first. limit None: every one."""
     if not path or not Path(path).is_file():
         return []
     out = []
@@ -341,4 +341,5 @@ def read_requests(path: str | Path | None, world_id: str, limit: int = 50) -> li
             continue
         if isinstance(r, dict) and r.get("world") == world_id:
             out.append(r)
-    return list(reversed(out))[:limit]
+    rows = list(reversed(out))  # newest first
+    return rows if limit is None else rows[:limit]

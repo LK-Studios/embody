@@ -3213,11 +3213,14 @@ class World:
         self.emit("remembered", actor=actor or entity_id, target=entity_id, reach=0, payload={"text": str(text)})
         return note
 
-    def exchanges(self, a: str, b: str, limit: int = 5) -> list[dict[str, Any]]:
-        """The last spoken exchanges between two entities, from the log. Newest last."""
+    def exchanges(self, a: str, b: str, limit: int = 5, before: int | None = None) -> list[dict[str, Any]]:
+        """The last spoken exchanges between two entities, from the log. Newest last. `before`: only events with a
+        sequence number below it (the page before a cursor)."""
+        cut = " AND seq<?" if before is not None else ""
+        extra = (int(before),) if before is not None else ()
         rows = [r for x, y in ((a, b), (b, a))  # one indexed read a side: an OR over both reads the whole log
-                for r in self.store.query("event", "world_id=? AND actor_id=? AND kind IN ('say','talked') AND target_id=?",
-                                          (self.id, x, y), order="seq DESC", limit=limit)]
+                for r in self.store.query("event", "world_id=? AND actor_id=? AND kind IN ('say','talked') AND target_id=?" + cut,
+                                          (self.id, x, y) + extra, order="seq DESC", limit=limit)]
         rows = sorted(rows, key=lambda r: r["seq"])[-limit:] if limit else []
         return [_public_event(r) for r in rows]
 
