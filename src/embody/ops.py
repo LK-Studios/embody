@@ -1371,12 +1371,16 @@ class Session:
         lim["scripts"] = pre
         return lim, self._limits_note(lim)
 
-    def requests(self, limit: int = 50) -> list[dict[str, Any]]:
+    def requests(self, limit: int = 50, offset: int = 0, side: str = "") -> list[dict[str, Any]]:
         """(owner) Seat requests left on the world's page (/seat-request), newest first: who, how to reach them, which
-        side draws them, why. Kept beside the database, never in the world's log."""
+        side draws them, why. Kept beside the database, never in the world's log. Filter: `side` (hold, keth, ...).
+        Paging: `limit` (1 to 500, default 50) and `offset`."""
         from .site import read_requests
         self._tick()
-        return read_requests(self.engine.requests_path, self.world.id, limit=max(1, min(int(limit), 500)))
+        rows = read_requests(self.engine.requests_path, self.world.id, limit=None)
+        if side:
+            rows = [r for r in rows if r.get("side") == side]
+        return _window(rows, limit, offset)
 
     def looks(self, entity: str) -> dict[str, Any]:
         """A body's looks for a renderer or an image tool: its base description, its regions (the body plan and any a

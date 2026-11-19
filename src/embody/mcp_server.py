@@ -347,10 +347,11 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def requests(limit: int = 50) -> list[dict[str, Any]]:
+    def requests(limit: int = 50, offset: int = 0, side: str = "") -> list[dict[str, Any]]:
         """(owner) Seat requests people left on the world's page, newest first: name, how to reach them, the side
-        that draws them, why. Answer one with invite(...) and send the paste where they asked."""
-        return S(None).requests(limit)
+        that draws them, why. Filter by side; page with limit (1 to 500) and offset. Answer one with invite(...) and
+        send the paste where they asked."""
+        return S(None).requests(limit, offset, side)
 
     @tool()
     @_wrap
