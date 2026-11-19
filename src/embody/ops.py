@@ -1545,7 +1545,8 @@ class Session:
                 "note": "kept out of the world: the owner reads it" + (", and the helpers they name" if share else "")
                         + ". asks_to_owner() shows its status and the answer; perceive says when one comes."}
 
-    def asks_to_owner(self, status: str = "", kind: str = "", mine: bool = False, limit: int = 50) -> dict[str, Any]:
+    def asks_to_owner(self, status: str = "", kind: str = "", mine: bool = False, limit: int = 50,
+                      offset: int = 0) -> dict[str, Any]:
         """(to the owner, outside the story) Asks made with ask_owner(), newest first. Yours, with their status (open, seen, escalated, answered, declined)
         and answer: listing them marks the answers read. The owner, and the readers the owner names (ask_readers),
         get every ask they may read (the owner all, a reader those shared) unless mine is true, and answer with
@@ -1559,15 +1560,18 @@ class Session:
             rows = [r for r in rows if self.role == OWNER or r.get("share") or r.get("pid") == self.pid]
         else:
             rows = [r for r in rows if r.get("pid") == self.pid]
-            for r in rows:
-                if r.get("news"):
-                    eng.asks.append({"op": "read", "id": r["id"], "world": self.world_id, "at": ask_now()})
         if status:
             rows = [r for r in rows if r.get("status") == status]
         if kind:
             rows = [r for r in rows if r.get("kind") == kind]
+        page = _window(list(reversed(rows)), limit, offset)  # newest first
+        if not reader:
+            # listing marks only the answers on this page read, so a later page still shows its news
+            for r in page:
+                if r.get("news"):
+                    eng.asks.append({"op": "read", "id": r["id"], "world": self.world_id, "at": ask_now()})
         hide = ("pid",) if reader else ("pid", "grant", "role", "news")
-        out = [{k: v for k, v in r.items() if k not in hide} for r in reversed(rows)][:max(1, min(int(limit), 500))]
+        out = [{k: v for k, v in r.items() if k not in hide} for r in page]
         if reader:
             out = [{**r, "untrusted": True} for r in out]
         res: dict[str, Any] = {"asks": out, "reader": reader}

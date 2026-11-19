@@ -304,11 +304,11 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     @_wrap
     def asks_to_owner(status: str = "", kind: str = "", mine: bool = False, limit: int = 50,
-                      principal: str | None = None) -> dict[str, Any]:
+                      offset: int = 0, principal: str | None = None) -> dict[str, Any]:
         """(to the owner, outside the story) Asks made with ask_owner(), newest first: yours with their status (open, seen, escalated, answered, declined)
         and the answer, which listing marks read. The owner and the readers the owner names get every ask they may
         read (mine=true for only your own) and answer with answer_ask."""
-        return S(principal).asks_to_owner(status=status, kind=kind, mine=mine, limit=limit)
+        return S(principal).asks_to_owner(status=status, kind=kind, mine=mine, limit=limit, offset=offset)
 
     @tool()
     @_wrap
