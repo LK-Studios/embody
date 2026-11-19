@@ -1908,7 +1908,19 @@ class World:
                 self._opinion_floor(ev)
             if kind not in _NO_WAKE:
                 self._wake_on(ev)
+            elif kind == "act":
+                self._rise(ev)
         return ev
+
+    def _rise(self, ev: dict[str, Any]) -> None:
+        """A sleeper's own deed wakes it (its verbs sleep and wake aside): a `woke` with `why` rose. A pack's rule that
+        wakes it first (d20's) leaves nothing to do here."""
+        a = self.get(ev["actor_id"]) if ev["actor_id"] else None
+        if a is None or not a["state"].get("asleep") or (ev["payload"] or {}).get("verb") in ("sleep", "wake"):
+            return
+        self.patch(a["id"], {"asleep": False}, actor=a["id"], caused_by=ev["seq"])
+        self.emit("woke", actor=a["id"], target=a["id"], reach=1, caused_by=ev["seq"],
+                  payload={"by": a["id"], "why": "rose"})
 
     def _wake_on(self, ev: dict[str, Any]) -> None:
         """Sleep (a body whose state says `asleep`, put there by a `slept` event and taken off by `woke`). A deed
