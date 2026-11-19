@@ -341,9 +341,10 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def flaws(limit: int = 50) -> list[dict[str, Any]]:
-        """(owner) Holes reported with report_flaw, newest first: who, which body, what, how, severity."""
-        return S(None).flaws(limit)
+    def flaws(limit: int = 50, offset: int = 0, severity: str = "") -> list[dict[str, Any]]:
+        """(owner) Holes reported with report_flaw, newest first: who, which body, what, how, severity. Filter by
+        severity (low, medium, high); page with limit (1 to 500) and offset."""
+        return S(None).flaws(limit, offset, severity)
 
     @tool()
     @_wrap
