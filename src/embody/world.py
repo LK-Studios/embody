@@ -326,7 +326,7 @@ class Ctx(ScriptObject):
         "actor", "target", "self", "params", "event", "t", "rand", "verb",
         "get", "find", "children", "parent", "peers", "linked", "edges", "relations", "distance", "root",
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
-        "emit", "say", "gesture", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "locked", "shut", "remember",
+        "emit", "say", "gesture", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "quiet", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
         "may_write_sheet", "mark", "unmark", "regrow", "step", "leak",
     )
@@ -593,6 +593,15 @@ class Ctx(ScriptObject):
         """How many ways apart two bodies (or places) stand: 0 in the same place, 1 next door, None when further
         than `most` or not joined at all. Every way counts, hidden or not (World.ways). A tether reads it."""
         return self._w.ways(_ev(self._w, a), _ev(self._w, b), most=int(most))
+
+    def quiet(self, id: Any) -> float | None:
+        """World seconds since the seat holding this body last did something (an act or a line), or None when nobody
+        holds it. A rule that waits on a player (a turn in a fight) can tell a slow player from one who has gone."""
+        p = self._w.embodied(_ev(self._w, id))
+        if p is None:
+            return None
+        at = p.get("acted_t")
+        return self._w.t - float(at) if at is not None else self._w.t
 
     def event_at(self, seq: Any) -> EventView | None:
         """One event of the log by its number (the deed a record came from), or None. Notes and intents stay their

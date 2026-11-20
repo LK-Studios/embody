@@ -22,3 +22,5 @@ mirror/
 worlds/*/site/
 # worlds with a repository of their own (linked in, never committed here)
 worlds/glass-reach
+# private game content from a book the owner bought: never commit it
+packs/imperium*/
