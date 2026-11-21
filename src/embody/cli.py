@@ -123,6 +123,8 @@ def render_perceive(b: dict[str, Any]) -> str:
                 tags.append(f"played by {c['embodied_by']}")
             if c.get("pos") is not None:
                 tags.append(f"at {c['pos']}")
+            if c.get("from_you"):
+                tags.append(c["from_you"])
             desc = c["state"].get("description", "")
             out.append(f"  {c['name']} ({c['id']}, {c['type']})" + (f" [{'; '.join(tags)}]" if tags else "")
                        + (f": {desc}" if desc else ""))

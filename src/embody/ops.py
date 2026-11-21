@@ -2083,6 +2083,9 @@ class Session:
             for card in [bundle["you"], *bundle["present"]]:
                 if (spot := posn.spot_words(w, here_id, posn.resolve(w, card["id"])["at"])):
                     card["spot"] = spot
+        for card in bundle["present"]:  # how far across the place each thing is, so where you stand in it matters
+            if (near := posn.nearness(w, me, card["id"])):
+                card["from_you"] = near
         if here_id and (lms := posn.landmark_names(w, here_id)):  # the named spots here, and the verb that reaches them
             bundle["landmarks"] = {"here": lms[:12], "how": f"step(to=\"{lms[0]}\") walks you to one, without leaving"}
         self._rules_notice(bundle, me if p is not None else None)

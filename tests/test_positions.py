@@ -92,3 +92,14 @@ def test_what_is_put_down_or_walks_in_keeps_a_true_spot(tmp_path):
     gm.move("Traveler", "The Reeds")  # no drawn way: no spot, as before
     w = eng.world("ferry-at-dusk")
     assert "at" not in (w.get(gm.inspect("Traveler")["id"])["state"].get("layout") or {})
+
+
+def test_perceive_says_how_far_across_the_place_each_thing_is(tmp_path):
+    # 2026-11-21, a world builder: agents bunched at the door because every present thing read as equally near
+    eng, gm = _laid(tmp_path)
+    gm.layout(placements=[{"entity": "Mara", "at": [5, 4, 0]}, {"entity": "Bench", "at": [8, 5, 0]},
+                          {"entity": "Bone", "at": [-10, 0, 0]}])
+    seen = {c["name"]: c for c in gm.perceive(from_entity="Mara")["present"]}
+    assert seen["Well"]["from_you"] == "beside" and seen["Bench"]["from_you"] == "here"
+    assert seen["Bone"]["from_you"] == "across"
+    assert all("from_you" not in c for n, c in seen.items() if n not in ("Well", "Bench", "Bone"))  # no spot, no band

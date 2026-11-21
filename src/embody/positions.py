@@ -82,6 +82,22 @@ def same_frame(w: "World", a: str, b: str) -> bool:
     return frame_of(w, a) == frame_of(w, b)
 
 
+BESIDE_M = 1.5  # within reach of a hand
+HERE_M = 5.0  # a few steps: the same table, the same corner
+
+
+def nearness(w: "World", a: str, b: str) -> str | None:
+    """How near b is to a inside one place, for perceive: beside (within BESIDE_M), here (within HERE_M) or across
+    (the rest of the place). None when either has no spot of its own, or they are in different frames."""
+    if not same_frame(w, a, b):
+        return None
+    ra, rb = resolve(w, a), resolve(w, b)
+    if ra["how"] not in ("own", "grid") or rb["how"] not in ("own", "grid") or not ra["at"] or not rb["at"]:
+        return None
+    d = geo.dist3(ra["at"], rb["at"])
+    return "beside" if d <= BESIDE_M else "here" if d <= HERE_M else "across"
+
+
 def _room(w: "World", parent: str | None) -> dict[str, Any]:
     """A container's extent as its contents see it: its layout, unless it starts a frame (its own spot and shape are
     in the frame above, not the one its contents are in)."""
