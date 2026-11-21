@@ -64,6 +64,18 @@ def test_followers_of_followers_come_along_and_a_sleeper_breaks_the_chain(tmp_pa
     assert led[ident(gm, "Aaron")] == ident(gm, "Reeve") and led[ident(gm, "Vass")] == ident(gm, "Aaron")
 
 
+def test_a_body_down_or_dead_is_not_led_along(tmp_path):
+    # Nate, 2026-11-21: a body laid out is carried (a stretcher, a cart), never led by following
+    eng, gm = world(tmp_path)
+    gm.patch("Reeve", {"follows": ident(gm, "Ruhl"), "down": True})
+    gm.patch("Aaron", {"follows": ident(gm, "Ruhl"), "dead": True})
+    gm.patch("Vass", {"follows": ident(gm, "Ruhl")})
+    ruhl = eng.session("ruhl")
+    ruhl.join("lane", "Ruhl")
+    ruhl.act("go", "Road")
+    assert [where(gm, n) for n in ["Ruhl", "Vass", "Reeve", "Aaron"]] == ["Road", "Road", "Yard", "Yard"]
+
+
 def test_two_who_follow_each_other_walk_once(tmp_path):
     eng, gm = world(tmp_path)
     gm.patch("Reeve", {"follows": ident(gm, "Ruhl")})

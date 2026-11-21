@@ -20,14 +20,14 @@ def vehicle_of(ctx, x):
 
 def followers(ctx, here, me):
     # who comes along with me from here, each with the one they follow: those who follow me (or befriended me), then
-    # whoever follows them, and so on; each body once, sleepers stay
+    # whoever follows them, and so on; each body once, sleepers stay, and so do bodies down or dead (carried, not led)
     out = []
     led = [me.id]
     seen = [me.id]
     for depth in range(32):
         came = []
         for p in ctx.children(here):
-            if p.id in seen or p.state.asleep:
+            if p.id in seen or p.state.asleep or p.state.down or p.state.dead:
                 continue
             lead = p.state.follows if p.state.follows in led else (p.state.friend if p.state.friend in led else None)
             if lead is not None:

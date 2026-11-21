@@ -20,13 +20,14 @@ def apply(ctx):
     here = ctx.actor.parent
     ctx.move(ctx.actor, ctx.target)
     ctx.emit("arrived", target=ctx.target, reach=-1, who=ctx.actor.id, place=ctx.target.id)
-    # whoever follows you comes along: the dog you fed, anyone told to follow, and whoever follows them in turn
+    # whoever follows you comes along: the dog you fed, anyone told to follow, and whoever follows them in turn; a
+    # sleeper stays, and so does a body down or dead (it is carried, not led)
     led = [ctx.actor.id]
     for depth in range(32):
         came = []
         for p in ctx.children(here):
             lead = p.state.follows if p.state.follows in led else (p.state.friend if p.state.friend in led else None)
-            if lead is not None and not p.state.asleep:
+            if lead is not None and not (p.state.asleep or p.state.down or p.state.dead):
                 ctx.move(p, ctx.target)
                 ctx.emit("arrived", target=ctx.target, reach=1, who=p.id, place=ctx.target.id, following=lead)
                 came.append(p.id)

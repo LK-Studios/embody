@@ -266,3 +266,13 @@ def test_followers_of_followers_board_and_alight_together(tmp_path):
     assert [where(gm, n) for n in ["Ada", "Cy", "Dov"]] == ["Cart"] * 3
     ada.act("alight", "Cart")
     assert [where(gm, n) for n in ["Ada", "Cy", "Dov"]] == ["Yard"] * 3
+
+
+def test_a_body_down_does_not_board_behind_its_leader(tmp_path):
+    # Nate, 2026-11-21: a body laid out is carried, never led by following
+    eng, gm = world(tmp_path)
+    gm.patch("Cart", {"seats": 3})
+    gm.patch("Cy", {"follows": gm.inspect("Ada")["id"], "down": True})
+    ada = seat(eng, "Ada")
+    ada.act("board", "Cart")
+    assert where(gm, "Ada") == "Cart" and where(gm, "Cy") == "Yard"
