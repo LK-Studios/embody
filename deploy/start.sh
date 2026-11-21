@@ -33,13 +33,22 @@ if [ -n "${EMBODY_WORLDS:-}" ]; then
 fi
 
 : "${EMBODY_WORLD:=glass-reach}"
+: "${EMBODY_DB:=/data/embody.db}"
 
-if embody --json worlds | grep -q "\"id\": \"$EMBODY_WORLD\""; then
-    echo "renewing $EMBODY_WORLD in $EMBODY_DB"
-    embody --author --world "$EMBODY_WORLD" load "$EMBODY_WORLD" --upgrade --hosted
-else
-    echo "building $EMBODY_WORLD into $EMBODY_DB"
-    embody --author load "$EMBODY_WORLD" --hosted
+# One world: every call names the database outright. With --world and no --db the CLI picks a hub's own file
+# (<folder of $EMBODY_DB>/worlds/<world>.db) when one is there, so a volume that once ran `embody hub` would have
+# the renew upgrade that copy while serve reads $EMBODY_DB, and new code would never reach the live world.
+hub_copy="$(dirname "$EMBODY_DB")/worlds/$EMBODY_WORLD.db"
+if [ -f "$hub_copy" ]; then
+    echo "note: $hub_copy is a hub's copy from an earlier boot; this server renews and serves $EMBODY_DB"
 fi
 
-exec embody --author serve --http --host 0.0.0.0 --port "$PORT" --log-level info ${EMBODY_URL:+--url "$EMBODY_URL"}
+if embody --db "$EMBODY_DB" --json worlds | grep -q "\"id\": \"$EMBODY_WORLD\""; then
+    echo "renewing $EMBODY_WORLD in $EMBODY_DB"
+    embody --db "$EMBODY_DB" --author --world "$EMBODY_WORLD" load "$EMBODY_WORLD" --upgrade --hosted
+else
+    echo "building $EMBODY_WORLD into $EMBODY_DB"
+    embody --db "$EMBODY_DB" --author load "$EMBODY_WORLD" --hosted
+fi
+
+exec embody --db "$EMBODY_DB" --author serve --http --host 0.0.0.0 --port "$PORT" --log-level info ${EMBODY_URL:+--url "$EMBODY_URL"}
