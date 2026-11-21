@@ -350,7 +350,9 @@ def ways_from(ctx, pid):
 def first_step(ctx, who, here, goal, limit):
     # breadth-first over the ways (and out of a vehicle or anything else that may be stepped out of): the first step
     # on the shortest way this body knows to `goal` (a place id), or, with goal None, to the nearest place with water
-    # in it. None when there is none within `limit` steps.
+    # in it. None when there is none within `limit` steps. It never steps into or through a place where someone of a
+    # side that has outlawed this body stands (watched): the walk goes around them, or waits.
+    foes = outlawed_by(ctx, who)
     seen = {here.id: True}
     frontier = [[here.id, None]]
     for depth in range(limit):
@@ -361,7 +363,7 @@ def first_step(ctx, who, here, goal, limit):
                     continue
                 seen[tid] = True
                 t = ctx.get(tid)
-                if t is None:
+                if t is None or watched(ctx, t, foes):
                     continue
                 first = item[1] if item[1] is not None else tid
                 if tid == goal:
@@ -373,6 +375,23 @@ def first_step(ctx, who, here, goal, limit):
                 nxt.append([tid, first])
         frontier = nxt
     return None
+
+def outlawed_by(ctx, who):
+    # the names of the sides that have outlawed this body, once time has forgiven what it will
+    out = []
+    for f in ctx.find(type="faction", limit=20):
+        if (f.state.hostile or {}).get(who.id) and outlaw_of(ctx, f, who):
+            out.append(f.name)
+    return out
+
+def watched(ctx, place, foes):
+    # someone of one of these sides stands here, on their feet: a place a body's own walks keep clear of
+    if not foes:
+        return False
+    for p in ctx.children(place, "creature"):
+        if p.state.faction in foes and not p.state.down and not p.state.dead:
+            return True
+    return False
 
 def water_near(ctx, who, here):
     # the first step toward the nearest water this body knows the way to (six steps at most)

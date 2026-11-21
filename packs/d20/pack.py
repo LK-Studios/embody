@@ -69,7 +69,8 @@ The numbers, so a narrator can explain a roll:
   the skin, and `poured` says by, item, store, amount, left and kept. An endless source takes nothing. A body
   nobody embodies looks after itself (the `quench` behavior): thirsty, it drinks from a skin in hand, else from a source here; with nothing
   here it walks toward the nearest water it knows the way to (up to six steps, one step a look; hidden places
-  only for their own faction) and walks back to its `post` the same way. Stepping out of a vehicle (its way out is
+  only for their own faction) and walks back to its `post` the same way. No walk steps into or through a place
+  where someone of a side that has outlawed the body stands on their feet: it goes around, or waits. Stepping out of a vehicle (its way out is
   alight) or of any place with `way_out: true` counts as a step, into the place that holds it, so a body aboard a
   dry hauler climbs down for water; `way_out: false` keeps a sealed place's own. The walks arrive `quiet`. At an endless
   source (a place with `water_source`, or a source thing with no `left`) it drinks its fill (a draw a look until
@@ -78,8 +79,8 @@ The numbers, so a narrator can explain a roll:
   entity id, or a list of them) is not drunk or walked to by anyone else's idle care; held seats and deeds are
   not stopped by it. A body that is down drinks what is
   put in its hand. An embodied seat decides for itself while it is in use; quench is an `idle` behavior, so a
-  seat that has done nothing for the world's `idle_after` (a mind on a watcher, a player asleep) drinks the same
-  way. `python packs/d20/soak.py <world> --days N` runs a world that long with nobody playing and says who
+  seat that has done nothing for the world's `idle_after` (a mind on a watcher, a player asleep) drinks what is
+  in reach, a skin in hand or a source here, and never walks: where a held body stands is its seat's choice. `python packs/d20/soak.py <world> --days N` runs a world that long with nobody playing and says who
   went dry and which sources ran out.
 - Sweat: heavy work costs water on top of the beat. A blow in a fight (`attack`, or a fighter's own), `harvest`,
   `dig`, `dress`, `break` (a lock forced) and a walk (`go`, `crawl`) to or from open ground under more than half
@@ -189,6 +190,14 @@ RULES = [
             "faction counts who started the fight. Standing lost to blows climbs back a point a world day after the "
             "last blow, up to -3, just above outlaw (standing, why: blows forgiven). Kills, threats and dishonor stay.",
      "recheck": ["plans that avoid a faction for an old fight", "notes on who is outlawed and why"],
+     "guide": ["player", "mind"]},
+    {"id": "thirst-walks-stay-safe", "date": "2026-11-21",
+     "was": "A held seat gone idle (a mind on a watcher) walked its body to the nearest water on its own, and the "
+            "walk went through any place, even one where the people who had outlawed it stood.",
+     "now": "A held seat drinks what is in reach while idle (a skin in hand, a source here) and never walks; a "
+            "thirsty idle seat stays where its mind left it, so carry water. A body nobody holds still walks for "
+            "water, but never into or through a place where someone of a side that outlawed it stands.",
+     "recheck": ["minds that count on idle care to fetch water", "watchers left far from water"],
      "guide": ["player", "mind"]},
 ]
 

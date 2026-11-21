@@ -13,12 +13,14 @@ def tick(ctx):
     # Thirsty and water within reach: drink. A skin in hand first, then a source here (and fill the skin while at
     # it). Thirsty, nothing here and on my feet: a step toward the nearest water I know the way to, one step a look;
     # there, a draw a look until full or near it, then a step a look back toward the post. A body that is down drinks what is put in its hand. Not an always
-    # behavior: while someone embodies this body they choose when to drink and where to go.
+    # behavior: while someone embodies this body they choose when to drink and where to go. A held seat gone idle
+    # (a mind on a watcher) drinks what is in reach and never walks: where its body stands is its seat's to choose.
     me = ctx.self
     st = me.state
     if st.dead:
         return
     here = me.parent
+    roams = not st.down and not ctx.embodied(me)
     water = int(st.water if st.water is not None else 10)
     mx = int(st.max_water or 10)
     post = ctx.get(st.post) if st.post else None
@@ -27,7 +29,7 @@ def tick(ctx):
     # count gives one draw, enough to end the thirst, and its keeper's people the rest
     topping = away and water <= mx - 4 and endless(water_here(ctx, here, me))
     if water > 3 and not topping:
-        if away and not st.down:
+        if away and roams:
             step = first_step(ctx, me, here, post.id, 8)
             if step is not None:
                 walk(ctx, me, step, True)
@@ -39,7 +41,7 @@ def tick(ctx):
             break
     src = water_here(ctx, here, me)
     if skin is None and src is None:
-        if not st.down and here is not None:
+        if roams and here is not None:
             near = water_near(ctx, me, here)
             if near is not None:
                 walk(ctx, me, near, False)
