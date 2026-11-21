@@ -14,13 +14,13 @@ def tick(ctx):
     # it). Thirsty, nothing here and on my feet: a step toward the nearest water I know the way to, one step a look;
     # there, a draw a look until full or near it, then a step a look back toward the post. A body that is down drinks what is put in its hand. Not an always
     # behavior: while someone embodies this body they choose when to drink and where to go. A held seat gone idle
-    # (a mind on a watcher) drinks what is in reach and never walks: where its body stands is its seat's to choose.
+    # (a mind on a watcher) looks after itself the same way: every walk goes around a side that outlawed the body.
     me = ctx.self
     st = me.state
     if st.dead:
         return
     here = me.parent
-    roams = not st.down and not ctx.embodied(me)
+    roams = not st.down
     water = int(st.water if st.water is not None else 10)
     mx = int(st.max_water or 10)
     post = ctx.get(st.post) if st.post else None

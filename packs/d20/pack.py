@@ -70,7 +70,8 @@ The numbers, so a narrator can explain a roll:
   nobody embodies looks after itself (the `quench` behavior): thirsty, it drinks from a skin in hand, else from a source here; with nothing
   here it walks toward the nearest water it knows the way to (up to six steps, one step a look; hidden places
   only for their own faction) and walks back to its `post` the same way. No walk steps into or through a place
-  where someone of a side that has outlawed the body stands on their feet: it goes around, or waits. Stepping out of a vehicle (its way out is
+  where someone of a side that has outlawed the body stands on their feet: it goes around, or waits. A held seat
+  gone idle (a mind on a watcher) looks after itself the same way. Stepping out of a vehicle (its way out is
   alight) or of any place with `way_out: true` counts as a step, into the place that holds it, so a body aboard a
   dry hauler climbs down for water; `way_out: false` keeps a sealed place's own. The walks arrive `quiet`. At an endless
   source (a place with `water_source`, or a source thing with no `left`) it drinks its fill (a draw a look until
@@ -198,6 +199,14 @@ RULES = [
             "thirsty idle seat stays where its mind left it, so carry water. A body nobody holds still walks for "
             "water, but never into or through a place where someone of a side that outlawed it stands.",
      "recheck": ["minds that count on idle care to fetch water", "watchers left far from water"],
+     "guide": ["player", "mind"]},
+    {"id": "held-seats-fetch-water", "date": "2026-11-21",
+     "was": "A held seat gone idle drank only what was in reach and never walked, so a mind on a watcher far from "
+            "water went down from thirst.",
+     "now": "A held seat gone idle looks after itself again as a body nobody holds does: thirsty, it walks to the "
+            "nearest water it knows and back to its post, by the same safe way (never into or through a place where "
+            "someone of a side that outlawed it stands).",
+     "recheck": ["minds that carry water only because idle care would not fetch it"],
      "guide": ["player", "mind"]},
 ]
 

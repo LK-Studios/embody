@@ -1,6 +1,6 @@
 """A thirst walk keeps clear of danger (d20, asked by the Glass Reach host, 2026-11-21). Ruhl's seat, held by a mind on
-a watcher, went idle; its idle care walked the body off for water and through the people who had outlawed it. A held
-seat now drinks what is in reach and never walks, and a body nobody holds walks around a side that outlawed it."""
+a watcher, went idle; its idle care walked the body off for water and through the people who had outlawed it. Every
+thirst walk, a held seat's too, now goes around a side that outlawed the body, or waits."""
 
 from packs.d20.tests.test_rules_d20 import outpost, state
 
@@ -9,21 +9,27 @@ def where(gm, name):
     return gm.world.get(gm.inspect(name)["parent"])["name"]
 
 
-def test_a_held_seat_gone_idle_drinks_what_is_in_reach_and_never_walks():
+def test_a_held_seat_gone_idle_drinks_what_is_in_reach_then_walks_for_water_and_back():
     eng, gm, you = outpost()
-    gm.spawn("person", "The Flats", "Walker", state={"faction": "the Garrison", "playable": True, "water": 2,
-                                                     "max_water": 10})
+    gm.spawn("person", "The Flats", "Walker", state={"faction": "the Garrison", "playable": True, "water": 10,
+                                                     "max_water": 10, "hp": 40, "max_hp": 40})
     gm.world.set_meta({"idle_after": 50})
     eng.session("mind").join("outpost", "Walker")
-    for _ in range(4):
-        gm.clock(step=60)
-    assert gm.world.idle(gm.inspect("Walker")["id"])
-    assert where(gm, "Walker") == "The Flats" and not state(gm, "Walker").get("post")  # thirsty, and it stays put
-    dry = state(gm, "Walker")["water"]
-    gm.spawn("waterskin", "Walker", "Walker's skin", state={"left": 2})
     gm.clock(step=60)
-    assert state(gm, "Walker")["water"] == min(10, dry + 4) and state(gm, "Walker's skin")["left"] == 1  # a skin in hand it drinks
-    assert where(gm, "Walker") == "The Flats"
+    gm.clock(step=60)
+    assert gm.world.idle(gm.inspect("Walker")["id"])
+    gm.spawn("waterskin", "Walker", "Walker's skin", state={"left": 2})
+    gm.patch("Walker", {"water": 4})
+    gm.clock(step=60)
+    assert state(gm, "Walker's skin")["left"] == 1 and where(gm, "Walker") == "The Flats"  # a skin in hand first
+    gm.patch("Walker", {"water": 2})
+    gm.patch("Walker's skin", {"left": 0})
+    trail = []
+    for _ in range(8):
+        gm.clock(step=60)
+        trail.append(where(gm, "Walker"))
+    assert trail[0] == "The Road" and "The Flats" in trail[1:], trail  # then to water, and back to its post
+    assert not state(gm, "Walker").get("post")
 
 
 def test_a_thirst_walk_goes_around_a_side_that_outlawed_the_body_or_waits():
