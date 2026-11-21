@@ -30,7 +30,7 @@ def tick(ctx):
         return
     hostile = f.state.hostile or {}
     for p in ctx.children(me.parent, "creature"):
-        if p.id != me.id and hostile.get(p.id) and standing_foe(p) and not in_a_ring(ctx, p):
+        if p.id != me.id and hostile.get(p.id) and standing_foe(p) and not in_a_ring(ctx, p) and outlaw_of(ctx, f, p):
             blow(ctx, me, p, bow)
             return
     if bow is None:
@@ -40,7 +40,7 @@ def tick(ctx):
         if place is None:
             continue
         for p in ctx.children(place, "creature"):
-            if hostile.get(p.id) and standing_foe(p) and not in_a_ring(ctx, p) and in_sight(ctx, me, p):
+            if hostile.get(p.id) and standing_foe(p) and not in_a_ring(ctx, p) and in_sight(ctx, me, p) and outlaw_of(ctx, f, p):
                 blow(ctx, me, p, bow)
                 return
 

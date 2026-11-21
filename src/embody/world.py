@@ -142,7 +142,9 @@ def _sealed(world: "World", ent: dict[str, Any] | None) -> set[str]:
         # a frame's code reads its machine and the load in full, the one who chose its verb as their own card, and of
         # everything else only what lies in plain sight (a playtest lens read lock codes and words across the world)
         if ctx._machine_side(ent["id"]):
-            return set()
+            # on its look-only trial before the owner's review, a verb reads its machine as anyone in plain sight would:
+            # what the review guards (a codex, a cipher) stays sealed until the owner approves it
+            return set(ent["state"].get("secret") or []) | ALWAYS_SECRET if ctx._trial else set()
         if ctx._caller_side(ent["id"]):
             return set(ent["state"].get("secret") or []) | ALWAYS_SECRET
         return set(ent["state"]) - FRAME_SEES
@@ -348,6 +350,7 @@ class Ctx(ScriptObject):
         self._limits: dict[str, Any] | None = None  # set from the script before it runs
         self._script = ""  # the running script's id, set with the limits
         self._consent = False  # a verb someone chose: its script may touch them and what they carry
+        self._trial = False  # a verb on its look-only trial before the owner's review: no writes, its machine's secrets sealed
 
     def run(self, s: Script, fn: str, args: list[Any], fuel: int) -> Any:
         """Run one of a script's functions with this context. The script's limits ride the context, and the world
@@ -2112,6 +2115,11 @@ class World:
 
     # ---- actions -----------------------------------------------------------------
 
+    def _on_trial(self, prog: dict[str, Any]) -> bool:
+        """A verb a frame with `review: "writes"` made, not yet reviewed: it runs on a look-only trial (act)."""
+        f = self.get(prog["frame"]) if prog.get("frame") else None
+        return f is not None and (f["state"].get("maker") or {}).get("review") == "writes"
+
     def resolve_action(self, actor_id: str, verb: str, target_id: str | None) -> tuple[dict[str, Any], str]:
         """Find the action definition for verb. Returns (definition, owner_id)."""
         actor = self.need(actor_id)
@@ -2124,6 +2132,8 @@ class World:
             # one with `targets` is its holder's own, done to others: not a verb anyone near may use on the holder
             if isinstance(prog, dict) and prog.get("script") and not (prog.get("targets") and target_id != actor_id):
                 if prog.get("pending"):
+                    if self._on_trial(prog):
+                        return {**_programmed(prog), "trial": True}, target_id
                     raise Rejected(f"{verb} on {target['name'] or target_id} waits for the owner's review",
                                    hint="try it again once the owner has looked at it")
                 return _programmed(prog), target_id
@@ -2435,10 +2445,14 @@ class World:
             ctx = Ctx(self, actor=actor_id, target=target_id, owner=owner, params=params, event=None, verb=verb,
                       caused_by=None, seed=self._seed_for(self.store.next_seq(self.id), "check"))
             ctx._consent = True
+            ctx._trial = bool(adef.get("trial"))
+            before = self.store.conn.total_changes
             try:
                 res = ctx.run(s, "check", [ctx], fuel=5_000)
             except ScriptError as e:
                 raise Rejected(f"check for {verb!r} failed: {e.reason}", hint=e.hint) from None
+            if ctx._trial and self.store.conn.total_changes != before:
+                raise Rejected(f"{verb} waits for the owner's review: until then it may only look, and this run would change the world", hint="it runs in full once the owner approves it (review(thing, verb)); until then use it to look, or ask the owner")
             if res is False:
                 raise Rejected(f"{verb} is not possible right now")
             if isinstance(res, str) and res:
@@ -2466,11 +2480,16 @@ class World:
                 ctx = Ctx(self, actor=actor_id, target=target_id, owner=owner, params=params, event=_event_view(ev),
                           verb=verb, caused_by=ev["seq"], seed=self._seed_for(ev["seq"], "apply"))
                 ctx._consent = True
+                ctx._trial = bool(adef.get("trial"))
+                before = self.store.conn.total_changes
                 try:
                     # a verb that walks a big book may ask for more (`fuel` on the action, at most a million)
                     result = ctx.run(s, "apply", [ctx], fuel=min(int(adef.get("fuel") or 50_000), 1_000_000))
                 except ScriptError as e:
                     raise Rejected(f"{verb} failed while applying: {e.reason}", hint=e.hint) from None
+                if ctx._trial and self.store.conn.total_changes != before:
+                    # the store counts every row written, so no write call slips past a list of them
+                    raise Rejected(f"{verb} waits for the owner's review: until then it may only look, and this run would change the world", hint="it runs in full once the owner approves it (review(thing, verb)); until then use it to look, or ask the owner")
                 logs.extend(ctx.logs)
             if adef.get("strikes") and target_id and target_id != actor_id:
                 # the verb's own cooldown_x, times the one its apply returns (the weapon it struck with: a maul's 2)
@@ -2505,7 +2524,8 @@ class World:
         return {"ok": True, "verb": verb, "target": target_id, "result": result,
                 "duration": float(adef.get("duration", 0) or 0),
                 "events": [_public_event(e) for e in evs if e["kind"] not in _INTERNAL_KINDS], "logs": logs,
-                **({"maker": s.limits["frame"], "untrusted": True} if s is not None and (s.limits or {}).get("frame") else {})}
+                **({"maker": s.limits["frame"], "untrusted": True} if s is not None and (s.limits or {}).get("frame") else {}),
+                **({"trial": True} if adef.get("trial") else {})}
 
     # ---- strikes: a cooldown per attacker per target (docs/SCRIPTING.md, Strikes) ----------------------------------
 
@@ -2638,7 +2658,8 @@ class World:
                 return  # a verb that fits few targets (pour) lists only where it would work
             tgt = self.get(tid) if tid else None
             out.append({"verb": verb, "target": tid, "target_name": tgt["name"] if tgt else None, "ok": ok,
-                        "reason": reason, "doc": adef.get("doc", ""), "params": adef.get("params", {})})
+                        "reason": reason, "doc": adef.get("doc", ""), "params": adef.get("params", {}),
+                        **({"trial": True} if adef.get("trial") else {})})
 
         # Verbs the actor carries. One with `targets` (a type) pairs with every reachable entity of that type;
         # one without is the actor's own (rest, shout, look).
@@ -2687,8 +2708,11 @@ class World:
                 if adef.get("targets") is None:  # an action with `targets` is the holder's own verb, not one done to it
                     add(verb, adef, cid)
             for verb, prog in own_verbs(ent).items():  # verbs put on this one thing
-                if isinstance(prog, dict) and prog.get("script") and not prog.get("pending") and not prog.get("targets"):
-                    add(verb, _programmed(prog), cid)
+                if isinstance(prog, dict) and prog.get("script") and not prog.get("targets"):
+                    if not prog.get("pending"):
+                        add(verb, _programmed(prog), cid)
+                    elif self._on_trial(prog):  # waiting for review, it may still look
+                        add(verb, {**_programmed(prog), "trial": True}, cid)
         return out
 
     # ---- clock and scheduling -----------------------------------------------------

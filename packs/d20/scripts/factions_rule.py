@@ -21,7 +21,9 @@ def on(ctx, event):
     # one who keeps their side secret does not give it away: the faction counts the deed without naming itself
     quiet = "faction" in (t.state.secret or [])
     if k == "hit":
-        shift_standing(ctx, by, f, -2, "struck " + t.name, quiet)
+        if struck_back(ctx, by, t):
+            return  # defence: the faction counts who started the fight, not every blow in it
+        shift_standing(ctx, by, f, -2, "struck " + t.name, quiet, True)  # a blow: time forgives it
     elif k == "killed":
         shift_standing(ctx, by, f, -5, "killed " + t.name, quiet)
     elif k == "cowed":
@@ -41,6 +43,12 @@ def on(ctx, event):
         lent = dict(f.state.lent or {})
         lent[item.id] = {"by": by.id, "quiet": quiet}
         keep_secret(ctx, f, {"lent": dict(list(lent.items())[-50:])})
+
+def struck_back(ctx, by, t):
+    # a blow at someone who struck you first, while that grudge holds (grudge_for), is defence and costs no standing.
+    # Two sides with no mind used to feed each other -2 a blow for good, each strike back outlawing the striker.
+    st = by.state
+    return st.attacked_by == t.id and st.attacked_at is not None and ctx.t - float(st.attacked_at) < grudge_for(ctx)
 
 def counted_today(ctx, f, kind, by, t):
     # terms or a gift buys standing once a pair a world day: the same offer to the same member ten times is one
