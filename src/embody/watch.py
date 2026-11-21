@@ -291,6 +291,8 @@ class Reader:
                                       # seconds), when it is released (real seconds), how long a day is, and now (real)
                                       "idle_after": float(meta.get("idle_after", 900.0)),
                                       "claim_lapse": float(meta.get("claim_lapse", 900.0)),
+                                      "sleep_lapse": max(float(meta.get("claim_lapse", 900.0)),
+                                                         float(meta.get("sleep_lapse", 43200.0))),
                                       "day_seconds": float(meta.get("day_seconds") or 86400), "now": time.time()},
                 "entities": ents, "principals": prin, "scheduled": sched, "ticks": ticks, "max_seq": maxseq,
                 "events": list(reversed(evs)), "sig": new_sig,

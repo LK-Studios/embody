@@ -1984,7 +1984,7 @@ class Session:
         p = w.principal(principal)
         if p is None:
             raise Rejected(f"{principal!r} is not in this world", hint="summary() lists who is")
-        w.leave(principal)
+        w.leave(principal, "host")
         return {"ok": True, "principal": principal, "released": p.get("entity_id")}
 
     def _resolve(self, ref: str) -> str:

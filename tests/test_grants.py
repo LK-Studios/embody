@@ -805,6 +805,45 @@ def test_a_seat_holds_while_any_grant_of_its_principal_is_live():
     assert eng.tick_all()["released"] == {"two-rooms": [a.pid]}
 
 
+def test_a_sleeping_body_keeps_its_seat_overnight_and_every_release_names_its_cause():
+    # 2026-11-21, a world builder: a player who left their character asleep lost the seat with no cause given
+    eng, w, i = engine_with_two_rooms()
+    gm = owner(eng)
+    wall = [1000.0]
+    eng.wall = lambda: wall[0]
+    sleeper = eng.session_for_token(gm.invite("player", entity="Prisoner", label="night")["token"])
+    sleeper.join()
+    awake = eng.session_for_token(gm.invite("player", entity="Guard", label="day")["token"])
+    awake.join()
+    gm.patch("Prisoner", {"asleep": True})
+    wall[0] += w.claim_lapse() + 60
+    assert eng.tick_all()["released"] == {"two-rooms": [awake.pid]}  # the one awake goes quiet and lets go
+    wall[0] += 8 * 3600
+    assert eng.tick_all()["released"] == {} and w.principal(sleeper.pid)["entity_id"] == i["Prisoner"]
+    wall[0] += 4 * 3600
+    assert eng.tick_all()["released"] == {"two-rooms": [sleeper.pid]}  # past sleep_lapse, twelve hours
+    why = {e["target_id"]: e["payload"] for e in w.events(kinds=["released"], limit=10)}
+    assert why[i["Guard"]]["cause"] == "quiet" and "asleep" not in why[i["Guard"]]
+    assert why[i["Prisoner"]]["cause"] == "quiet" and why[i["Prisoner"]]["asleep"]
+    assert why[i["Prisoner"]]["quiet_s"] > 12 * 3600
+    # the others: its own leave, the owner's evict and revoke, and a grant that ran out
+    back = eng.session_for_token(gm.invite("player", entity="Prisoner", label="again")["token"])
+    back.join()
+    back.leave()
+    kicked = eng.session_for_token(gm.invite("player", entity="Prisoner", label="evicted")["token"])
+    kicked.join()
+    gm.evict(kicked.pid)
+    r = gm.invite("player", entity="Prisoner", label="revoked")
+    eng.session_for_token(r["token"]).join()
+    gm.revoke(r["id"])
+    x = gm.invite("player", entity="Prisoner", label="ran out", expires=1)
+    eng.session_for_token(x["token"]).join()
+    wall[0] += 2 * 3600
+    eng.tick_all()
+    causes = [e["payload"]["cause"] for e in w.events(kinds=["released"], limit=10, newest=True)]
+    assert causes[-4:] == ["left", "host", "revoked", "grant_ended"]
+
+
 def test_one_invite_makes_one_character_while_it_stands():
     # 2026-11-14: a guard-template guest made some 55 bodies, one join at a time; the ones it left ran on the guard
     # behaviors and killed two people

@@ -2960,8 +2960,9 @@ class World:
         self.need(entity_id)
         other = self.embodied(entity_id)
         if other and other["id"] != principal_id:
-            if self.lapsed(other, now):
-                self.leave(other["id"])  # an invitee who went quiet: the seat is free again, the body ran on behaviors
+            why = self.lapse_cause(other, now)
+            if why:
+                self.leave(other["id"], **why)  # an invitee who went quiet: the seat is free again, the body ran on behaviors
             else:
                 raise Rejected(f"{entity_id} is already embodied by {other['id']}",
                                hint="pick another entity, or spawn one with author capability")
@@ -2978,14 +2979,17 @@ class World:
                   payload={"principal": principal_id, "as": kind})
         return row
 
-    def leave(self, principal_id: str) -> None:
+    def leave(self, principal_id: str, cause: str = "left", **why: Any) -> None:
+        """The principal gives its seat back. `released` names the cause: left (its own leave), host (evicted),
+        revoked (its grant was), grant_ended (every grant it may sit on ran out), quiet (silent past the lapse, with
+        `quiet_s` real seconds and `asleep` when its body slept), so a player and the chronicle can tell them apart."""
         p = self.store.get("principal", self.id, principal_id)
         if p is None:
             return
         self.store.delete("principal", self.id, principal_id)
         if p["entity_id"]:
             self.emit("released", actor=p["entity_id"], target=p["entity_id"], reach=1,
-                      payload={"principal": principal_id})
+                      payload={"principal": principal_id, "cause": cause, **why})
 
     def principal(self, principal_id: str) -> dict[str, Any] | None:
         return self.store.get("principal", self.id, principal_id)
@@ -2993,6 +2997,12 @@ class World:
     def claim_lapse(self) -> float:
         """Real seconds of silence after which an invited principal's seat is released (world meta `claim_lapse`)."""
         return float(self._row["meta"].get("claim_lapse", 900.0))
+
+    def sleep_lapse(self) -> float:
+        """Real seconds of silence a seat keeps while its body is asleep (sleep, or away(sleep=true)): world meta
+        `sleep_lapse`, twelve hours by default and never less than claim_lapse. A player who sleeps their character
+        overnight finds the seat theirs in the morning."""
+        return max(self.claim_lapse(), float(self._row["meta"].get("sleep_lapse", 43200.0)))
 
     def offer_seat(self, entity_id: str, body_id: str, why: str = "", actor: str | None = None,
                    caused_by: int | None = None) -> dict[str, Any]:
@@ -3059,7 +3069,7 @@ class World:
             for o in self.store.query("seat_offer", "world_id=? AND grant_id=? AND status='claimed'", (self.id, g["id"])):
                 self.store.set("seat_offer", self.id, o["id"], entity_id=swap(o["entity_id"]))
         self.emit("released", actor=from_id, target=from_id, reach=1, caused_by=caused_by,
-                  payload={"principal": p["id"], "to": to_id})
+                  payload={"principal": p["id"], "cause": "moved", "to": to_id})
         self.emit("embodied", actor=to_id, target=to_id, reach=1, caused_by=caused_by,
                   payload={"principal": p["id"], "as": p["kind"], "from": from_id})
         return p["id"]
@@ -3085,7 +3095,7 @@ class World:
         out = [grant_id]
         if not g.get("revoked"):
             self.store.set("grants", self.id, grant_id, revoked=1)
-        self.leave(g["principal_id"])
+        self.leave(g["principal_id"], "revoked")
         for c in self.store.query("grants", "world_id=? AND parent_id=? AND revoked=0", (self.id, grant_id)):
             out += self.revoke_grant(c["id"])
         for o in self.store.query("seat_offer", "world_id=? AND grant_id=? AND status='claimed'", (self.id, grant_id)):
@@ -3094,16 +3104,25 @@ class World:
 
     def lapsed(self, p: dict[str, Any], now: float | None) -> bool:
         """Only principals that came in on a grant lapse; the owner at the keyboard never loses a seat to silence."""
+        return self.lapse_cause(p, now) is not None
+
+    def lapse_cause(self, p: dict[str, Any], now: float | None) -> dict[str, Any] | None:
+        """Why a seat is no longer its principal's (the `released` payload's cause), or None while it holds."""
         if now is None or not p.get("grant_id"):
-            return False
+            return None
         def live(g: dict[str, Any] | None) -> bool:
             return g is not None and not g.get("revoked") and (g.get("expires") is None or float(g["expires"]) > now)
         if not live(self.store.get("grants", self.id, p["grant_id"])) and not any(
                 live(g) for g in self.store.query("grants", "world_id=? AND principal_id=? AND revoked=0", (self.id, p["id"]))):
-            return True  # every grant it may sit on has ended: the seat is not its to keep (a guest back on a new grant)
+            return {"cause": "grant_ended"}  # the seat is not its to keep (a guest back on a new grant)
         if p.get("last_seen") is None:
-            return False
-        return now - float(p["last_seen"]) > self.claim_lapse()
+            return None
+        quiet = now - float(p["last_seen"])
+        body = self.get(p["entity_id"]) if p.get("entity_id") else None
+        asleep = bool(body and body["state"].get("asleep"))
+        if quiet <= (self.sleep_lapse() if asleep else self.claim_lapse()):
+            return None
+        return {"cause": "quiet", "quiet_s": round(quiet), **({"asleep": True} if asleep else {})}
 
     def touch(self, principal_id: str, now: float, acted: bool = False) -> None:
         """A sign of life keeps the seat (`last_seen`, real time); a deed (`acted`: an act, a line said) also marks
@@ -3207,8 +3226,9 @@ class World:
         """Seats whose invitee went quiet past the lapse: released, so their bodies run on behaviors again."""
         out = []
         for p in self.principals():
-            if p.get("entity_id") and self.lapsed(p, now):
-                self.leave(p["id"])
+            why = self.lapse_cause(p, now) if p.get("entity_id") else None
+            if why:
+                self.leave(p["id"], **why)
                 out.append(p["id"])
         return out
 
