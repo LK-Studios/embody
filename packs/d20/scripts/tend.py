@@ -10,11 +10,23 @@ def check(ctx):
     if not t.state.down and v >= int(t.state.max_hp or 6):
         return "they are whole: nothing to tend"
     med = medicine_in_hand(me)
-    if med is None and not t.state.down:
+    if med is None and not t.state.down and not laying_on(ctx, me):
+        if me.state.lays_hands:
+            return "your hands are spent: they come back after a rest, eight world hours from the first use"
         return "they are on their feet and you have no medicine in hand: rest mends them, or bring medicine (a medic carries it)"
-    if med is None and wash_water(ctx, me) is None:
+    gift = med is None and not t.state.down and laying_on(ctx, me)
+    if med is None and not gift and wash_water(ctx, me) is None:
         return "a wound bound dry festers: hold a skin with water in it, or tend them beside a cask or a source"
     return True
+
+LAYS_HANDS_REST = 28800  # a crew gift comes back after eight world hours from its first use
+
+def laying_on(ctx, me):
+    """A body the world gave the gift (state `lays_hands`) lays hands on someone hurt and standing, once per rest."""
+    if not me.state.lays_hands:
+        return False
+    last = me.state.lays_hands_t
+    return last is None or ctx.t - float(last) >= LAYS_HANDS_REST
 
 def medicine_in_hand(me):
     for it in me.children():
@@ -40,10 +52,14 @@ def apply(ctx):
     med = medicine_in_hand(me)
     roll = None
     washed = None
+    gift = med is None and not st.down and laying_on(ctx, me)
     if med is not None:
         doses = int(med.state.doses or 0) - 1
         heal = int(med.state.heals or 3)
         ctx.patch(med, {"doses": doses, "description": (med.state.description_empty or "Used up.") if doses <= 0 else med.state.description})
+    elif gift:
+        heal = ctx.rand.roll("1d4")
+        ctx.patch(me, {"lays_hands_t": ctx.t})
     else:
         src = wash_water(ctx, me)
         washed = src.id
