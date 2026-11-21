@@ -35,20 +35,25 @@ fi
 : "${EMBODY_WORLD:=glass-reach}"
 : "${EMBODY_DB:=/data/embody.db}"
 
-# One world: every call names the database outright. With --world and no --db the CLI picks a hub's own file
-# (<folder of $EMBODY_DB>/worlds/<world>.db) when one is there, so a volume that once ran `embody hub` would have
-# the renew upgrade that copy while serve reads $EMBODY_DB, and new code would never reach the live world.
-hub_copy="$(dirname "$EMBODY_DB")/worlds/$EMBODY_WORLD.db"
-if [ -f "$hub_copy" ]; then
-    echo "note: $hub_copy is a hub's copy from an earlier boot; this server renews and serves $EMBODY_DB"
+# One world, one database file, the same for the renew and for serve. A volume that has run `embody hub` keeps the
+# world in the hub's own file, <folder of $EMBODY_DB>/worlds/<world>.db: the hub's first boot moved the world there
+# and left the old $EMBODY_DB behind as it was, so that old file is stale and the hub's file is the world. The CLI
+# picks the hub's file only for a call that names --world, and serve names none: a boot that left it to the CLI
+# renewed the hub's file and served the stale one (2026-11-21, the Reach served ten days back). So the file is
+# chosen here, once, and named on every call. EMBODY_DB set to the hub's file works the same.
+db=$EMBODY_DB
+hub_file="$(dirname "$EMBODY_DB")/worlds/$EMBODY_WORLD.db"
+if [ -f "$hub_file" ]; then
+    db=$hub_file
+    echo "the world is in the hub's file $db; $EMBODY_DB is left as it is"
 fi
 
-if embody --db "$EMBODY_DB" --json worlds | grep -q "\"id\": \"$EMBODY_WORLD\""; then
-    echo "renewing $EMBODY_WORLD in $EMBODY_DB"
-    embody --db "$EMBODY_DB" --author --world "$EMBODY_WORLD" load "$EMBODY_WORLD" --upgrade --hosted
+if embody --db "$db" --json worlds | grep -q "\"id\": \"$EMBODY_WORLD\""; then
+    echo "renewing $EMBODY_WORLD in $db"
+    embody --db "$db" --author --world "$EMBODY_WORLD" load "$EMBODY_WORLD" --upgrade --hosted
 else
-    echo "building $EMBODY_WORLD into $EMBODY_DB"
-    embody --db "$EMBODY_DB" --author load "$EMBODY_WORLD" --hosted
+    echo "building $EMBODY_WORLD into $db"
+    embody --db "$db" --author load "$EMBODY_WORLD" --hosted
 fi
 
-exec embody --db "$EMBODY_DB" --author serve --http --host 0.0.0.0 --port "$PORT" --log-level info ${EMBODY_URL:+--url "$EMBODY_URL"}
+exec embody --db "$db" --author serve --http --host 0.0.0.0 --port "$PORT" --log-level info ${EMBODY_URL:+--url "$EMBODY_URL"}
