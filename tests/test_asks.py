@@ -127,8 +127,16 @@ def test_a_flaw_goes_through_the_same_door_to_the_owner_alone():
     out = sam.ask_owner("flaw", what="check rolls again at once", why="three calls, the third landed", severity="high")
     assert out["ok"] and out["kind"] == "flaw" and out["kept"]
     assert gm.flaws()[0]["what"] == "check rolls again at once" and gm.flaws()[0]["how"].startswith("three calls")
-    assert gm.asks_to_owner()["asks"] == [] and sam.asks_to_owner()["asks"] == []  # never in the shared list
+    assert gm.asks_to_owner()["asks"] == [] and keep_sees(eng, keep) == []  # never in the shared list
+    mine = sam.asks_to_owner()["asks"]  # but its reporter sees it, to hear back
+    assert [(a["id"], a["kind"], a["status"]) for a in mine] == [(out["id"], "flaw", "open")]
     assert sam.report_flaw("the same door, the old name", severity="low")["kept"]
+
+
+def keep_sees(eng, keep):
+    s = eng.session_for_token(keep["token"])
+    s.use("two-rooms")
+    return s.asks_to_owner()["asks"]
 
 
 def test_every_op_sits_in_one_layer_and_the_door_lists_them_by_layer():

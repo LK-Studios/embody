@@ -49,7 +49,8 @@ KINDS: dict[str, dict[str, Any]] = {
                              "credit": "Quill"}},
     "flaw": {"for": "a hole in the rules: something they let you do that they should not (a roll you can repeat "
                     "until it lands, a verb that writes what it should not, a secret you can read). The owner's eyes "
-                    "only, never shared; leave the hole alone until it is closed",
+                    "only, never shared; leave the hole alone until it is closed. The owner's answer comes back "
+                    "in asks_to_owner()",
              "needs": ["what", "why", "severity"],
              "example": {"kind": "flaw", "what": "check can be rolled again at once until it lands",
                          "why": "act('check', 'Lock') failed, then the same call at once rolled again; the third landed",
@@ -125,7 +126,7 @@ class AskLog:
         now = datetime.now(timezone.utc)
         n = 0
         for r in self.entries():
-            if r.get("op") == "ask" and r.get("world") == world and r.get("pid") == pid:
+            if r.get("op") == "ask" and r.get("world") == world and r.get("pid") == pid and r.get("kind") != "flaw":
                 try:
                     if (now - datetime.fromisoformat(r.get("at") or "")).total_seconds() < seconds:
                         n += 1

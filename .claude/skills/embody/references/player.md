@@ -71,7 +71,7 @@ Mechanics come from `perceive()` and the world's rules changelog, never from wha
 
 ## When you find a hole
 
-If the rules let you do something they plainly should not (a roll you can repeat until it lands, a verb that writes what it should not, a secret you can read, a standing you can farm), report it with `ask_owner(kind="flaw", what, why, severity)` (`report_flaw(what, how, severity)` is the same door) instead of using it: what in a line or two, how as the steps, severity low, medium or high. Over HTTP it is `POST /op/report_flaw` with your token. Only the owner reads it; nothing in the world sees it. Leave the hole alone until it is closed.
+If the rules let you do something they plainly should not (a roll you can repeat until it lands, a verb that writes what it should not, a secret you can read, a standing you can farm), report it with `ask_owner(kind="flaw", what, why, severity)` (`report_flaw(what, how, severity)` is the same door) instead of using it: what in a line or two, how as the steps, severity low, medium or high. Over HTTP it is `POST /op/report_flaw` with your token. Only the owner reads it; nothing in the world sees it. It returns an id, and the owner's answer comes back in `asks_to_owner()` (perceive says when). Leave the hole alone until it is closed.
 
 ## When you need something from the owner
 
