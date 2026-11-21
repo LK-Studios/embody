@@ -626,32 +626,45 @@ def shot(ctx, me, t, weapon):
     # + the cover where they stand. A ward on stops it: a shot is fast. The ammo is spent and lands where they
     # stand, hit or miss, a pile anyone there can take; a loaded weapon is unloaded.
     ammo = ammo_for(me, weapon)
-    far = t.parent.id != me.parent.id
-    wname = weapon.name
     if weapon.state.loaded is not None:
         ctx.patch(weapon, {"loaded": False})
+    provoke(ctx, me, t)
+    extra = int(ammo.state.damage or 0) if ammo is not None else 0
+    if ammo is not None:
+        ctx.transfer(ammo, t.parent, 1 if ammo.state.count is not None else None)
+    r = loose(ctx, me, t, weapon.name, weapon_skill(me, weapon, "aim"), int(weapon.state.bonus or 0),
+              int(weapon.state.damage or 1) + extra, None)
+    r["cooldown_x"] = weapon.state.cooldown_x or 1
+    return r
+
+def provoke(ctx, me, t):
+    # what any blow or shot does before it lands: it feeds the target's grudge, and striking one who yielded is dishonor
     if not t.state.yielded:
         ctx.patch(t, {"attacked_by": me.id, "attacked_at": ctx.t})  # the grudge, and when it was last fed
     if t.state.yielded == me.id:
         ctx.emit("dishonor", target=me, reach=-1, against=t.id)
-    extra = int(ammo.state.damage or 0) if ammo is not None else 0
-    if ammo is not None:
-        ctx.transfer(ammo, t.parent, 1 if ammo.state.count is not None else None)
+
+def loose(ctx, me, t, label, skill, mod, dmg, die):
+    # the flight of a shot, by whatever looses it (a bow, a gift: packs/gifts): d20 + the skill + mod, -2 one way over,
+    # against d20 + dodge + the cover where they stand. A ward on stops it. A hit does `die` rolled (dice like "1d4")
+    # or else `dmg`, and puts its conditions on them. `label` names it in the events.
+    far = t.parent.id != me.parent.id
+    wname = label
     if far:
         ctx.emit("shot", target=me, reach=1, by=me.id, at=t.id, weapon=wname)  # the shooter's own place sees it fly
     ward = held(t, "ward")
     if ward and ward.state.on:
         ctx.emit("warded", target=t, reach=1, by=me.id, weapon=wname, ranged=True)
         ctx.log("the ward stops the shot")
-        return {"hit": False, "warded": True, "cooldown_x": weapon.state.cooldown_x or 1}
+        return {"hit": False, "warded": True}
     asleep = bool(t.state.asleep)
     a_roll = ctx.rand.roll("1d20")
     rolls = [a_roll]
     if asleep:
         rolls.append(ctx.rand.roll("1d20"))
         a_roll = max(rolls)
-    a_skill = weapon_skill(me, weapon, "aim")
-    a_mod = bonus(me, a_skill, ctx) + int(weapon.state.bonus or 0) - (2 if far else 0)
+    a_skill = skill
+    a_mod = bonus(me, a_skill, ctx) + int(mod or 0) - (2 if far else 0)
     d_roll = ctx.rand.roll("1d20")
     d_mod = cover(t.parent) + (0 if asleep else bonus(t, "dodge", ctx))  # wits, less the conditions
     attack = a_roll + a_mod
@@ -660,9 +673,8 @@ def shot(ctx, me, t, weapon):
     learn(ctx, me, a_skill, defence + 1, hit, t)
     if not asleep:
         learn(ctx, t, "dodge", attack, not hit, me)
-    dmg = 0
     if hit:
-        dmg = int(weapon.state.damage or 1) + extra
+        dmg = ctx.rand.roll(die) if die else int(dmg)
         hp = int(t.state.hp or 0) - dmg
         ctx.patch(t, {"hp": hp, "braced": False})
         ctx.emit("hit", target=t, reach=1, by=me.id, dmg=dmg, weapon=wname, attack=attack, defence=defence, hp=hp,
@@ -670,11 +682,11 @@ def shot(ctx, me, t, weapon):
         scar(ctx, t, dmg, wname)
         settle(ctx, t, me.id)
     else:
+        dmg = 0
         ctx.emit("missed", target=t, reach=1, by=me.id, weapon=wname, attack=attack, defence=defence, rolls=rolls,
                  asleep=asleep, ranged=True)
     ctx.log(("hit for " + str(dmg) if hit else "miss") + " (" + str(attack) + " vs " + str(defence) + ")")
-    return {"hit": hit, "dmg": dmg, "attack": attack, "defence": defence, "far": far,
-            "cooldown_x": weapon.state.cooldown_x or 1}
+    return {"hit": hit, "dmg": dmg, "attack": attack, "defence": defence, "far": far}
 
 def grudge_for(ctx):
     # how long a fighter keeps a grudge with no blow from its foe: root `grudge_for`, world seconds (default an hour)

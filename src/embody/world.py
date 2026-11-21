@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 import time
 from typing import Any, Iterable
 
@@ -178,7 +179,9 @@ RULES_ONLY = frozenset({"sheet", "skills", "xp", "attributes"})
 # and on a body (a creature), what it is made of and how it grows: a world's own progression (`progress`), its stats,
 # its health and what it carries
 BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp", "carry", "looks", "verbs_only",
-                             "understands", "understands_until", "beast"})
+                             "understands", "understands_until", "beast",
+                             # a body's gifts (packs/gifts) and their uses: code that could write them could mint itself one
+                             "gift_book", "gift_uses"})
 
 # What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
 BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
@@ -330,7 +333,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "gesture", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "quiet", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
-        "may_write_sheet", "mark", "unmark", "regrow", "step", "leak",
+        "may_write_sheet", "named_entry", "mark", "unmark", "regrow", "step", "leak",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -414,10 +417,20 @@ class Ctx(ScriptObject):
         world script, not a guest's script, a frame's code or a verb programmed on one thing."""
         return not self._limits and not str(self._script).startswith("program_")
 
+    def named_entry(self, who: Any, key: str, name: str) -> dict[str, Any] | None:
+        """A verb named by data, as the body holds it: its entry in the body's `key` map laid over the world's
+        catalogue (World.named_entry), or None. A gift's script reads its own gift by named_entry(ctx.actor,
+        "gift_book", ctx.verb)."""
+        e = self._w.get(_ev(self._w, who))
+        return self._w.named_entry(e, str(key), str(name)) if e else None
+
     def _rules_only(self, i: Any, keys: Any) -> None:
         if self.may_write_sheet():
             return
         hit = rules_only_keys(self._w, _ev(self._w, i), keys)
+        if any(k in ("gift_book", "gift_uses") for k in hit):
+            raise Rejected(f"a body's gifts are given only by the world's rules: this code may not write {', '.join(hit)}",
+                           hint="a world rule or the world's keepers give one (grant_verb); a body never gives itself one")
         if hit == ["looks"]:
             raise Rejected("a body's looks change only by the world's rules: this code may not write looks",
                            hint="a world verb marks a body (an inker, a clinic, a barber); the owner sets anything else")
@@ -1296,6 +1309,64 @@ class World:
             out.update(s["actions"])
         return out
 
+    def own_actions(self, ent: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """An entity's verbs: its schema's, with each action that is `named_by` a state key opened out into one verb per
+        entry of that key's map on this entity (a gift a body holds, by name). An entry is laid over the same name in
+        the world's catalogue (the root's state key `catalogue`), so a body keeps only what is its own. The merged
+        entry's fields pick overlays the action lists under `by` ({field: {value: action keys}}, a `script` among
+        them), and its `doc` field (default "words") is the verb's doc; the script reads the entry by ctx.verb
+        (named_entry). An entry never takes a name the schema already gives a verb, and the action that names them is
+        not a verb of its own."""
+        acts = self.schema_actions(ent["type"])
+        named = [a for a in acts.values() if isinstance(a.get("named_by"), dict)]
+        if not named:
+            return acts
+        out = {v: a for v, a in acts.items() if not isinstance(a.get("named_by"), dict)}
+        for base in named:
+            spec = base["named_by"]
+            book = ent["state"].get(spec.get("key"))
+            if not isinstance(book, dict):
+                continue
+            cat = self.catalogue(spec)
+            for name, own in sorted(book.items()):
+                if name in out or not isinstance(own, dict) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", str(name)):
+                    continue
+                entry = {**(cat.get(name) if isinstance(cat.get(name), dict) else {}), **own}
+                adef = {k: v for k, v in base.items() if k != "named_by"}
+                for field, table in (spec.get("by") or {}).items():
+                    adef.update((table or {}).get(str(entry.get(field)), {}))
+                doc = entry.get(spec.get("doc", "words"))
+                if doc:
+                    adef["doc"] = str(doc)[:300]
+                adef["named"] = spec.get("key")
+                out[name] = adef
+        return out
+
+    def named_specs(self) -> list[dict[str, Any]]:
+        """Every `named_by` spec the world's schemas carry, one a key, with the verb that carries it (grant_verb, guide)."""
+        out: dict[str, dict[str, Any]] = {}
+        for s in self.schemas():
+            for v, a in (s.get("actions") or {}).items():
+                nb = a.get("named_by") if isinstance(a, dict) else None
+                if isinstance(nb, dict) and nb.get("key"):
+                    out.setdefault(nb["key"], {**nb, "verb": v})
+        return list(out.values())
+
+    def catalogue(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """The world's catalogue for a `named_by` spec: the root's state key `catalogue`, {name: entry}, or {}."""
+        root = self.get(self.root_id) if spec.get("catalogue") else None
+        cat = root["state"].get(spec["catalogue"]) if root else None
+        return cat if isinstance(cat, dict) else {}
+
+    def named_entry(self, ent: dict[str, Any], key: str, name: str) -> dict[str, Any] | None:
+        """The entry `name` of ent's `key` map laid over the catalogue's, or None when the body holds none by that name."""
+        own = (ent["state"].get(key) or {}).get(name)
+        if not isinstance(own, dict):
+            return None
+        spec = next((s for s in self.named_specs() if s["key"] == key), {})
+        base = self.catalogue(spec).get(name)
+        return {**(base if isinstance(base, dict) else {}), **own}
+
     def schema_defaults(self, type: str) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for s in reversed(self.schema_chain(type)):
@@ -2125,8 +2196,9 @@ class World:
         actor = self.need(actor_id)
         if target_id:
             target = self.need(target_id)
-            acts = self.schema_actions(target["type"])
-            if verb in acts and acts[verb].get("targets") is None:
+            acts = self.own_actions(target)
+            # a verb named by data is its holder's own, never one done to the holder by whoever is near
+            if verb in acts and acts[verb].get("targets") is None and not acts[verb].get("named"):
                 return acts[verb], target_id
             prog = own_verbs(target).get(verb)
             # one with `targets` is its holder's own, done to others: not a verb anyone near may use on the holder
@@ -2137,7 +2209,7 @@ class World:
                     raise Rejected(f"{verb} on {target['name'] or target_id} waits for the owner's review",
                                    hint="try it again once the owner has looked at it")
                 return _programmed(prog), target_id
-        acts = self.schema_actions(actor["type"])
+        acts = self.own_actions(actor)
         if verb in acts:
             tt = acts[verb].get("targets")
             if tt is not None and target_id is None:
@@ -2154,7 +2226,7 @@ class World:
             if tt != "any" and not self.is_a(self.need(target_id)["type"], tt):
                 raise Rejected(f"you can only {verb} a {tt}, and {target_id} is a {self.need(target_id)['type']}")
             return _programmed(prog), actor_id
-        known = sorted(set(self.schema_actions(actor["type"])) |
+        known = sorted(set(self.own_actions(actor)) |
                        (set(self.schema_actions(self.need(target_id)["type"])) if target_id else set()))
         raise Rejected(f"no action {verb!r} on {target_id or actor_id}",
                        hint=f"verbs here: {', '.join(known) or 'none'}. Use perceive to see affordances.",
@@ -2663,7 +2735,7 @@ class World:
 
         # Verbs the actor carries. One with `targets` (a type) pairs with every reachable entity of that type;
         # one without is the actor's own (rest, shout, look).
-        actor_verbs = self.schema_actions(actor["type"])
+        actor_verbs = self.own_actions(actor)
         here = actor["parent_id"]
         held = {c["id"] for c in self.children(actor_id)}
         exits = set(self.neighbors(here, "connects_to")) if here else set()

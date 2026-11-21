@@ -708,6 +708,19 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def grant_verb(body: str, name: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        """(author) Give a body a verb from the world's catalogue (a gift; guide('gifts') lists a world's): it shows on
+        that body under its own name. overrides: the body's own fields over the catalogue's ({"dice": "1d6"})."""
+        return s.grant_verb(body, name, overrides=overrides)
+
+    @tool()
+    @_wrap
+    def take_verb(body: str, name: str) -> dict[str, Any]:
+        """(author) Take back a verb grant_verb gave a body (a gift)."""
+        return s.take_verb(body, name)
+
+    @tool()
+    @_wrap
     def chmod(entity: str, mode: str, verb: str | None = None) -> dict[str, Any]:
         """(author) Who may read (r), change (w) and use (x) a thing, for its owner, its group and everyone else:
         mode rwxr-x---, octal 750, or symbolic g+w, o-rwx. With verb=..., mode names the classes that may do that

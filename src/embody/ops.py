@@ -510,6 +510,9 @@ class Session:
         if not lim:
             return
         hit = rules_only_keys(w, self._resolve(args["entity"]), args.get("changes") or {}) if op == "patch" else []
+        if any(k in ("gift_book", "gift_uses") for k in hit):
+            raise Rejected(f"a body's gifts are given only by the world's rules and its keepers: your grant may not "
+                           f"write {', '.join(hit)}", hint="ask the owner for a gift (ask_owner)")
         if hit:
             raise Rejected(f"a body's skills grow only by the world's rules: your grant may not write {', '.join(hit)}",
                            hint="skills grow by use and by a teacher; the owner sets anything else")
@@ -1052,6 +1055,8 @@ class Session:
             return self._changes(since)
         if (topic or "").strip().lower() == "skills":
             return self._skills_guide()
+        if (named := self._named_guide((topic or "").strip().lower())) is not None:
+            return named
         root = _skill_root(self.engine)
         if root is None:
             raise Rejected("this server carries no guide", hint="the rules are in the briefing join returns")
@@ -2893,8 +2898,9 @@ class Session:
             if me:
                 card["met"] = any(x["target"] == eid for x in w.edges(me, "knows", "out"))
         card["relations"] = rels
-        card["actions"] = {v: {"doc": a.get("doc", ""), "targets": a.get("targets"), "params": a.get("params", {})}
-                           for v, a in w.schema_actions(e["type"]).items() if full or not a.get("hidden")}
+        card["actions"] = {v: {"doc": a.get("doc", ""), "targets": a.get("targets"), "params": a.get("params", {}),
+                               **({"named": a["named"]} if a.get("named") else {})}
+                           for v, a in w.own_actions(e).items() if full or not a.get("hidden")}
         for v, a in own_verbs(e).items():  # verbs put on this one thing
             trial = isinstance(a, dict) and bool(a.get("pending")) and w._on_trial(a)
             if isinstance(a, dict) and v not in card["actions"] and (full or not a.get("pending") or trial):
@@ -4318,7 +4324,7 @@ class Session:
         e = w.need(eid)
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", str(verb or "")):
             raise Rejected(f"a verb is one short lowercase word, not {verb!r}", hint="like hail or tune_engine")
-        if verb in w.schema_actions(e["type"]):
+        if verb in w.own_actions(e):
             raise Rejected(f"{e['name'] or eid} already has {verb} of its own", hint="pick another word")
         if e["state"].get("canon") and self.role != OWNER:
             raise Rejected(f"{e['name']} is canon: the owner's to change", hint="program something else")
@@ -4462,6 +4468,95 @@ class Session:
         entry = {k: v for k, v in entry.items() if k != "pending"}
         self.world.patch(eid, {"programmed": {**own_verbs(e), verb: entry}}, replace=True)
         return {"ok": True, "thing": eid, "verb": verb, "live": True}
+
+    def _named_for(self, e: dict[str, Any], name: str) -> dict[str, Any]:
+        """The `named_by` spec on e's kind whose catalogue holds `name`: the refusal names the catalogue when none does."""
+        w = self.world
+        specs = [a["named_by"] for a in w.schema_actions(e["type"]).values() if isinstance(a.get("named_by"), dict)]
+        who = e["name"] or e["id"]
+        if not specs:
+            raise Rejected(f"{who}'s kind holds no verbs by name: its schema carries no catalogue",
+                           hint="a world opts in with a named_by action on the kind (docs/SCRIPTING.md)")
+        if name in w.schema_actions(e["type"]):
+            raise Rejected(f"{who} already has {name} of its own", hint="a gift never takes a verb's name")
+        names: list[str] = []
+        for spec in specs:
+            cat = w.catalogue(spec)
+            if name in cat:
+                return spec
+            names += sorted(cat)
+        topic = next((s.get("topic") for s in specs if s.get("topic")), None)
+        raise Rejected(f"no {name!r} in this world's catalogue",
+                       hint=(f"guide('{topic}') has each one. " if topic else "") + "In it: " + (", ".join(names) or "nothing yet"),
+                       alternatives=names)
+
+    def grant_verb(self, body: str, name: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Give a body one verb from the world's catalogue (a gift: guide('gifts') lists a world's), and it shows on that
+        body under its own name. overrides lays the body's own fields over the catalogue's ({"dice": "1d6"}); granting a
+        name it holds again changes only the fields named, and a field set to None goes back to the catalogue's. The
+        world's owner and authors give; a world rule gives from its scripts by writing the body's book. A guest grant
+        never gives, and no body gives itself one."""
+        self._need(AUTHOR)
+        if self.limits:
+            raise Rejected("gifts are the world's keepers' to give: your grant may not", hint="ask the owner (ask_owner)")
+        if overrides is not None and not isinstance(overrides, dict):
+            raise Rejected("overrides is a map of fields", hint='grant_verb(body, "ice", {"dice": "1d6"})')
+        if len(json.dumps(overrides or {})) > 2000:
+            raise Rejected("overrides are at most 2000 characters", hint="the catalogue keeps the rest")
+        w = self.world
+        eid = self._resolve(body)
+        e = w.need(eid)
+        spec = self._named_for(e, str(name))
+        self._record("grant_verb", body=body, name=name, overrides=overrides)
+        book = dict(e["state"].get(spec["key"]) or {})
+        own = {**(book.get(name) if isinstance(book.get(name), dict) else {}), **(overrides or {})}
+        book[name] = {k: v for k, v in own.items() if v is not None}
+        w.patch(eid, {spec["key"]: book}, replace=True)
+        return {"ok": True, "body": eid, "verb": name, "entry": w.named_entry(w.need(eid), spec["key"], name),
+                "holds": sorted(book)}
+
+    def take_verb(self, body: str, name: str) -> dict[str, Any]:
+        """Take back a verb grant_verb gave (a gift): it is gone from that body. The owner's and authors' call, as granting is."""
+        self._need(AUTHOR)
+        if self.limits:
+            raise Rejected("gifts are the world's keepers' to take: your grant may not", hint="ask the owner (ask_owner)")
+        w = self.world
+        eid = self._resolve(body)
+        e = w.need(eid)
+        for a in w.schema_actions(e["type"]).values():
+            spec = a.get("named_by") if isinstance(a.get("named_by"), dict) else None
+            book = dict(e["state"].get(spec["key"]) or {}) if spec else {}
+            if name in book:
+                self._record("take_verb", body=body, name=name)
+                del book[name]
+                w.patch(eid, {spec["key"]: book or None}, replace=True)
+                return {"ok": True, "body": eid, "verb": name, "taken": True, "holds": sorted(book)}
+        held = sorted(n for a in w.schema_actions(e["type"]).values() if isinstance(a.get("named_by"), dict)
+                      for n in (e["state"].get(a["named_by"]["key"]) or {}))
+        raise Rejected(f"{e['name'] or eid} holds no {name!r}", hint="it holds: " + (", ".join(held) or "none"))
+
+    def _named_guide(self, topic: str) -> dict[str, Any] | None:
+        """guide('<topic>') for a world catalogue that names it (a named_by spec's `topic`): each entry and how to give one."""
+        if not self.world_id:
+            return None
+        w = self.world
+        for spec in w.named_specs():
+            if str(spec.get("topic") or "").lower() != topic:
+                continue
+            cat = w.catalogue(spec)
+            lines = [str(spec.get("guide") or f"{topic} in {w.name}: verbs a body holds by name, each from this catalogue.")]
+            for name, entry in sorted(cat.items()):
+                if not isinstance(entry, dict):
+                    continue
+                facts = "; ".join(f"{k} {json.dumps(v) if isinstance(v, (dict, list)) else v}"
+                                  for k, v in entry.items() if k not in ("words", "scene"))
+                lines.append(f"{name}: {entry.get('words') or ''}" + (f" ({facts})" if facts else ""))
+            lines.append(f"Give one: grant_verb(body, name, overrides) (the owner's and authors'), with overrides for "
+                         f"the body's own fields ({{'dice': '1d6'}}); take_verb(body, name) takes it back. The body "
+                         f"then acts it by name, act(name, target). It is kept on the body's {spec['key']}, which only "
+                         f"the world's rules and its keepers write.")
+            return {"topic": topic, "text": "\n".join(lines), "catalogue": cat, "topics": list(GUIDE_TOPICS)}
+        return None
 
     def chmod(self, entity: str, mode: str, verb: str | None = None) -> dict[str, Any]:
         """Set who may read (r), change (w) and use (x) a thing: mode rwxr-x---, octal 750, or symbolic g+w, o-rwx
@@ -4975,7 +5070,7 @@ OPS = [
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
     "chmod", "chown", "program", "unprogram", "programs", "review", "guide", "rules_changed", "verify",
-    "vouch", "review_script", "report_flaw", "flaws", "relink", "looks", "offer", "answer",
+    "grant_verb", "take_verb", "vouch", "review_script", "report_flaw", "flaws", "relink", "looks", "offer", "answer",
     "ask_owner", "asks_to_owner", "answer_ask", "ask_readers",
 ]
 
@@ -4997,7 +5092,7 @@ LAYERS: dict[str, tuple[str, list[str]]] = {
     "building": ("Making the world: kinds, things, places, rules, scripts and access.", [
         "define_schema", "define_script", "schemas", "scripts", "script_source", "spawn", "introduce", "patch", "rename",
         "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "set_rule", "clear_rule",
-        "schedule", "unschedule", "mirror", "chmod", "chown", "act_as", "say_as"]),
+        "schedule", "unschedule", "mirror", "chmod", "chown", "act_as", "say_as", "grant_verb", "take_verb"]),
     "oracle": ("An app's door into the world: the verbs it offers and its answers.", ["offer", "answer"]),
 }
 LAYER_OF = {op: name for name, (_, ops) in LAYERS.items() for op in ops}
