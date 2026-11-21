@@ -35,7 +35,8 @@ def _start(tmp: Path, env: dict[str, str] | None = None, known: str = "[]", real
     shutil.copy(REPO / "deploy" / "start.sh", _write(tmp / "deploy" / "start.sh", ""))
     bin_ = tmp / "bin"
     log = tmp / "calls.log"
-    py = Path(sys.executable).as_posix()
+    log.unlink(missing_ok=True)
+    py =Path(sys.executable).as_posix()
     _write(bin_ / "embody", '#!/bin/sh\necho "$*" >> "$STUB_LOG"\n'
                             'case "$*" in *serve*) echo "env world=$EMBODY_WORLD site=${EMBODY_SITE:-}" >> "$STUB_LOG";'
                             ' exit 0;; esac\n'
@@ -105,35 +106,77 @@ def test_the_staged_choice_wins_over_the_folder_scan(tmp_path):
     assert calls[1] == "--db /data/embody.db --author load two --hosted"
 
 
-@needs_sh
-def test_the_renew_upgrades_the_served_file_and_not_a_stale_hub_copy(tmp_path):
-    """A volume that once ran `embody hub` keeps /data/worlds/<id>.db. With --world and no --db the CLI prefers that
-    file, so the renew used to upgrade it while serve read $EMBODY_DB: new code never reached the served world."""
-    shutil.copytree(REPO / "examples" / "ferry-at-dusk", tmp_path / "worlds" / "ferry-at-dusk",
+def _events(p: Path) -> int:
+    c = sqlite3.connect(p)
+    try:
+        return c.execute("SELECT count(*) FROM event").fetchone()[0]
+    finally:
+        c.close()
+
+
+def _volume(tmp: Path) -> tuple[Path, dict[str, str]]:
+    """A workspace with the ferry sample as its only world, built once into data/embody.db by a real boot."""
+    shutil.copytree(REPO / "examples" / "ferry-at-dusk", tmp / "worlds" / "ferry-at-dusk",
                     ignore=shutil.ignore_patterns("tests", "saves", "__pycache__"))
-    shutil.copytree(REPO / "packs" / "village", tmp_path / "packs" / "village",
+    shutil.copytree(REPO / "packs" / "village", tmp / "packs" / "village",
                     ignore=shutil.ignore_patterns("tests", "__pycache__"))
-    db = tmp_path / "data" / "embody.db"
+    db = tmp / "data" / "embody.db"
     db.parent.mkdir()
-    env = {"EMBODY_DB": db.as_posix(), "EMBODY_WORKSPACE": tmp_path.as_posix(), "EMBODY_AS": "host"}
-    code, out, _ = _start(tmp_path, env, real=True)
+    env = {"EMBODY_DB": db.as_posix(), "EMBODY_WORKSPACE": tmp.as_posix(), "EMBODY_AS": "host"}
+    code, out, _ = _start(tmp, env, real=True)
     assert code == 0, out
     assert "building ferry-at-dusk" in out
-    stale = db.parent / "worlds" / "ferry-at-dusk.db"
-    stale.parent.mkdir()
-    shutil.copy(db, stale)
+    return db, env
 
-    def events(p: Path) -> int:
-        with sqlite3.connect(p) as c:
-            return c.execute("SELECT count(*) FROM event").fetchone()[0]
 
-    served, copy = events(db), events(stale)
+def _on(db: Path, calls: list[str]) -> bool:
+    """Every embody call of the boot named this file, serve included."""
+    named = [c for c in calls if not c.startswith("env ")]
+    return bool(named) and all(c.startswith(f"--db {db.as_posix()} ") for c in named) and "serve" in named[-1]
+
+
+@needs_sh
+def test_with_no_hub_file_the_renew_and_serve_use_embody_db(tmp_path):
+    db, env = _volume(tmp_path)
+    before = _events(db)
     code, out, calls = _start(tmp_path, env, real=True)
     assert code == 0, out
-    assert "renewing ferry-at-dusk" in out and "is a hub's copy from an earlier boot" in out
-    assert events(db) > served, "the renew must reach the file serve reads"
-    assert events(stale) == copy
-    assert all(c.startswith(f"--db {db.as_posix()} ") for c in calls if not c.startswith("env "))
+    assert "renewing ferry-at-dusk" in out and "hub's file" not in out
+    assert _events(db) > before
+    assert _on(db, calls)
+
+
+@needs_sh
+def test_a_hub_file_is_the_world_and_the_old_embody_db_is_left_alone(tmp_path):
+    """After a hub's first boot the world lives in <folder of $EMBODY_DB>/worlds/<id>.db and $EMBODY_DB is the stale
+    file it left. The CLI picks the hub's file only for a call naming --world and serve names none, so a boot that
+    left it to the CLI renewed the hub's file and served the stale one (the Reach served ten days back)."""
+    db, env = _volume(tmp_path)
+    hub = db.parent / "worlds" / "ferry-at-dusk.db"
+    hub.parent.mkdir()
+    shutil.copy(db, hub)
+    old, before = db.read_bytes(), _events(hub)
+    code, out, calls = _start(tmp_path, env, real=True)
+    assert code == 0, out
+    assert f"the world is in the hub's file {hub.as_posix()}" in out
+    assert _events(hub) > before, "the renew must reach the hub's file"
+    assert _on(hub, calls), "serve must read the file the renew upgraded"
+    assert db.read_bytes() == old
+
+
+@needs_sh
+def test_embody_db_set_to_the_hub_file_works_the_same(tmp_path):
+    db, env = _volume(tmp_path)
+    hub = db.parent / "worlds" / "ferry-at-dusk.db"
+    hub.parent.mkdir()
+    shutil.copy(db, hub)
+    old, before = db.read_bytes(), _events(hub)
+    code, out, calls = _start(tmp_path, {**env, "EMBODY_DB": hub.as_posix()}, real=True)
+    assert code == 0, out
+    assert "renewing ferry-at-dusk" in out and "hub's file" not in out
+    assert _events(hub) > before
+    assert _on(hub, calls)
+    assert db.read_bytes() == old
 
 
 @needs_sh
