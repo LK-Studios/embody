@@ -104,6 +104,12 @@ The numbers, so a narrator can explain a roll:
   (d20 + wits + stealth against 10 + their wits): done, the `lifted` event names the thief and the sleeper sleeps on;
   fumbled (`caught`), nothing is taken and they wake. A blow, a word said to them, `wake` by someone here, a noise,
   thirst (water 3) or their own next deed wakes them (`woke`, with `by` and `why`). Sleep where nobody would rob you.
+- A feud burns out. A blow on a member costs the striker 2 with the member's faction, but a blow struck back at
+  someone who struck you first, while that grudge holds (`grudge_for`), costs nothing: the faction counts who
+  started the fight. Standing lost to blows climbs back a point a world day after the last blow, up to -3, just
+  above outlaw (`standing` with `why` "blows forgiven"; the faction's secret `bruised` keeps what is left, the
+  body's secret `bruised_with` the factions). A fight nobody keeps up ends there; one a mind keeps striking stays
+  alive. A kill, a threat and dishonor are not forgiven by time.
 - A gift (`given`) is worth 1 with the receiver's faction only if they keep it: something they trade away on
   the spot, or something that was theirs to begin with (`given_by` on the thing names who handed it over),
   moves nothing, and a gift handed back to its giver was a loan: the 1 goes again ("lent, not given").
@@ -175,6 +181,14 @@ RULES = [
      "now": "A check is one try a skill, a place, a world hour (root check_again_after); the refusal says when to "
             "try again. Terms and gifts buy standing once a pair a world day; more that day moves nothing.",
      "recheck": ["plans that roll check until it passes", "plans that farm standing with repeated parley or gifts"],
+     "guide": ["player", "mind"]},
+    {"id": "feuds-burn-out", "date": "2026-11-21",
+     "was": "Every blow on a member cost 2 standing with their faction, a blow struck back as much as the first, and "
+            "standing never came back on its own: two sides could outlaw each other for good with no mind in it.",
+     "now": "A blow struck back at someone who struck you first, while that grudge holds, costs no standing: the "
+            "faction counts who started the fight. Standing lost to blows climbs back a point a world day after the "
+            "last blow, up to -3, just above outlaw (standing, why: blows forgiven). Kills, threats and dishonor stay.",
+     "recheck": ["plans that avoid a faction for an old fight", "notes on who is outlawed and why"],
      "guide": ["player", "mind"]},
 ]
 

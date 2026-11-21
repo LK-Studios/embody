@@ -692,10 +692,71 @@ def keep_secret(ctx, thing, changes):
     changes["secret"] = secret
     ctx.patch(thing, changes)
 
-def shift_standing(ctx, who, faction, delta, why, quiet=False):
+def shift_standing(ctx, who, faction, delta, why, quiet=False, blow=False):
     # an out-edge from the person, so they can read where they stand; hostility is kept on the faction.
     # quiet: the deed was done to someone who keeps their faction secret. The faction still counts it, in its own
     # secret `unseen`, and the person's edge and feed name no side they cannot know.
+    # blow: the loss came from a blow, which time forgives (forgive). What time has forgiven counts first.
+    forgive(ctx, who, faction)
+    value = move_standing(ctx, who, faction, delta, why, quiet)
+    if blow and delta < 0:
+        bruise(ctx, who, faction, -delta, quiet)
+    return value
+
+def bruise(ctx, who, faction, n, quiet):
+    # standing lost to blows, kept secret on the faction (`bruised`: how much is left to forgive, and since when).
+    # A new blow starts the day again. The body keeps the factions in its secret `bruised_with`, so its own rest
+    # (mend) can see the day come.
+    bruised = dict(faction.state.bruised or {})
+    rec = bruised.get(who.id) or {}
+    bruised[who.id] = {"n": int(rec.get("n") or 0) + n, "at": ctx.t, "quiet": bool(quiet)}
+    keep_secret(ctx, faction, {"bruised": bruised})
+    if faction.id not in (who.state.bruised_with or []):
+        keep_secret(ctx, who, {"bruised_with": list(who.state.bruised_with or []) + [faction.id]})
+
+def forgive(ctx, who, faction):
+    # standing lost to blows climbs back a point a world day after the last blow, up to -3, just above outlaw: a
+    # fight nobody keeps up burns out, and one a mind keeps striking stays alive. Returns the points given back.
+    bruised = dict(faction.state.bruised or {})
+    rec = bruised.get(who.id)
+    if not rec:
+        return 0
+    day = ctx.day_seconds()
+    days = int((ctx.t - float(rec["at"])) // day)
+    if days <= 0:
+        return 0
+    room = -3 - standing(ctx, who, faction)
+    k = max(0, min(days, int(rec["n"]), room))
+    if k >= int(rec["n"]) or k >= room:
+        bruised[who.id] = None  # all forgiven, or as far up as time goes
+    else:
+        bruised[who.id] = {"n": int(rec["n"]) - k, "at": float(rec["at"]) + k * day, "quiet": rec.get("quiet")}
+    keep_secret(ctx, faction, {"bruised": bruised})
+    if k > 0:
+        move_standing(ctx, who, faction, k, "blows forgiven", rec.get("quiet"))
+    return k
+
+def forgive_all(ctx, who):
+    # every faction this body has a bruise with: what the days since have forgiven (mend calls it)
+    left = []
+    for fid in who.state.bruised_with or []:
+        f = ctx.get(fid)
+        if f is None:
+            continue
+        forgive(ctx, who, f)
+        if (f.state.bruised or {}).get(who.id):
+            left.append(fid)
+    if left != list(who.state.bruised_with or []):
+        ctx.patch(who, {"bruised_with": left or None})
+
+def outlaw_of(ctx, faction, who):
+    # still outlawed by the faction, once time has forgiven what it will
+    if not (faction.state.hostile or {}).get(who.id):
+        return False
+    forgive(ctx, who, faction)
+    return bool((faction.state.hostile or {}).get(who.id))
+
+def move_standing(ctx, who, faction, delta, why, quiet=False):
     seen = seen_standing(ctx, who, faction)
     unseen = dict(faction.state.unseen or {})
     if quiet:

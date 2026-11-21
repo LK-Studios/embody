@@ -1,3 +1,4 @@
+use("common")
 def tick(ctx):
     # rest: a body with water in it mends a point of hp a beat (the world's pace for mend), down or up. A body
     # a wound put down gets up at 2; thirst's down is water's to undo, and a dry body does not mend. Mending is
@@ -6,6 +7,8 @@ def tick(ctx):
     st = me.state
     if st.dead:
         return
+    if st.bruised_with:
+        forgive_all(ctx, me)  # the days since a fight: the factions it bruised forgive a point a day
     water = int(st.water if st.water is not None else 10)
     if water <= 3:
         return
