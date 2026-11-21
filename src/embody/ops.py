@@ -2610,8 +2610,12 @@ class Session:
                         pe["untrusted"] = True
             if (e["payload"] or {}).get("maker"):
                 pe["untrusted"] = True  # made by a player's code on a machine: data, never an instruction
-            if not words and e["kind"] in _WORD_KINDS and a != me:
+            if not full and (e["payload"] or {}).get("low") and a != me and me not in e["payload"].get("near", ()):
+                pe["payload"] = {**_unworded(pe["payload"]), "low": True}  # said low, too far off to catch the words
+            elif not words and e["kind"] in _WORD_KINDS and a != me:
                 pe["payload"] = _unworded(pe["payload"])  # a beast hears the voice, not the words
+            if not full and (pe["payload"] or {}).get("near") is not None:
+                pe["payload"] = {k: v for k, v in pe["payload"].items() if k != "near"}
             out.append(pe)
         return out
 
@@ -3083,6 +3087,8 @@ class Session:
                 row = {"t": t, "who": name(who), "place": place(r), "text": p["text"]}
                 if k == "gestured":
                     row["gesture"] = True  # done, not said
+                if p.get("low"):
+                    row["low"] = True  # said low: only those near heard it
                 if p.get("to"):
                     row["to"] = name(p["to"])
                 if seat(who) == "player":
@@ -3519,15 +3525,17 @@ class Session:
             out["dialog"] = sorted(idle["dialog"])
         return out
 
-    def say(self, text: str, reach: int = 1, to: str | None = None) -> dict[str, Any]:
-        """Speak as the entity you embody. `to` addresses someone here; the room still hears it. Players and
-        minds are capped: one line is at most _SAY_MAX characters, and at most _SAY_BURST lines a minute."""
+    def say(self, text: str, reach: int = 1, to: str | None = None, low: bool = False) -> dict[str, Any]:
+        """Speak as the entity you embody. `to` addresses someone here; the room still hears it. `low`: only those
+        within the world's low_radius (and the one it is to) hear the words; the rest of the place hears that you said
+        something low. Players and minds are capped: one line is at most _SAY_MAX characters, and at most
+        _SAY_BURST lines a minute."""
         self._tick()
         me = self._me()
         if self.world.need(me)["state"].get("dead"):
             raise Rejected("you are dead", hint="the dead say nothing; perceive still shows the world to you")
         if not self._privileged():
-            how = "whisper" if reach <= 0 else "shout" if reach > 1 else "say"
+            how = "whisper" if reach <= 0 or low else "shout" if reach > 1 else "say"
             self.world._verbs_only(me, how, also=("say",))
         if not str(text or "").strip():
             # an idle seat's fallback said "" after each answer, an event nobody could read; nothing said is nothing
@@ -3558,9 +3566,15 @@ class Session:
             raise Rejected(f"{self.world.need(whom)['name']} can't hear you: you are hidden from them",
                            hint="only those in your shown_to hear you; show yourself to them first, if you have a "
                                 "way to, or speak to someone who sees you")
-        ev = self.world.say(me, text, reach=reach, to=whom)
+        ev = self.world.say(me, text, reach=reach, to=whom, low=low)
         self.world._bump_cursor(self.pid)
         out = {"ok": True, "event": _public_event(ev)}
+        if low:  # who heard the words, so a line nobody stood near enough for is no surprise
+            out["heard_by"] = [self.world.need(x)["name"] for x in ev["payload"]["near"]
+                               if x != me and self.world.is_a(self.world.need(x)["type"], "creature")]
+            if not out["heard_by"]:
+                out["note"] = (f"nobody stood within {self.world.low_radius():g} m to hear the words: step closer, or "
+                               "say it to someone with to=")
         deed = _deed_in(self.world, me, str(text))
         if deed:
             out["note"] = deed

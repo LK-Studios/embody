@@ -248,8 +248,10 @@ def render_wait(b: dict[str, Any]) -> str:
 def render_event(e: dict[str, Any]) -> str:
     p = e["payload"]
     k = e["kind"]
+    if k == "say" and p.get("low") and p.get("heard") is False:
+        return f"{e['actor']} says something low" + (f" to {p['to']}" if p.get("to") else "")
     if k == "say":
-        return f"{e['actor']} says: {p.get('text', '')}"
+        return f"{e['actor']} says" + (" low" if p.get("low") else "") + f": {p.get('text', '')}"
     if k == "act":
         return f"{e['actor']} {p.get('verb')} {p.get('target') or ''}".strip()
     if k == "moved":
@@ -463,6 +465,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("text")
     c.add_argument("--reach", type=int, default=1)
     c.add_argument("--to", help="who you address (name or id); without it the room hears")
+    c.add_argument("--low", action="store_true", help="only those within a few metres hear the words")
     c = sub.add_parser("wait", help="block until something happens near you")
     c.add_argument("--timeout", type=float, default=30)
     c.add_argument("--kinds", nargs="*")
@@ -641,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
             r = s.act(args.verb, args.target, parse_params(args.param))
             emit(args, r, render_act(r))
         elif args.cmd == "say":
-            emit(args, s.say(args.text, reach=args.reach, to=args.to), "said.")
+            emit(args, s.say(args.text, reach=args.reach, to=args.to, low=args.low), "said.")
         elif args.cmd == "wait":
             b = s.wait(timeout=args.timeout, kinds=args.kinds, full=args.full)
             emit(args, b, render_perceive(b) if args.full else render_wait(b))

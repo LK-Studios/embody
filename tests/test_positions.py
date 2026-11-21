@@ -103,3 +103,31 @@ def test_perceive_says_how_far_across_the_place_each_thing_is(tmp_path):
     assert seen["Well"]["from_you"] == "beside" and seen["Bench"]["from_you"] == "here"
     assert seen["Bone"]["from_you"] == "across"
     assert all("from_you" not in c for n, c in seen.items() if n not in ("Well", "Bench", "Bone"))  # no spot, no band
+
+
+def test_a_low_line_is_heard_in_full_only_near_the_speaker(tmp_path):
+    # 2026-11-21, a world builder: a line said anywhere in a place reached everyone in it, so nobody stepped closer
+    eng, gm = _laid(tmp_path)
+    sq = gm.inspect("Ashford Square")["id"]
+    for name, at in [("Ana", [0, 0, 0]), ("Ben", [2, 0, 0]), ("Cal", [12, 0, 0])]:
+        gm.spawn("person", sq, name)
+        gm.layout(placements=[{"entity": name, "at": at}])
+    seats = {}
+    for name in ["Ana", "Ben", "Cal"]:
+        seats[name] = eng.session(name.lower())
+        seats[name].join(gm.world.id, name)
+        seats[name].perceive()
+    r = seats["Ana"].say("Meet me at the mill after dark.", low=True)
+    assert r["heard_by"] == ["Ben"]
+
+    def line(name):
+        return [e["payload"] for e in seats[name].perceive()["events"] if e["kind"] == "say"][-1]
+    near = line("Ben")
+    assert near["text"] == "Meet me at the mill after dark." and "near" not in near
+    far = line("Cal")
+    assert far["low"] and far["heard"] is False and "text" not in far and "near" not in far
+    seats["Ana"].say("And you, Cal.", to="Cal", low=True)
+    assert line("Cal")["text"] == "And you, Cal."  # the one it is said to hears it, however far
+    alone = seats["Cal"].say("Nobody hears this.", low=True)
+    assert alone["heard_by"] == [] and "step closer" in alone["note"]
+    assert line("Ana")["heard"] is False

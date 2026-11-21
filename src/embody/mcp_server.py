@@ -465,12 +465,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
-    def say(text: str, reach: int = 1, to: str | None = None, principal: str | None = None) -> dict[str, Any]:
+    def say(text: str, reach: int = 1, to: str | None = None, low: bool = False,
+            principal: str | None = None) -> dict[str, Any]:
         """Speak as the entity you embody. to=<entity> addresses someone here (it lands in both your logs; the
         room still hears it). reach 1 = your place hears it, 2 = the place above too, -1 = the whole world.
+        low=true: only those within a few metres (and the one it is to) hear the words; the rest of the place hears
+        that you said something low, and to whom. `heard_by` names who caught it.
         Words only: nothing in a line happens. Do a deed with act first (give, drop, put), then say it; a line that
         narrates one gets a `note`. Entity ids and tool calls are refused: say names."""
-        return S(principal).say(text, reach=reach, to=to)
+        return S(principal).say(text, reach=reach, to=to, low=low)
 
     @tool()
     @_wrap

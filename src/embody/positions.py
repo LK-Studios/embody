@@ -86,15 +86,23 @@ BESIDE_M = 1.5  # within reach of a hand
 HERE_M = 5.0  # a few steps: the same table, the same corner
 
 
-def nearness(w: "World", a: str, b: str) -> str | None:
-    """How near b is to a inside one place, for perceive: beside (within BESIDE_M), here (within HERE_M) or across
-    (the rest of the place). None when either has no spot of its own, or they are in different frames."""
+def apart(w: "World", a: str, b: str) -> float | None:
+    """Metres between two bodies by their own spots (or grid cells), or None when either has none, or they are in
+    different frames."""
     if not same_frame(w, a, b):
         return None
     ra, rb = resolve(w, a), resolve(w, b)
     if ra["how"] not in ("own", "grid") or rb["how"] not in ("own", "grid") or not ra["at"] or not rb["at"]:
         return None
-    d = geo.dist3(ra["at"], rb["at"])
+    return geo.dist3(ra["at"], rb["at"])
+
+
+def nearness(w: "World", a: str, b: str) -> str | None:
+    """How near b is to a inside one place, for perceive: beside (within BESIDE_M), here (within HERE_M) or across
+    (the rest of the place). None when either has no spot of its own, or they are in different frames."""
+    d = apart(w, a, b)
+    if d is None:
+        return None
     return "beside" if d <= BESIDE_M else "here" if d <= HERE_M else "across"
 
 
