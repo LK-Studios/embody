@@ -72,15 +72,24 @@ m = next((n.value for n in ast.parse((p / "build.py").read_text(encoding="utf-8"
           and any(getattr(t, "id", "") == "WORLD" for t in n.targets)), None)
 print((ast.literal_eval(m).get("id") if m is not None else None) or p.resolve().name)' "$dir")
 ref=$EMBODY_WORLD
+: "${EMBODY_DB:=/data/embody.db}"
 
-if embody --json worlds | grep -q "\"id\": \"$wid\""; then
+# One world: every call names the database outright. With --world and no --db the CLI picks a hub's own file
+# (<folder of $EMBODY_DB>/worlds/<world>.db) when one is there, so a volume that once ran `embody hub` would have
+# the renew upgrade that copy while serve reads $EMBODY_DB, and new code would never reach the live world.
+hub_copy="$(dirname "$EMBODY_DB")/worlds/$wid.db"
+if [ -f "$hub_copy" ]; then
+    echo "note: $hub_copy is a hub's copy from an earlier boot; this server renews and serves $EMBODY_DB"
+fi
+
+if embody --db "$EMBODY_DB" --json worlds | grep -q "\"id\": \"$wid\""; then
     echo "renewing $wid in $EMBODY_DB"
-    embody --author --world "$wid" load "$ref" --upgrade --hosted
+    embody --db "$EMBODY_DB" --author --world "$wid" load "$ref" --upgrade --hosted
 else
     echo "building $wid ($ref) into $EMBODY_DB"
-    embody --author load "$ref" --hosted
+    embody --db "$EMBODY_DB" --author load "$ref" --hosted
 fi
-echo "hosting $wid; the first owner grant: embody --author --world $wid invite owner --label <you>"
+echo "hosting $wid; the first owner grant: embody --db $EMBODY_DB --author --world $wid invite owner --label <you>"
 
 # serve reads the world by its id, and its page from the folder's own site/ (where the folder is not worlds/<id>)
 EMBODY_WORLD=$wid
@@ -90,4 +99,4 @@ if [ -z "${EMBODY_SITE:-}" ] && [ -d "$dir/site" ]; then
     export EMBODY_SITE
 fi
 
-exec embody --author serve --http --host 0.0.0.0 --port "$PORT" --log-level info ${EMBODY_URL:+--url "$EMBODY_URL"}
+exec embody --db "$EMBODY_DB" --author serve --http --host 0.0.0.0 --port "$PORT" --log-level info ${EMBODY_URL:+--url "$EMBODY_URL"}

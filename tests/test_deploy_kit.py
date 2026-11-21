@@ -5,6 +5,7 @@ tools/stage_deploy.py ships a world that lives only on disk under worlds/ (git i
 import importlib.util
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -26,24 +27,29 @@ def _write(p: Path, text: str) -> Path:
 # ---- deploy/start.sh ---------------------------------------------------------------
 
 
-def _start(tmp: Path, env: dict[str, str] | None = None, known: str = "[]") -> tuple[int, str, list[str]]:
+def _start(tmp: Path, env: dict[str, str] | None = None, known: str = "[]", real: bool = False
+           ) -> tuple[int, str, list[str]]:
     """Run a copy of start.sh in tmp with `embody` stubbed: it logs its arguments and answers `--json worlds` with
-    `known`. Returns the exit code, stderr and the embody calls."""
+    `known`, or with real=True runs the real CLI for everything but serve. Returns the exit code, stderr (stdout
+    too, when real) and the embody calls."""
     shutil.copy(REPO / "deploy" / "start.sh", _write(tmp / "deploy" / "start.sh", ""))
     bin_ = tmp / "bin"
     log = tmp / "calls.log"
+    py = Path(sys.executable).as_posix()
     _write(bin_ / "embody", '#!/bin/sh\necho "$*" >> "$STUB_LOG"\n'
-                            'if [ "$1" = "--json" ]; then echo "$STUB_KNOWN"; fi\n'
-                            'case "$*" in *serve*) echo "env world=$EMBODY_WORLD site=${EMBODY_SITE:-}" >> "$STUB_LOG";; esac\n')
-    _write(bin_ / "python", f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n')
+                            'case "$*" in *serve*) echo "env world=$EMBODY_WORLD site=${EMBODY_SITE:-}" >> "$STUB_LOG";'
+                            ' exit 0;; esac\n'
+                            + (f'exec "{py}" -m embody.cli "$@"\n' if real else
+                               'case "$*" in *--json*) echo "$STUB_KNOWN";; esac\n'))
+    _write(bin_ / "python", f'#!/bin/sh\nexec "{py}" "$@"\n')
     for f in ("embody", "python"):
         (bin_ / f).chmod(0o755)
     e = {k: v for k, v in os.environ.items() if not k.startswith("EMBODY_")}
     e.update({"PATH": str(bin_) + os.pathsep + e.get("PATH", ""), "STUB_LOG": str(log), "STUB_KNOWN": known,
               "EMBODY_DB": "/data/embody.db", "PORT": "8123"}, **(env or {}))
-    r = subprocess.run([SH, "deploy/start.sh"], cwd=tmp, env=e, capture_output=True, text=True, timeout=60)
+    r = subprocess.run([SH, "deploy/start.sh"], cwd=tmp, env=e, capture_output=True, text=True, timeout=120)
     calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
-    return r.returncode, r.stderr, calls
+    return r.returncode, r.stderr + (r.stdout if real else ""), calls
 
 
 needs_sh = pytest.mark.skipif(SH is None, reason="no POSIX sh on PATH")
@@ -63,8 +69,8 @@ def test_the_only_world_under_worlds_is_built_then_served(tmp_path):
     _write(tmp_path / "worlds" / "mine" / "build.py", BUILD.format(id="mine"))
     code, err, calls = _start(tmp_path)
     assert code == 0, err
-    assert calls[1] == "--author load mine --hosted"
-    assert calls[-2].startswith("--author serve --http --host 0.0.0.0 --port 8123")
+    assert calls[1] == "--db /data/embody.db --author load mine --hosted"
+    assert calls[-2].startswith("--db /data/embody.db --author serve --http --host 0.0.0.0 --port 8123")
     assert calls[-1] == "env world=mine site="
 
 
@@ -82,11 +88,11 @@ def test_a_sample_path_loads_by_path_and_renews_by_its_manifest_id(tmp_path):
     _write(tmp_path / "examples" / "sample" / "site" / "index.html", "<p>the sample</p>")
     code, err, calls = _start(tmp_path, {"EMBODY_WORLD": "examples/sample"})
     assert code == 0, err
-    assert calls[1] == "--author load examples/sample --hosted"
+    assert calls[1] == "--db /data/embody.db --author load examples/sample --hosted"
     assert calls[-1] == "env world=the-sample site=examples/sample/site"  # serve gets the id, not the path
     code, err, calls = _start(tmp_path, {"EMBODY_WORLD": "examples/sample"}, known='[{"id": "the-sample"}]')
     assert code == 0, err
-    assert "--author --world the-sample load examples/sample --upgrade --hosted" in calls
+    assert "--db /data/embody.db --author --world the-sample load examples/sample --upgrade --hosted" in calls
 
 
 @needs_sh
@@ -96,7 +102,38 @@ def test_the_staged_choice_wins_over_the_folder_scan(tmp_path):
     _write(tmp_path / "deploy" / "world", "two\n")
     code, err, calls = _start(tmp_path)
     assert code == 0, err
-    assert calls[1] == "--author load two --hosted"
+    assert calls[1] == "--db /data/embody.db --author load two --hosted"
+
+
+@needs_sh
+def test_the_renew_upgrades_the_served_file_and_not_a_stale_hub_copy(tmp_path):
+    """A volume that once ran `embody hub` keeps /data/worlds/<id>.db. With --world and no --db the CLI prefers that
+    file, so the renew used to upgrade it while serve read $EMBODY_DB: new code never reached the served world."""
+    shutil.copytree(REPO / "examples" / "ferry-at-dusk", tmp_path / "worlds" / "ferry-at-dusk",
+                    ignore=shutil.ignore_patterns("tests", "saves", "__pycache__"))
+    shutil.copytree(REPO / "packs" / "village", tmp_path / "packs" / "village",
+                    ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    db = tmp_path / "data" / "embody.db"
+    db.parent.mkdir()
+    env = {"EMBODY_DB": db.as_posix(), "EMBODY_WORKSPACE": tmp_path.as_posix(), "EMBODY_AS": "host"}
+    code, out, _ = _start(tmp_path, env, real=True)
+    assert code == 0, out
+    assert "building ferry-at-dusk" in out
+    stale = db.parent / "worlds" / "ferry-at-dusk.db"
+    stale.parent.mkdir()
+    shutil.copy(db, stale)
+
+    def events(p: Path) -> int:
+        with sqlite3.connect(p) as c:
+            return c.execute("SELECT count(*) FROM event").fetchone()[0]
+
+    served, copy = events(db), events(stale)
+    code, out, calls = _start(tmp_path, env, real=True)
+    assert code == 0, out
+    assert "renewing ferry-at-dusk" in out and "is a hub's copy from an earlier boot" in out
+    assert events(db) > served, "the renew must reach the file serve reads"
+    assert events(stale) == copy
+    assert all(c.startswith(f"--db {db.as_posix()} ") for c in calls if not c.startswith("env "))
 
 
 @needs_sh
