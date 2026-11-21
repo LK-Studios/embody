@@ -6,9 +6,10 @@ dist/
 .pytest_cache/
 *.db
 *.db-journal
-# worlds/ is the owner's own workspace; the samples live in examples/. The Glass Reach stays tracked:
-# the deploy ships the committed tree (tools/stage_deploy.py) and hosts it.
+# worlds/ is the owner's own workspace; the samples live in examples/. Only the placeholder is tracked, so a fresh
+# clone has the folder (the Dockerfile copies it). A hosted world ships from its own repository (tools/stage_deploy.py).
 worlds/*
+!worlds/put_worlds_here.txt
 !worlds/glass-reach/
 worlds/*/mirror/
 worlds/mirror/

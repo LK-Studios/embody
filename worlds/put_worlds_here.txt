@@ -1,0 +1,6 @@
+Your worlds go here, one folder each: worlds/<id>/build.py.
+
+git ignores everything in this folder but this file, so the worlds you make stay yours and out of the
+engine's repository. The samples live in examples/: load one by its path, or copy it here to make it your own.
+
+This file is only here to keep the folder in the repository (git does not keep empty folders).
