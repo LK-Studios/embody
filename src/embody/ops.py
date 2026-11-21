@@ -2869,9 +2869,11 @@ class Session:
         card["actions"] = {v: {"doc": a.get("doc", ""), "targets": a.get("targets"), "params": a.get("params", {})}
                            for v, a in w.schema_actions(e["type"]).items() if full or not a.get("hidden")}
         for v, a in own_verbs(e).items():  # verbs put on this one thing
-            if isinstance(a, dict) and v not in card["actions"] and (full or not a.get("pending")):
+            trial = isinstance(a, dict) and bool(a.get("pending")) and w._on_trial(a)
+            if isinstance(a, dict) and v not in card["actions"] and (full or not a.get("pending") or trial):
                 card["actions"][v] = {"doc": a.get("doc", ""), "targets": a.get("targets"), "params": a.get("params") or {},
-                                      "programmed": True, **({"pending": True} if a.get("pending") else {})}
+                                      "programmed": True, **({"pending": True} if a.get("pending") else {}),
+                                      **({"trial": "it may only look until the owner reviews it"} if trial else {})}
         if full:
             card["rules"] = e["state"].get("rules", [])
             card["version"] = e["version"]
@@ -4278,7 +4280,8 @@ class Session:
         what it holds; whoever chose the verb it may move and give things, and change only on the keys the frame's
         `maker.actor_keys` names, never a body's make (stats, skills, hp, water, carry); it reads public state; it makes nothing from nothing and sets
         no rules; what it says reaches others marked untrusted. With the frame's `review` on, the verb waits for
-        the owner. The owner and author program anything; frame=... holds their code to that frame. `targets` (a
+        the owner; with review "writes" it runs before then on a look-only trial (no writes, its machine's secrets
+        sealed). The owner and author program anything; frame=... holds their code to that frame. `targets` (a
         type, or "any"; the owner's and author's only) lets a body's own verb reach others: act(verb, target) finds it
         on the actor, and ctx.target is whom it is done to."""
         self._tick()

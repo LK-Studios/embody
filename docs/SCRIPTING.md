@@ -163,7 +163,7 @@ frame in yours. Over the door, guide('scripting') carries the frame's own rules 
   `stone: true`, lying loose where the machine stands, portable, nobody's but the caller's, within its `cargo`.
 - A frame's caps: it makes at most 12 verbs, held or live (`unprogram` one to add another), 6000 characters a source, 20
   programs an hour. With review on, every new verb waits for the owner's `review`, and so does a rewrite of a live
-  one: it goes back to pending. `programs` shows which are pending. A frame's code makes events in its own namespace
+  one: it goes back to pending. `programs` shows which are pending. With `review: "writes"` a pending verb still waits for the review, but until then it runs on a look-only trial: it reads and answers the one who used it (its return and `ctx.log`), its machine's secret keys stay sealed (what the review guards, a codex, is not read before the owner says yes), and any write ends the run with "may only look" and rolls the act back. perceive lists such a verb with `trial`, and the act's result says `trial: true`. A frame's code makes events in its own namespace
   only (`<prefix><kind>`, the prefix its frame names), and what it says reaches others as `untrusted`.
 - Only the world's rules write a sheet, skills, xp, hp or carry. A verb that needs one changed emits a request in its
   own namespace, and a world rule that hears it decides and writes.

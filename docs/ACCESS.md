@@ -96,7 +96,7 @@ next holder has it. The world's owner makes one by giving a thing the key:
 "maker": {"types": ["vehicle", "works"],   # what it programs (is_a)
           "scripts": "binx_",              # the prefix of the scripts it makes (default maker_<frame id>_)
           "max_scripts": 12, "max_source": 6000, "per_hour": 20,   # caps, these are the defaults
-          "review": False,                 # True: a new verb waits for the owner's review()
+          "review": False,                 # True: a new verb waits for the owner's review(); "writes": it may look until then
           "revoked": False}                # True: its verbs stop and it makes no more
 ```
 
