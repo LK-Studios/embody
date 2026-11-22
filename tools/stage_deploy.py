@@ -31,6 +31,13 @@ def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True).stdout.strip()
 
 
+def _archive(cwd: Path, tree: str) -> bytes:
+    """A committed tree as a tar, its files as git keeps them. On Windows `core.autocrlf=true` makes `git archive` write
+    CRLF, and the container's `sh deploy/start.sh` then dies on `set -eu\\r`; the image is Linux, so the stage is LF."""
+    return subprocess.run(["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", tree],
+                          cwd=cwd, capture_output=True, check=True).stdout
+
+
 def _untar(tar: bytes, dest: Path) -> None:
     with tarfile.open(fileobj=io.BytesIO(tar)) as t:
         t.extractall(dest, filter="data")
@@ -53,8 +60,7 @@ def stage_world(out: Path, wid: str, site: Path | None) -> str:
         tree = f"HEAD:{sub}" if sub != "." else "HEAD"
         shutil.rmtree(dest, ignore_errors=True)
         dest.mkdir(parents=True)
-        _untar(subprocess.run(["git", "archive", "--format=tar", tree], cwd=top, capture_output=True, check=True).stdout,
-               dest)
+        _untar(_archive(Path(top), tree), dest)
         what = f"{wid}: {_git(Path(top), 'rev-parse', '--short', 'HEAD')} from its own repository"
     elif (dest / "build.py").is_file():
         what = f"{wid}: from the engine's tree"
@@ -99,7 +105,7 @@ def main() -> int:
         print(f"{out} is not empty", file=sys.stderr)
         return 2
     out.mkdir(parents=True, exist_ok=True)
-    _untar(subprocess.run(["git", "archive", "--format=tar", "HEAD"], cwd=ROOT, capture_output=True, check=True).stdout, out)
+    _untar(_archive(ROOT, "HEAD"), out)
     lines = [stage_world(out, wid, site) for wid, site in worlds]
     if len(worlds) > 1 or a.domain:
         (out / "deploy" / "worlds").write_text(",".join(w for w, _ in worlds) + "\n", encoding="utf-8")
