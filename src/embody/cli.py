@@ -551,6 +551,11 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--active", choices=["yes", "no"], default=None, help="only active (yes) or ended (no) grants")
     c = sub.add_parser("revoke", help="(owner) end a grant")
     c.add_argument("id")
+    c = sub.add_parser("hold-seat", help="(owner) hold a player's or a mind's grant to one seat, or to none")
+    c.add_argument("grant")
+    c.add_argument("--body", default=None, help="the body it may sit in (omit: nowhere)")
+    c.add_argument("--why", default="", help="the line the holder reads when another seat is refused")
+    c.add_argument("--release", action="store_true", help="give the grant back its own seats")
     c = sub.add_parser("seats", help="the open seats and templates of the world")
     c.add_argument("--limit", type=int, default=None, help="seats: at most this many (default all)")
     c.add_argument("--offset", type=int, default=0, help="seats: skip this many")
@@ -625,6 +630,8 @@ def main(argv: list[str] | None = None) -> int:
                                     for g in r) or "no grants")
         elif args.cmd == "revoke":
             emit(args, s.revoke(args.id))
+        elif args.cmd == "hold-seat":
+            emit(args, s.hold_seat(args.grant, body=args.body, why=args.why, release=args.release))
         elif args.cmd == "seats":
             r = s.seats(limit=args.limit, offset=args.offset,
                         held=None if args.held is None else args.held == "yes",

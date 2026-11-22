@@ -19,7 +19,7 @@ The numbers, so a narrator can explain a roll:
   counts. `uses` spends one a roll and the grant goes at 0; `condition` is the narrator's words, carried, not checked.
   A sheet body's `aid` (a familiar's hand) is a grant for one use. A negative bonus is an injury.
 - Weapons name their skill (`skill` on the weapon: "short blades"); one that names none rolls blade, aim or brawl.
-- Progression: only a difficulty the world set teaches. A find, a lock, a hazard (the thresher), tend's 12, a world
+- Progression: only a difficulty the world set teaches. A find, a lock, a hazard, tend's 12, a world
   verb's own dc and every opposed roll (a blow, a shot, parley, threaten, a sleeper searched) teach; `check` with a dc
   the caller chose never does. The roll it needed is the dc less the body's natural bonus (no grants, no conditions):
   needed 1 to 7 earns 0, 8 to 12 earns 1, 13 to 16 earns 2, 17 to 20 earns 3, and nothing past 20 (out of reach) or

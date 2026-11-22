@@ -1,10 +1,10 @@
 """Table-top rules as embody actions. A world imports this and gets a d20 layer: checks against a
 difficulty, opposed attacks with weapons and wards, brace, yield, kill, threaten, parley, duels whose ring
-holds, water that runs out, factions with a standing, and a thing under the sand that comes to rhythm.
+holds, water that runs out, and factions with a standing.
 
 Nothing here is a world. It is a pack: a world names it in its manifest (`"requires": ["d20"]`) and the loader
 defines the scripts in scripts/ (every rules script starts with `use("common")`, the helpers in scripts/_common.py)
-and runs `define(s)` for the base schemas (`combatant`, `faction`, `waterskin`, `vein`, `thresher`). The world's
+and runs `define(s)` for the base schemas (`combatant`, `faction`, `waterskin`, `medicine`). The world's
 build.py imports `install_rules` from here and puts the four world rules on its root. It then extends `combatant`
 with its own verbs (go, take, talk) and spawns the people. `tests/fixtures/worlds/outpost` is the worked example.
 
@@ -101,7 +101,7 @@ The numbers, so a narrator can explain a roll:
 - Sleep: `sleep` lies a body down (`asleep`, a `slept` event; a seat going away can do it with `away(sleep=true)`). Asleep it
   mends two points a beat for the water of one, dries at half the pace (a half carried to the next beat in
   `thirst_owed`), and hears only what is loud (an event that says `loud`, or that
-  carries two levels up: a lock broken, the thresher) or done to it. It is easy prey: a blow on a sleeper rolls twice
+  carries two levels up: a lock broken) or done to it. It is easy prey: a blow on a sleeper rolls twice
   and keeps the better, against bare hands and no brace; `search` works on a sleeper as on someone down, by stealth
   (d20 + wits + stealth against 10 + their wits): done, the `lifted` event names the thief and the sleeper sleeps on;
   fumbled (`caught`), nothing is taken and they wake. A blow, a word said to them, `wake` by someone here, a noise,
@@ -122,15 +122,11 @@ The numbers, so a narrator can explain a roll:
 - A deed to someone who keeps `faction` in their `secret` list still counts with that faction, but quietly: the
   faction keeps it in its own secret `unseen`, and the doer gets no `standing` event and no edge that names the
   side. Standing is the readable edge plus `unseen`; at -4 the faction still outlaws them, openly.
-- Deep sand (`deep_sand` on a place) keeps a `tremor` count: each loud arrival adds 1, each harvest adds 2, a
-  quiet arrival adds nothing. Two minutes of quiet and the count drops by one, down to zero, when a `tremor`
-  event says the dune is still. At 3 the thresher is thirty seconds away. When it surfaces everyone there
-  rolls survival against 13: pass and you reach the nearest rock; fail and it takes 4 hp off you first.
 """
 
 import json
 
-PACK = {"name": "d20", "description": "Table-top rules as verbs: d20 checks, opposed attacks, wards, duels, thirst, factions, the thresher."}
+PACK = {"name": "d20", "description": "Table-top rules as verbs: d20 checks, opposed attacks, wards, duels, thirst, factions."}
 
 # What the engine reads back from this pack (world.PACK_DECLARES): the body keys only these rules write, the chronicle's
 # kinds, and the ways out of the conditions these rules put a body in.
@@ -275,12 +271,6 @@ def define(s):
     s.define_schema("medicine", extends="thing", doc="Doses that heal: tend someone with it in hand.",
                     state={"portable": True, "medicine": True, "doses": 3, "heals": 3,
                            "description": "A pouch of salve, bitter-smelling.", "description_empty": "An empty pouch, still bitter."})
-    s.define_schema("vein", extends="thing", doc="Emberglass in the sand. Harvesting takes time and makes noise; each shard joins the Emberglass stack in hand.",
-                    state={"portable": False, "ember": 3},
-                    actions={"harvest": {"script": "harvest", "doc": "Dig a shard out (20 s, and the sand hears it)", "duration": 20}})
-    s.define_schema("thresher", extends="creature", doc="What lives under the deep sand. It comes to rhythm.",
-                    state={"body": 8, "hp": 40, "max_hp": 40, "home": None,
-                           "description": "You do not see it. You see the dune move."})
 
 
 define_rules = define  # the old name
@@ -350,4 +340,3 @@ def install_rules(s, root):
     s.set_rule(root, "rules_guard", kinds=["before_act", "act"])
     s.set_rule(root, "duel_rule", kinds=["before_act", "downed", "killed", "yielded", "arrived", "agreed"])
     s.set_rule(root, "factions_rule", kinds=["hit", "killed", "cowed", "agreed", "given", "dishonor"])
-    s.set_rule(root, "thresher_rule", kinds=["arrived", "harvested", "tremor_settles", "thresher_surfaces", "thresher_sinks"])

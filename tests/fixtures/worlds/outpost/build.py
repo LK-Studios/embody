@@ -49,10 +49,18 @@ STANDINGS = {
 }
 
 BLADE = {"weapon": True, "damage": 2, "bonus": 0, "portable": True}
+# this world's own hazard, on its root: deep sand that hears footsteps and digging (scripts/thresher_rule.py)
+THRESHER_KINDS = ["arrived", "harvested", "tremor_settles", "thresher_surfaces", "thresher_sinks"]
 
 
 def define(s):
     """Schemas. The scripts are the files in scripts/ and the packs. Safe to run again."""
+    s.define_schema("vein", extends="thing", doc="Ore in the sand. Digging takes time and makes noise; each lump joins the ore in hand.",
+                    state={"portable": False, "ember": 3},
+                    actions={"harvest": {"script": "harvest", "doc": "Dig a lump out (20 s, and the sand hears it)", "duration": 20}})
+    s.define_schema("thresher", extends="creature", doc="What lives under the deep sand. It comes to rhythm.",
+                    state={"body": 8, "hp": 40, "max_hp": 40, "home": None,
+                           "description": "You do not see it. You see the dune move."})
     s.define_schema("person", extends="combatant", doc="Someone of the outpost: walks, carries, talks, and fights by the rules.",
                     state={"dialog": {}, "default_line": "Hm.", "gives": {}, "gave": {}, "asleep": False, "follows": None,
                            "secret": ["dialog", "gives", "gave"]},
@@ -152,6 +160,7 @@ def populate(s):
             s.link(by_name[who], factions[fname], "standing", {"value": value, "public": True})
 
     install_rules(s, root)
+    s.set_rule(root, "thresher_rule", kinds=THRESHER_KINDS)
     s.clock(run=False, turn=3)
     return s.summary()
 
@@ -159,3 +168,4 @@ def populate(s):
 def upgrade(s):
     """Nothing to bring forward: the rules again, which set_rule keeps idempotent."""
     install_rules(s, s.summary()["root"])
+    s.set_rule(s.summary()["root"], "thresher_rule", kinds=THRESHER_KINDS)

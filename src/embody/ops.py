@@ -43,6 +43,8 @@ OBSERVER = "observer"
 # What one line of speech may be, and how many lines a principal may say in a minute: a hosted world's floor
 # against a runaway agent. Authors and narrators are not capped.
 _SAY_MAX = 1000
+_HOLD_WHY_MAX = 300
+_HELD_HINT = "the owner keeps your seat where it is for now; ask_owner() if you need them"
 PRESENT_GRACE = 120.0  # real seconds after a wait(present=true) ends that the seat still counts as in the scene
 _STEP_MAX_S = 2.0  # a step covers at most this many world seconds of walking, however long since the last
 _SAY_BURST = 30
@@ -768,6 +770,9 @@ class Session:
             w.store.begin()
             try:
                 if template:
+                    held = self._seat_hold()
+                    if held is not None:
+                        raise Rejected("your seat is held", hint=held.get("why") or _HELD_HINT)
                     eid = self._from_template(template, name, description)
                 else:
                     if entity is None:
@@ -786,8 +791,14 @@ class Session:
         return b
 
     def _default_seat(self) -> str:
-        """join() with no entity: the one seat the grant names, or the seat this principal already holds."""
+        """join() with no entity: the seat the owner holds the grant to, the seat this principal already holds, or the
+        one seat the grant names."""
         w = self.world
+        held = self._seat_hold()
+        if held is not None:
+            if held.get("body") and w.get(held["body"]):
+                return held["body"]
+            raise Rejected("your seat is held", hint=held.get("why") or _HELD_HINT)
         p = w.principal(self.pid)
         if p and p.get("entity_id") and w.get(p["entity_id"]):
             return p["entity_id"]
@@ -808,7 +819,16 @@ class Session:
         """Live grants that name this entity as their seat, other than this principal's own."""
         w = self.world
         rows = w.store.query("grants", "world_id=? AND entity_id=? AND revoked=0", (w.id, eid))
+        rows += [g for g in w.store.query("grants", "world_id=? AND held IS NOT NULL AND revoked=0", (w.id,))
+                 if (g.get("held") or {}).get("body") == eid and g.get("entity_id") != eid]
         return [g for g in rows if active(g, now) and g["principal_id"] != self.pid]
+
+    def _seat_hold(self) -> dict[str, Any] | None:
+        """The owner's hold on this seat's grant (hold_seat), read fresh: {body, why, since}, or None."""
+        if self.grant is None:
+            return None
+        g = self.world.store.get("grants", self.world.id, self.grant["id"])
+        return (g or {}).get("held") or None
 
     def _may_sit(self, eid: str, now: float) -> None:
         """Who may take which seat. Owners, authors and narrators sit anywhere free. A mind sits only where its
@@ -817,6 +837,11 @@ class Session:
         ent = w.need(eid)
         if self.role in (OWNER, AUTHOR_ROLE, NARRATOR_ROLE):
             return
+        held = self._seat_hold()
+        if held is not None:  # the owner holds this grant to one seat (or none), over what it may otherwise take
+            if held.get("body") == eid:
+                return
+            raise Rejected("your seat is held", hint=held.get("why") or _HELD_HINT)
         if eid in self.scope:
             return
         if self.grant is None:
@@ -838,7 +863,10 @@ class Session:
 
     def _seat_rows(self, now: float) -> list[dict[str, Any]]:
         w = self.world
-        if self.role == MIND and self.scope:
+        held = self._seat_hold()
+        if held is not None:
+            rows = [w.get(held["body"])] if held.get("body") and w.get(held["body"]) else []
+        elif self.role == MIND and self.scope:
             rows = [w.get(x) for x in self.scope if w.get(x)]
         else:
             rows = w.find(state={"playable": True}, limit=200)
@@ -852,7 +880,8 @@ class Session:
             out.append({"id": e["id"], "name": e["name"], "type": e["type"], "place": place["name"] if place else None,
                         "about": e["state"].get("description") or e["state"].get("doc") or "",
                         "embodied_by": self._seat_name(emb["id"]) if emb else None, "reserved": bool(res),
-                        "open": emb is None and (not res or e["id"] in self.scope)})
+                        "open": emb is None and (not res or e["id"] in self.scope
+                                                 or (held is not None and e["id"] == held.get("body")))})
         return out
 
     def seats(self, world_id: str | None = None, limit: int | None = None, offset: int = 0, held: bool | None = None,
@@ -880,6 +909,12 @@ class Session:
                              for k, t in templates.items()],
                "hint": "join(world, entity) takes an open seat; join(world, template=..., name=..., description=...) makes "
                        "someone new, and the description (how they look to others) is set then or never"}
+        held = self._seat_hold()
+        if held is not None:
+            body = w.get(held["body"]) if held.get("body") else None
+            out["held"] = {"body": body["name"] if body else None, "why": held.get("why") or _HELD_HINT}
+            out["hint"] = (f"the owner holds your seat to {body['name']}: join() takes you there" if body else
+                           "the owner holds your seat: you may sit nowhere until they let you")
         offers = self._offer_rows()
         if offers:
             out["offers"] = offers
@@ -1982,6 +2017,60 @@ class Session:
             raise Rejected(f"no grant {id!r}", hint="grants() lists them")
         gone = w.revoke_grant(id)  # and the seats claimed under it, with theirs
         return {"ok": True, "id": id, "principal": g["principal_id"], "also": gone[1:]}
+
+    def hold_seat(self, grant: str, body: str | None = None, why: str = "", release: bool = False) -> dict[str, Any]:
+        """(owner) Hold a player's or a mind's grant to one seat, or to none, without touching its token: a timeout,
+        a cell, a tutorial room, a dead body's road back. With `body`, its principal gives back the seat it holds
+        (`released` with cause `held`) and is seated there; the body is kept for that grant, and join() anywhere else,
+        or as someone new, is refused with `why` as the hint. With no body it may sit nowhere. seats() shows the
+        holder only the held seat, with `held`. The hold is kept on the grant (grants() shows it), so it outlasts a
+        restart. release=True gives the grant back its own seats; the body it sits in stays its own until it leaves."""
+        self._tick()
+        w = self.world
+        g = w.store.get("grants", w.id, grant)
+        if g is None:
+            raise Rejected(f"no grant {grant!r}", hint="grants() lists them")
+        if g["role"] not in (PLAYER, MIND):
+            raise Rejected(f"a {g['role']}'s grant sits anywhere free and is not held",
+                           hint="hold_seat is for a player's or a mind's grant; revoke(id) ends any grant")
+        why = " ".join(str(why or "").split())
+        if len(why) > _HOLD_WHY_MAX:
+            raise Rejected(f"why is at most {_HOLD_WHY_MAX} characters, not {len(why)}",
+                           hint="one line the holder reads when a seat is refused")
+        now = self.engine.wall()
+        with self.engine.lock:
+            w.store.begin()
+            try:
+                if release:
+                    if not g.get("held"):
+                        raise Rejected("that grant is not held", hint="grants() shows `held` on the ones that are")
+                    w.store.set("grants", w.id, grant, held=None)
+                    w.emit("seat_held", target=w.root_id, reach=0, payload={"grant": grant, "released": True})
+                    out: dict[str, Any] = {"ok": True, "grant": grant, "held": None}
+                else:
+                    eid = self._resolve(body) if body else None
+                    if eid:
+                        other = w.embodied(eid)
+                        if other and other["id"] != g["principal_id"] and not w.lapse_cause(other, now):
+                            raise Rejected(f"{w.need(eid)['name']} is held by {self._seat_name(other['id'])}",
+                                           hint="evict(principal) first, or hold the grant to another body")
+                    hold = {"body": eid, "why": why, "since": now}
+                    w.store.set("grants", w.id, grant, held=hold)
+                    p = w.principal(g["principal_id"])
+                    if p is not None and p.get("entity_id") != eid:
+                        if p.get("entity_id"):
+                            w.leave(p["id"], "held")
+                        if eid:
+                            w.join(p["id"], eid, kind=p["kind"], name=p["name"], capabilities=p["capabilities"],
+                                   role=p.get("role"), grant_id=g["id"], now=now)
+                    w.emit("seat_held", target=eid or w.root_id, reach=0, payload={"grant": grant, "body": eid, "why": why})
+                    out = {"ok": True, "grant": grant, "held": {**hold, "body": w.need(eid)["name"] if eid else None},
+                           "seated": bool(eid and p is not None)}
+                w.store.commit()
+            except Exception:
+                w.store.rollback()
+                raise
+        return out
 
     def evict(self, principal: str) -> dict[str, Any]:
         """(owner) Release whatever a principal embodies; its body runs on behaviors again."""
@@ -5116,7 +5205,7 @@ INTRODUCE_HOW = {
 
 OPS = [
     "worlds", "use", "create_world", "fork_world", "save", "restore", "join", "leave", "seats", "claim_seat",
-    "invite", "grants", "revoke", "evict", "requests", "minds", "chronicle", "publish_chronicle",
+    "invite", "grants", "revoke", "evict", "hold_seat", "requests", "minds", "chronicle", "publish_chronicle",
     "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
     "step", "reclaim", "away",
     "define_schema", "define_script", "schemas", "scripts", "script_source",
@@ -5139,7 +5228,7 @@ LAYERS: dict[str, tuple[str, list[str]]] = {
                      "Nothing in the world sees it.", ["ask_owner", "asks_to_owner", "report_flaw"]),
     "keeping the world": ("The owner's tools, outside the story: who may come in, what they asked, what is reviewed, "
                           "the record.", [
-        "invite", "grants", "revoke", "evict", "relink", "vouch", "requests", "minds", "flaws", "answer_ask",
+        "invite", "grants", "revoke", "evict", "hold_seat", "relink", "vouch", "requests", "minds", "flaws", "answer_ask",
         "ask_readers", "review", "review_script", "verify", "rules_changed", "chronicle", "publish_chronicle",
         "create_world", "fork_world", "save", "restore"]),
     "building": ("Making the world: kinds, things, places, rules, scripts and access.", [

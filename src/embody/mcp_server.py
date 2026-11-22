@@ -381,6 +381,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def hold_seat(grant: str, body: str | None = None, why: str = "", release: bool = False) -> dict[str, Any]:
+        """(owner) Hold a player's or a mind's grant to one seat (body=...), or to none, with no new token: a timeout,
+        a cell, a tutorial room, a dead body's road back. Its principal is moved into the held body (`released` with
+        cause `held`), seats() shows it only that seat, and join() anywhere else is refused with `why` as the hint.
+        The hold outlasts restarts; grants() shows it. release=true gives the grant back its own seats."""
+        return S(None).hold_seat(grant, body=body, why=why, release=release)
+
+    @tool()
+    @_wrap
     def evict(principal: str) -> dict[str, Any]:
         """(owner) Release whatever a principal embodies; its body runs on behaviors again."""
         return S(None).evict(principal)
