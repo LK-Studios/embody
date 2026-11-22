@@ -93,6 +93,26 @@ class Hub:
             self._touch(s)
             return s
 
+    def for_link(self, code: str) -> Session | None:
+        """The session an invite link stands for when a connector posts to it (Engine.session_for_link), or None.
+        Checked every time against the grant, so a relink (a new code) or a revoke ends it at once."""
+        h = token_hash(code)
+        key = "link:" + h
+        with self.engine.lock:
+            s = self.by_token.get(key)
+            if s is not None:
+                g = self.engine.store.get("grants", s.grant["world_id"], s.grant["id"])
+                if g is None or not active(g, self.engine.wall()) or h not in (g.get("code_hash"), g.get("spent_hash")):
+                    self.by_token.pop(key, None)
+                    s = None
+            if s is None:
+                s = self.engine.session_for_link(code)
+                if s is None:
+                    return None
+                self.by_token[key] = s
+            self._touch(s)
+            return s
+
     TOUCH_EVERY = 60.0  # seconds between last_used writes for one grant
 
     def _touch(self, s: Session) -> None:
@@ -252,7 +272,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
                limits: dict[str, Any] | None = None, slots: int | None = None,
                vouched: bool = False) -> dict[str, Any]:
         """(owner) Make a grant and return the paste for the friend: a link their agent reads once, within a day, for
-        the token and its brief (the agent is told to open in the world and say nothing of the setup). role: author,
+        the token and its brief (the agent asks its human before it connects, then opens in the world). In Claude the
+        link itself is the custom connector's URL. role: author,
         builder, narrator, player, mind or observer. entity keeps a seat (player) or names the NPC held (mind; scope=[...]
         for more). template: the character it may make. expires: hours. brief: your word to this guest alone (their
         orders, a first goal); it rides the page and the briefing their join() returns. limits (builder, narrator,
@@ -950,6 +971,11 @@ _NO_GRANT = {"ok": False, "reason": "no valid grant on this request",
              "hint": "send the bearer token from your invite; expired or revoked tokens stop here"}
 _NO_STREAM = {"ok": False, "reason": "the MCP door answers each POST in full; it has no event stream to open",
               "hint": "POST your calls; wait() is how a seat listens"}
+_NO_LINK = {"ok": False, "reason": "no live invite at this link",
+            "hint": "a link that was relinked or revoked, or left unread past its day, no longer opens the door; ask the "
+                    "host for a fresh one"}
+_NO_OAUTH = {"ok": False, "reason": "this server has no OAuth sign-in: a connector's address carries its key",
+             "hint": "add the invite link as the connector's URL, with no client id or secret"}
 
 
 class Bearer:
@@ -997,8 +1023,16 @@ class Bearer:
         if path == "/watch" or path.startswith("/watch/"):
             await self._watch(scope, path[len("/watch"):], send)
             return
+        if path.startswith("/.well-known/oauth"):  # a connector asking how to sign in gets a plain no, not a 401 that
+            await _reply(send, 404, _NO_OAUTH)    # sends it off to ask its human for a client id and secret
+            return
         if path.startswith("/i/"):
-            await self._invite(scope, path[len("/i/"):], send)
+            code = path[len("/i/"):]
+            scope["path"], scope["raw_path"] = "/i/-", b"/i/-"  # a link is a key too: the access log never holds it
+            if scope.get("method") == "POST":  # the invite link as a connector's address
+                await self._link_door(scope, receive, send, code.strip("/"))
+                return
+            await self._invite(scope, code, send)
             return
         if path in ("/openapi.json", "/docs") and scope.get("method") == "GET" and self.srv is not None:
             await self._api(scope, path, send)
@@ -1088,11 +1122,27 @@ class Bearer:
             out = await asyncio.to_thread(run)
         await _reply(send, 200, json.dumps(out, default=str).encode())
 
+    async def _link_door(self, scope: dict[str, Any], receive: Any, send: Any, code: str) -> None:
+        """POST /i/<code>: the invite link as a connector's address, so a guest in Claude adds the one link they were
+        sent (any name, no client id or secret). The same door as /mcp with the grant's own session. The link stays the
+        grant's address until a relink or a revoke; its first use spends the page, as the token's does."""
+        sess = self.hub.for_link(code) if code and "/" not in code else None
+        if sess is None:
+            await _reply(send, 401, _NO_LINK)
+            return
+        scope["path"], scope["raw_path"] = "/mcp", b"/mcp"
+        tok = _current.set(sess)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _current.reset(tok)
+
     async def _invite(self, scope: dict[str, Any], code: str, send: Any) -> None:
         """An invite link's page. A chat app's link preview gets a stub without the token, so pasting the link into a
         chat does not hand the seat to the preview crawler; the agent that reads the page gets the token."""
         if scope.get("method") != "GET":
-            await _reply(send, 405, {"ok": False, "reason": "an invite link answers GET only", "hint": "the MCP door is /mcp"})
+            await _reply(send, 405, {"ok": False, "reason": "an invite link answers GET (its page) and POST (as a "
+                                                            "connector's address) only", "hint": "the MCP door is /mcp"})
             return
         ua = dict(scope.get("headers") or []).get(b"user-agent", b"").decode("latin-1")
         if is_preview_bot(ua):

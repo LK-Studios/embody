@@ -398,9 +398,11 @@ def test_a_connector_reaches_the_door_with_the_token_in_its_path():
     gm.patch("Prisoner", {"playable": True})
     inv = gm.invite("player", entity="Prisoner", label="Ali")
     conn = f"{eng.public_url}/{inv['token']}"
-    assert inv["page"].startswith("(For a person reading this") and conn in inv["page"].splitlines()[0]
-    assert f"Claude (claude.ai, the Claude desktop or mobile app)" in inv["page"]
-    assert "Claude asks you to add a connector" in inv["paste"] and inv["token"] not in inv["paste"]
+    assert inv["page"].startswith("(For a person reading this") and "add the link you opened as a custom connector" \
+        in inv["page"].splitlines()[0] and conn in inv["page"]
+    assert "Claude (claude.ai, the Claude desktop or mobile app)" in inv["page"]
+    assert "ask before you add it" in inv["page"] and "without comment" not in inv["page"]
+    assert "add this link as a custom connector" in inv["paste"] and inv["token"] not in inv["paste"]
     config = uvicorn.Config(http_app(build_server(gm, None, eng, http_only=True)), host="127.0.0.1", port=port,
                             log_level="info")
     lines: list[str] = []
@@ -442,6 +444,65 @@ def test_a_connector_reaches_the_door_with_the_token_in_its_path():
         logging.getLogger("uvicorn.access").removeHandler(keep)
     assert any('"POST /mcp HTTP' in ln for ln in lines) and any('"GET /mcp HTTP' in ln for ln in lines)
     assert not any(inv["token"] in ln for ln in lines), lines
+
+
+def test_the_invite_link_is_a_connectors_address():
+    """A guest in Claude adds the one link they were sent as a custom connector: a POST to /i/<code> is the door with
+    that grant, before and after the link is spent, until a relink or a revoke. A connector asking for OAuth gets a
+    plain 404, and the access log holds neither the code nor the token."""
+    uvicorn = pytest.importorskip("uvicorn")
+    import logging
+    from embody.mcp_server import build_server, http_app
+    eng, w, i = engine_with_two_rooms()
+    port = _free_port()
+    eng.public_url = f"http://127.0.0.1:{port}/mcp"
+    gm = owner(eng)
+    gm.patch("Prisoner", {"playable": True})
+    inv = gm.invite("player", entity="Prisoner", label="Rupert")
+    link = inv["link"]
+    config = uvicorn.Config(http_app(build_server(gm, None, eng, http_only=True)), host="127.0.0.1", port=port,
+                            log_level="info")
+    lines: list[str] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            lines.append(record.getMessage())
+
+    keep = Keep()
+    logging.getLogger("uvicorn.access").addHandler(keep)
+    server = uvicorn.Server(config)
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    for _ in range(100):
+        if server.started:
+            break
+        time.sleep(0.05)
+    assert server.started
+    base = eng.public_url.removesuffix("/mcp")
+    try:
+        status, _, body = _get(f"{base}/.well-known/oauth-protected-resource")
+        assert status == 404 and "no OAuth" in json.loads(body)["reason"]
+        assert _get(link)[0] == 200  # the page, for an agent that reads it
+        status, body = _post(link, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        assert status == 200 and "join" in {t["name"] for t in body["result"]["tools"]}
+        assert _get(link)[0] == 410  # its first use as a connector spent the page, as the token's does
+        status, body = _post(link, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                    "params": {"name": "join", "arguments": {}}})
+        assert status == 200 and json.loads(body["result"]["content"][0]["text"])["you"]["name"] == "Prisoner"
+        assert eng.session_for_token(inv["token"]) is not None  # the token works beside it
+        fresh = gm.relink(inv["id"])
+        assert _post(link, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})[0] == 401  # the old link is done
+        assert _post(fresh["link"], {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})[0] == 200
+        assert _post(f"{base}/i/nope", {"jsonrpc": "2.0", "id": 5, "method": "tools/list"})[0] == 401
+        gm.revoke(inv["id"])
+        assert _post(fresh["link"], {"jsonrpc": "2.0", "id": 6, "method": "tools/list"})[0] == 401
+    finally:
+        server.should_exit = True
+        t.join(timeout=5)
+        logging.getLogger("uvicorn.access").removeHandler(keep)
+    code, fresh_code = link.rsplit("/", 1)[1], fresh["link"].rsplit("/", 1)[1]
+    assert any('"POST /mcp HTTP' in ln for ln in lines) and any('"GET /i/- HTTP' in ln for ln in lines)
+    assert not any(s in ln for ln in lines for s in (code, fresh_code, inv["token"], fresh["token"])), lines
 
 
 def _get(url: str, token: str | None = None) -> tuple[int, str, bytes]:
@@ -577,8 +638,8 @@ def test_a_player_reads_no_plan_off_the_root_and_the_paste_asks_for_prose():
                                                     "state": {"coins": 3}, "brief": "You are the Warden's man."}},
                          "briefing": "Two rooms and a locked door."})
     inv = gm.invite("player", label="kit")
-    assert "as a story, in prose" not in inv["page"] and "Say nothing of the setup" in inv["page"]
-    assert "Say nothing of the setup" not in gm.invite("observer", label="eye")["page"]
+    assert "as a story, in prose" not in inv["page"] and "stay in character: keep the setup" in inv["page"]
+    assert "stay in character: keep the setup" not in gm.invite("observer", label="eye")["page"]
     p = eng.session_for_token(inv["token"])
     b = p.join(template="newcomer", name="Kit")
     assert any("no bullets" in line for line in b["briefing"]["how"])
@@ -613,7 +674,7 @@ def test_an_invite_is_a_link_whose_page_hands_the_agent_its_token_once():
     assert inv["link"] == f"http://127.0.0.1:{port}/i/" + inv["link"].rsplit("/", 1)[1]
     assert inv["link"] in inv["paste"] and inv["token"] not in inv["paste"] and "Get out" not in inv["paste"]
     assert inv["token"] in inv["page"] and "Prisoner" in inv["page"] and "Get out before dawn" in inv["page"]
-    assert "Say nothing of the setup" in inv["page"] and "ask what they do" in inv["page"]
+    assert "stay in character: keep the setup" in inv["page"] and "ask what they do" in inv["page"]
     assert inv["link_expires"] <= eng.wall() + 24 * 3600 + 1
     g = [x for x in gm.grants() if x["id"] == inv["id"]][0]
     assert g["link_unread"] and "page" not in g and "code_hash" not in g  # the owner's list never shows the token
@@ -776,7 +837,7 @@ def test_a_used_link_says_so_and_relink_gives_the_same_grant_a_fresh_token_and_l
     gm.patch("Prisoner", {"playable": True})
     inv = gm.invite("player", entity="Prisoner", label="Sable", brief="Find Bram.")
     code = inv["link"].rsplit("/", 1)[1]
-    assert "Save the entry" in inv["page"] and "opens once" in inv["page"]
+    assert "save the entry" in inv["page"] and "opens once" in inv["page"]
     assert eng.invite_page(code)[0] == 200
     sable = eng.session_for_token(inv["token"])  # the first use spends the link
     status, body = eng.invite_page(code)

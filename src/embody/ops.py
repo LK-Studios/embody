@@ -223,6 +223,35 @@ class Engine:
         return self.session(g["principal_id"], world_id=g["world_id"], name=g.get("label") or g["principal_id"],
                             role=g["role"], scope=list(g.get("scope") or []), grant=g)
 
+    def grant_for_link(self, code: str) -> dict[str, Any] | None:
+        """The live grant an invite link was made for, spent or not: the link is also the grant's connector address,
+        for a client that takes a URL and no header (Claude's custom connectors). None for an unknown code, a link a
+        relink replaced, a revoked or expired grant, or a link left unread past its day (which goes stale here)."""
+        h = token_hash(code)
+        now = self.wall()
+        rows = self.store.query("grants", "code_hash=?", (h,), limit=1)
+        if rows:
+            g = rows[0]
+            if not _grant_active(g, now):
+                return None
+            if g.get("code_expires") is not None and float(g["code_expires"]) <= now:
+                self.spend_link(g, used=False)
+                return None
+            return g
+        rows = self.store.query("grants", "spent_hash=?", (h,), limit=1)
+        return rows[0] if rows and _grant_active(rows[0], now) else None
+
+    def session_for_link(self, code: str) -> "Session | None":
+        """The session an invite link stands for when a connector posts to it: as session_for_token, and the first
+        use spends the link's page, so the token is no longer served there."""
+        g = self.grant_for_link(code)
+        if g is None:
+            return None
+        if g.get("code_hash") or g.get("page"):
+            self.spend_link(g, used=True)
+        return self.session(g["principal_id"], world_id=g["world_id"], name=g.get("label") or g["principal_id"],
+                            role=g["role"], scope=list(g.get("scope") or []), grant=g)
+
     def spend_link(self, g: dict[str, Any], used: bool = False) -> None:
         """Forget the invite link's code and the page that carried the token: from here the engine holds the hash only.
         A link spent by the token's first use keeps its code's hash as `spent_hash`, so coming back to it answers
@@ -1069,8 +1098,9 @@ class Session:
                "act and rebuild your watch and notes on the new terms",
                "tell the human what happens as a story, in prose, in the fiction: no bullets, no stat sheets, no tool names"]
         if self.role == PLAYER:
-            how.insert(0, "this briefing is for you, not for them: say nothing of seats, grants, tokens or tools; open in the "
-                          "world, with where they stand, who is near and what the body feels, then ask what they do")
+            how.insert(0, "this briefing is for you, to play well; in the story, stay in character and keep seats, grants, "
+                          "tokens and tools out of the telling unless your human asks how it works; open in the world, "
+                          "with where they stand, who is near and what the body feels, then ask what they do")
             how.append("keep the character's notes on the server: remember(text) and intend(text); recall() reads them back, "
                        "next session or another machine (your own memory of your human stays yours)")
         if self.role == MIND:

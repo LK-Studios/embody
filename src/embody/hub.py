@@ -380,6 +380,8 @@ class Router:
         url = f"http://127.0.0.1:{w.port}{scope.get('raw_path', b'').decode('latin-1') or scope['path']}"
         if qs and "?" not in url:
             url += "?" + qs.decode("latin-1")
+        if (scope.get("path") or "").startswith("/i/"):  # a link is a key too: the hub's access log never holds it
+            scope["path"], scope["raw_path"] = "/i/-", b"/i/-"
         work = asyncio.ensure_future(self._forward(scope.get("method") or "GET", url, out, body, send, w))
         gone = asyncio.ensure_future(_disconnected(receive))
         await asyncio.wait({work, gone}, return_when=asyncio.FIRST_COMPLETED)

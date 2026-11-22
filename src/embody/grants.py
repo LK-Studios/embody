@@ -210,10 +210,13 @@ def paste(world_name: str, role: str, link: str | None, page_text: str, label: s
         return page_text
     who = f"{label}, here" if label else "Here"
     thing = "a seat" if role in (PLAYER, MIND) else f"the {role}'s keys"
-    return (f"{who} is {thing} in {world_name}. Paste this link into your agent (Claude, Claude Code, Codex, anything "
-            f"that speaks MCP) and it takes it from there:\n\n{link}\n\nThe link works once and for a day; the agent "
-            f"reads it, not you. In Claude on the web or in its app, Claude asks you to add a connector; if it cannot "
-            f"open links, open this one in your browser and follow its first line.")
+    return (f"{who} is {thing} in {world_name}:\n\n{link}\n\n"
+            f"In Claude (claude.ai or its apps): add this link as a custom connector (Settings > Connectors > Add custom "
+            f"connector; any name, nothing under advanced settings), turn it on in a chat and ask Claude to join "
+            f"{world_name}. Do not paste the link into the chat itself.\n"
+            f"In Claude Code, Codex or anything else that speaks MCP: paste the link into your agent and it takes it "
+            f"from there; the agent reads it, not you.\n"
+            f"Use it within a day.")
 
 
 def guides_line(guides: Any, role: str) -> str:
@@ -238,20 +241,25 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
          scope_names: list[str] | None = None, rate: float = 1.0, briefing: str = "", waits: bool = False,
          template: str | None = None, template_doc: str = "", limits_note: str = "", guides: str = "") -> str:
     """The text the invite link serves, written for the agent that reads it: add the server, join, and open the
-    story. A player's agent is told to say nothing of the setup and to begin in the world."""
+    story. The agent tells its human what this adds and asks before it connects; then it keeps the machinery out of the
+    story unless asked, and begins in the world."""
     url = url or "<server url>"
     head = (f"This is an invite into {world_name}, a world running on embody: a deterministic world engine where the "
             f"engine keeps the books and you, the connected agent, are the imagination. There is no AI on the server. "
             f"The human who pasted this link is your player; you are their {('eyes and hands' if role == PLAYER else role)} "
-            f"there. Your role: {role}: {ROLE_DOC.get(role, '')}. Set up quietly, then play.")
-    add = ("1. Add the server, once, without comment. Save the entry (the URL and the token) where your harness keeps "
-           "its servers: this link opens once, and from now on the token is the key.\n" + _ADD_LINES.format(url=url, token=token))
+            f"there. Your role: {role}: {ROLE_DOC.get(role, '')}. Tell your human what this adds and ask before you "
+            f"add it; then play.")
+    add = (f"1. Tell your human, in a line, what this adds and ask before you add it: a game server for {world_name}, "
+           f"and a private key (the token below) that is their seat at the table, which the host can revoke at any "
+           f"time. When they say yes, add the server once and save the entry (the URL and the token) where your harness "
+           f"keeps its servers: this link opens once, and from then on the token is the key.\n"
+           + _ADD_LINES.format(url=url, token=token))
     conn = connector_url(url, token)
     if conn:
         add += (f"\n  Claude (claude.ai, the Claude desktop or mobile app): you cannot add a server yourself. Ask your "
-                f"human, in one line, to add a custom connector (on claude.ai or in the desktop app: Settings > "
-                f"Connectors > Add custom connector) named {world_name}, with the URL {conn} (the token is in it: no "
-                f"header), and to turn it on in this chat; then go on from step 2.")
+                f"human, in one line, to add the invite link they gave you as a custom connector (Settings > "
+                f"Connectors > Add custom connector; any name, nothing under advanced settings) and to turn it on in "
+                f"this chat; then go on from step 2. ({conn} works as the connector's URL too: the token is in it.)")
     if url.endswith("/mcp"):
         base = url[:-len("/mcp")]
         add += ("\n   Most harnesses load a new server only when they start. Do not make the human restart or open "
@@ -284,8 +292,9 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                       "how they look to others, is set then or never); ask the human only who they want to be, "
                       "in the world's own words. What join returns is for you, not for them.")
         begin = (begin2 + "\n"
-                 "3. Open the story. Say nothing of the setup, the server, seats, roles, grants, tokens, tools, or what join "
-                 "returned. Begin in the world, present tense, a few short paragraphs: where they stand and the hour's light, "
+                 "3. Open the story. From here, stay in character: keep the setup and the machinery (the server, seats, "
+                 "roles, grants, tokens, tools, what join returned) out of the telling unless your human asks how it "
+                 "works. Begin in the world, present tense, a few short paragraphs: where they stand and the hour's light, "
                  "what they see and hear, who is near and what those people are doing, what they carry, what the body "
                  "feels, if the world gives it needs or hurts. Then ask what they do, in one line, the way a game master does.\n"
                  "4. Keep going the same way. Each thing they say is a deed or a word: act(verb, target), say(text, to=...), "
@@ -301,9 +310,9 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                  "intend(text) for what they want. Both stay on the server with the character, private to this seat, "
                  "and recall() or join() hands them back next time, from any machine. What your harness remembers of "
                  "your human and how they like to play is yours, kept as you always keep it.\n"
-                 "6. When they stop for a while, leave standing orders: away(give=[{'item': ..., 'to': ...}], "
-                 "answer='...') says what others may take back from the body and what it answers while nobody plays "
-                 "it. perceive() lists under `reclaim` what you may take back from someone who is away; timers() "
+                 "6. When they stop for a while, ask whether they want to leave word for while they are away: what "
+                 "others may take back from their character, and the line it answers with. It is theirs to choose; if "
+                 "they do, set it with away(give=[{'item': ..., 'to': ...}], answer='...'). perceive() lists under `reclaim` what you may take back from someone who is away; timers() "
                  "says what the world has scheduled that a player may know.")
     elif role == OBSERVER_ROLE:
         begin = "2. Call use(world), then perceive(from_entity=...), history() and find(): you watch, you do not act."
@@ -355,8 +364,8 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                       "human, so they hear the reply in the same turn (arrived('<name>') waits for someone to walk in, "
                       "came('<name>') is true while they are here, did('attack') waits for a deed, to_me() for anyone "
                       "speaking to your character or calling it by name). Never loop on a bare wait(): it wakes on every footstep. Between your human's turns, "
-                      "if your harness can run a command in the background and wake you when it ends, keep one watch "
-                      "going so the world can come to them, and perceive() and tell them when it fires:",
+                      "if they want the world to come to them and your harness can run a command in the background and "
+                      "wake you when it ends, keep one watch going, and perceive() and tell them when it fires:",
                   f"   for i in $(seq 1 60); do curl -s -X POST {base}/op/wait -H \"Authorization: Bearer {token}\" "
                   f"-H \"content-type: application/json\" -d \"{{\\\"until\\\": \\\"heard('', by='<name>') or "
                   f"did('attack')\\\", \\\"timeout\\\": 120}}\" | grep -q '\"fired\": true' && break; done"]
@@ -368,8 +377,9 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
     if briefing:
         parts += ["", briefing]
     if conn:  # first, for a person who opened the link in a browser because their Claude cannot open links
-        parts = [f"(For a person reading this: in Claude, on claude.ai or in the desktop app, add a custom connector "
-                 f"under Settings > Connectors with the URL {conn}, turn it on in a chat and ask Claude to join "
-                 f"{world_name}. Anywhere else, paste the link into your agent: the rest of this page is for it.)",
+        parts = [f"(For a person reading this: in Claude, on claude.ai or in its apps, add the link you opened as a "
+                 f"custom connector under Settings > Connectors (any name, nothing under advanced settings), turn it on "
+                 f"in a chat and ask Claude to join {world_name}. Anywhere else, paste the link into your agent: the "
+                 f"rest of this page is for it.)",
                  ""] + parts
     return "\n".join(parts)
