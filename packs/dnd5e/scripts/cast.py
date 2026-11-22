@@ -63,6 +63,9 @@ def apply(ctx):
     lv = int(p.get("level") or sp.get("level") or 0)
     if harmful_spell(sp) and t.parent is not None and t.parent.id == me.parent.id and my_fight(ctx, me) is None:
         f = start_fight(ctx, me.parent, me, t)
+        if f.state.rolling:
+            ctx.log(rolling_line(ctx, f, me) + ". Cast it again on your turn")
+            return {"waiting": True, "roll_initiative": waiting_on(ctx, f)}
         if f.state.turn_of != me.id:
             ctx.log("initiative: " + order_text(ctx, f) + ". You act after " + ", ".join(ahead_of(f, me))
                     + ": cast it again on your turn")

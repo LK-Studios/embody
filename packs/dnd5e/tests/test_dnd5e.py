@@ -57,6 +57,9 @@ def pit(tmp_path):
     eng = Engine(workspace=tmp_path, record=False)
     gm = eng.session("gm", capabilities=[AUTHOR])
     load_world(gm, "pit")
+    # the world rolls everyone's initiative here, so a first blow lands at once; the tests of a player's own roll turn
+    # this back on (player_rolls, below)
+    gm.patch(gm.summary()["root"], {"dnd5e": {"player_rolls": False}})
     ash = eng.session("ash")
     ash.join("pit", "Ash")
     return eng, gm, ash
@@ -322,3 +325,59 @@ def test_a_fighter_with_a_grudge_starts_the_fight_itself(pit):
     # Bo went first and swung; now it is Ash's turn
     f = gm.inspect(st(gm, "Ash")["fight"])["state"]
     assert f["turn_of"] == gm.inspect("Ash")["id"]
+
+
+def player_rolls(gm):
+    gm.patch(gm.summary()["root"], {"dnd5e": {"player_rolls": True}})
+
+
+def test_a_played_body_rolls_its_own_initiative(pit):
+    eng, gm, ash = pit
+    player_rolls(gm)
+    first(gm, "Ash")
+    me = gm.inspect("Ash")["id"]
+    r = ash.act("attack", "Bo")
+    call = evs(r, "roll_initiative")[0]
+    assert call["text"].startswith("Roll initiative!") and call["waiting"] == [me] and "Ash: d20 +52" in call["text"]
+    assert r["result"]["waiting"] and not evs(r, "hit") and not evs(r, "missed") and not evs(r, "initiative")
+    f = st(gm, "Ash")["fight"]
+    assert gm.inspect(f)["state"]["rolling"] == [me]
+    # no deed while the rolls are out; a die shows 1 to 20
+    with pytest.raises(Rejected) as why:
+        ash.act("attack", "Bo")
+    assert "roll initiative first" in why.value.reason
+    with pytest.raises(Rejected) as why:
+        ash.act("initiative", params={"roll": 25})
+    assert "a d20 shows 1 to 20" in why.value.reason
+    # the player's own 13: + dex 2 + the test's 50. The order is set and the declared blow lands on Ash's turn
+    r = ash.act("initiative", params={"roll": 13})
+    assert r["result"]["initiative"] == 65 and r["result"]["roll"] == 13
+    rolled = evs(r, "rolled_initiative")[0]
+    assert rolled["roll"] == 13 and rolled["by_world"] is False
+    assert evs(r, "initiative")[0]["order"][0]["name"] == "Ash"
+    assert blow_by(gm, r, "Ash") and st(gm, "Ash").get("declared") is None
+    assert gm.inspect(f)["state"].get("rolling") is None
+
+
+def test_the_world_rolls_for_a_player_who_asks_or_does_not_answer(pit):
+    eng, gm, ash = pit
+    player_rolls(gm)
+    ash.act("attack", "Bo")
+    r = ash.act("initiative")
+    rolled = evs(r, "rolled_initiative")[0]
+    assert rolled["by_world"] is True and 1 <= rolled["roll"] <= 20
+    assert evs(r, "initiative") and st(gm, "Ash")["initiative"] == rolled["init"]
+
+
+def test_a_fight_a_body_nobody_plays_starts_waits_for_the_player_then_rolls_for_them(pit):
+    eng, gm, ash = pit
+    player_rolls(gm)
+    gm.patch("Bo", {"attacked_by": gm.inspect("Ash")["id"], "attacked_at": gm.summary()["t"], "init_bonus": 50})
+    gm.clock(step=7)
+    f = st(gm, "Ash")["fight"]
+    assert gm.inspect(f)["state"]["rolling"] == [gm.inspect("Ash")["id"]]
+    assert st(gm, "Ash")["hp"] == st(gm, "Ash")["max_hp"]  # Bo's blow waits for the order too
+    gm.clock(step=300)  # the played turn's wait (120 s) runs out: the world rolls for Ash and the fight goes on
+    fs = gm.inspect(f)["state"]
+    assert fs.get("rolling") is None and st(gm, "Ash")["initiative"] is not None
+    assert fs["order"][0]["name"] == "Bo"

@@ -13,8 +13,13 @@ The numbers, so a narrator can explain a roll:
   else 2. Skill checks stay d20's `check` (d20 + the sheet's modifier and rank, the rank being the 5e proficiency).
 - A fight. The first hostile deed in a place (an attack, a shot, a grapple, a harmful spell, a fighter turning on a
   foe) starts one: every living body there rolls initiative, d20 + dex modifier + `init_bonus` (a sleeper rolls with
-  disadvantage: surprised). Highest first; ties go to the higher dex, then to the body nobody plays. The `initiative`
-  event lists the order. Whoever arrives mid-fight rolls and joins; whoever leaves the place leaves the fight. While it
+  disadvantage: surprised). Bodies nobody plays roll at once. A body someone plays rolls its own: the
+  `roll_initiative` event calls for it ("Roll initiative!"), and `initiative` (free) answers, with `roll` set to what
+  the player's own d20 shows, or without it and the world rolls. Until every roll is in, no turn opens and the deed
+  that started the fight waits for its turn; after the played turn's wait (`turn_wait`) the world rolls for whoever has
+  not (the root's `dnd5e.player_rolls` false has the world roll for everyone at once). Highest first; ties go to the
+  higher dex, then to the body nobody plays. The `initiative` event lists the order. Whoever arrives mid-fight rolls and
+  joins (a played body arriving while the rolls are out rolls its own); whoever leaves the place leaves the fight. While it
   lasts, only the body whose turn it is acts: anyone else is refused with whose turn it is. Talking, yielding and
   `end` are free any time; taking, dropping and giving are free on your turn. A fight ends when a round passes with no
   two standing bodies still at odds and nobody dying (`fight_over`). Rounds are 6 seconds.
@@ -88,6 +93,15 @@ RULES = [
      "recheck": ["plans that fight by the old numbers", "notes that count hp in quarters",
                  "plans that wait for rest to mend a wound"],
      "guide": ["player", "mind", "narrator"]},
+    {"id": "dnd5e-roll-initiative", "date": "2026-11-22",
+     "was": "The world rolled everyone's initiative the moment a fight started, players' included.",
+     "now": "A played body rolls its own initiative. When a fight starts, `roll_initiative` calls for it: answer with "
+            "`initiative` and `roll` set to what your own d20 shows, or `initiative` alone and the world rolls for you. "
+            "The turns start once every roll is in (the world rolls for anyone who has not answered after a turn's "
+            "wait), and the deed that started the fight lands on its turn.",
+     "retired": [],
+     "recheck": ["plans that expect the first blow to land the moment it is struck"],
+     "guide": ["player", "mind", "narrator"]},
 ]
 
 ROUND = 6  # seconds
@@ -95,14 +109,14 @@ ROUND = 6  # seconds
 # what each verb costs in a fight: free (any time), object (free, on your turn), action, attack (one of the Attack
 # action's blows), bonus, move. Anything not listed is an action. A world lays its own over this on the root's dnd5e.costs.
 COSTS = {
-    "talk": "free", "yield": "free", "end": "free", "stats": "free", "read": "free", "show": "free", "watch": "free",
+    "talk": "free", "yield": "free", "end": "free", "stats": "free", "initiative": "free", "read": "free", "show": "free", "watch": "free",
     "take": "object", "drop": "object", "give": "object", "put": "object", "buy": "object", "draw": "object",
     "attack": "attack", "shoot": "attack", "grapple": "attack", "shove": "attack",
     "offhand": "bonus",
     "go": "move", "stand": "move", "crawl": "move", "follow": "free", "stay": "free",
 }
 
-SETTINGS = {"round": ROUND, "turn_wait": 120, "costs": {}, "npc_gap": 0.5}
+SETTINGS = {"round": ROUND, "turn_wait": 120, "costs": {}, "npc_gap": 0.5, "player_rolls": True}
 
 # how a body's card words its way out under these rules (the root's condition_notes; a world's own words win)
 CONDITION_NOTES = {
@@ -394,6 +408,9 @@ ACTIONS = {
     "hide": {"script": "hide", "duration": 3, "doc": "Hide: stealth against 15; unseen (advantage on your next attack) until you attack"},
     "stand": {"script": "stand", "duration": 1, "doc": "Stand up from prone (half your move)"},
     "end": {"script": "end_turn", "doc": "End your turn in a fight"},
+    "initiative": {"script": "initiative", "duration": 0,
+                   "doc": "Roll initiative when a fight starts: give what your own d20 shows, or let the world roll",
+                   "params": {"roll": "what your own d20 shows (1 to 20); leave it out and the world rolls for you"}},
     "stats": {"script": "stats", "doc": "Your own numbers: hp, armour class, proficiency, attacks, saves, spells, slots, conditions"},
     "cast": {"script": "cast", "targets": "creature", "self": True, "scope": "sight", "reach": "sight", "duration": 3,
              "listed": "ok",

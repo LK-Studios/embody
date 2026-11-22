@@ -51,6 +51,13 @@ def gate(ctx, event):
     f = my_fight(ctx, a)
     if f is None or cost == "free" or cost == "reaction":
         return
+    if f.state.rolling:
+        if a.id in f.state.rolling:
+            ctx.reject("roll initiative first: the fight's turns start once every roll is in",
+                       "initiative with roll = what your own d20 shows (d20 " + signed(init_mod(ctx, a))
+                       + "), or initiative alone and the world rolls for you")
+        ctx.reject("initiative is being rolled: waiting on " + ", ".join(waiting_on(ctx, f)),
+                   "talk, yield or say something meanwhile; turns start once every roll is in")
     if f.state.turn_of != a.id:
         cur = ctx.get(f.state.turn_of) if f.state.turn_of else None
         ctx.reject("not your turn: " + (cur.name if cur is not None else "someone else") + " acts now (round "
@@ -96,6 +103,24 @@ def next_turn(ctx, event):
     if int(p.get("round") or 0) != int(f.state.round or 0) or int(p.get("turn") or 0) != int(f.state.turn or 0):
         return  # that turn is already over
     why = p.get("why")
+    if why == "roll":
+        # initiative's wait: someone still at it gets the rest of it; then the world rolls for whoever has not
+        if not f.state.rolling:
+            return
+        wait = held_wait(ctx)
+        least = None
+        for i in f.state.rolling:
+            who = ctx.get(i)
+            q = ctx.quiet(who) if who is not None and is_held(ctx, who) else None
+            if q is not None and (least is None or q < least):
+                least = q
+        if least is not None and least < wait:
+            ctx.schedule(wait - least, "fight_next", target=f.parent, payload=p)
+            return
+        world_rolls_rest(ctx, f)
+        return
+    if f.state.rolling:
+        return  # no turn is on while initiative is rolled
     cur = ctx.get(f.state.turn_of) if f.state.turn_of else None
     if why == "check":
         if not fight_live(ctx, f):

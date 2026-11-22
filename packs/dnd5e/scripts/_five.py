@@ -3,7 +3,7 @@
 
 ABIL = {"str": "force", "dex": "poise", "con": "endurance", "int": "cognition", "wis": "acuity", "cha": "projection"}
 FROM_STAT = {"str": "body", "dex": "body", "con": "body", "int": "wits", "wis": "wits", "cha": "will"}
-DEFAULT_COSTS = {"talk": "free", "yield": "free", "end": "free", "stats": "free", "read": "free", "show": "free",
+DEFAULT_COSTS = {"talk": "free", "yield": "free", "end": "free", "stats": "free", "initiative": "free", "read": "free", "show": "free",
                  "watch": "free", "follow": "free", "stay": "free", "take": "object", "drop": "object", "give": "object",
                  "put": "object", "buy": "object", "draw": "object", "attack": "attack", "shoot": "attack", "grapple": "attack",
                  "shove": "attack", "offhand": "bonus", "go": "move", "stand": "move", "crawl": "move"}
@@ -856,11 +856,39 @@ def my_fight(ctx, who):
 def eligible(p):
     return p.state.hp is not None and not p.state.dead and not p.state.hidden
 
+def init_mod(ctx, p):
+    return amod(p, "dex") + int(p.state.init_bonus or 0) + test_mod(ctx, p)
+
+def signed(n):
+    return ("+" if n >= 0 else "") + str(n)
+
 def init_roll(ctx, p):
     surprised = bool(p.state.asleep)
     r = d20(ctx, bool(p.state.init_adv), surprised)
-    total = r[0] + amod(p, "dex") + int(p.state.init_bonus or 0) + test_mod(ctx, p)
-    return {"id": p.id, "name": p.name, "init": total, "dex": score(p, "dex"), "roll": r[0], "surprised": surprised}
+    return init_entry(ctx, p, r[0])
+
+def init_entry(ctx, p, face):
+    return {"id": p.id, "name": p.name, "init": int(face) + init_mod(ctx, p), "dex": score(p, "dex"), "roll": int(face),
+            "surprised": bool(p.state.asleep)}
+
+def rolls_own(ctx, p):
+    # a body someone plays rolls its own initiative (the player's own d20, or the world's on their word), unless the
+    # world turned that off (the root's dnd5e.player_rolls false)
+    return is_held(ctx, p) and settings(ctx).get("player_rolls") is not False
+
+def to_roll(ctx, p):
+    # an order entry still waiting on its initiative
+    return {"id": p.id, "name": p.name, "init": None, "dex": score(p, "dex"), "roll": None, "surprised": bool(p.state.asleep),
+            "rolling": True}
+
+def roll_call(ctx, p):
+    # what a body that rolls its own is told: its die and what it adds
+    return (p.name + ": d20 " + signed(init_mod(ctx, p))
+            + (", two dice keeping the lower (surprised)" if p.state.asleep else "")
+            + (", two dice keeping the higher" if p.state.init_adv and not p.state.asleep else ""))
+
+def waiting_on(ctx, f):
+    return [name_of(ctx, i) for i in (f.state.rolling or [])]
 
 def order_key(ctx, e):
     p = ctx.get(e["id"])
@@ -872,32 +900,79 @@ def sort_order(ctx, entries):
     return [entries[k[1]] for k in keyed]
 
 def start_fight(ctx, place, by, against):
-    # the first hostile deed here: everyone living rolls initiative, the order is set and the first turn opens
+    # the first hostile deed here: everyone living rolls initiative. Bodies nobody plays roll at once; a played body
+    # rolls its own (roll_initiative: the player's d20, or the world's on their word), and the order is set and the first
+    # turn opens once every roll is in (begin_fight), or when the wait runs out and the world rolls for the rest
     f = fight_in(ctx, place)
     if f is not None:
         if by is not None and against is not None:
             mark_foes(ctx, by, against)
         return f
     entries = []
+    waiting = []
     for p in ctx.children(place, "creature"):
-        if eligible(p):
+        if not eligible(p):
+            continue
+        if by is not None and rolls_own(ctx, p):
+            waiting.append(p)
+            entries.append(to_roll(ctx, p))
+        else:
             entries.append(init_roll(ctx, p))
-    order = sort_order(ctx, entries)
     foes = {}
     if by is not None and against is not None:
         foes[by.id] = [against.id]
         foes[against.id] = [by.id]
-    f = ctx.spawn("fight", place, "Fight", state={"order": order, "turn": 0, "round": 1, "foes": foes, "started": ctx.t,
-                                                   "by": by.id if by is not None else None, "calm": 0, "hostile": True})
-    for e in order:
+    f = ctx.spawn("fight", place, "Fight", state={"order": entries, "turn": 0, "round": 1, "foes": foes, "started": ctx.t,
+                                                   "by": by.id if by is not None else None, "calm": 0, "hostile": True,
+                                                   "rolling": [p.id for p in waiting] if waiting else None})
+    for e in entries:
         ctx.patch(e["id"], {"fight": f.id, "initiative": e["init"], "turn": None})
-    ctx.emit("initiative", target=place, reach=1, by=by.id if by is not None else None,
+    if waiting:
+        ctx.emit("roll_initiative", target=place, reach=1, by=by.id, waiting=[p.id for p in waiting],
+                 text="Roll initiative! " + "; ".join([roll_call(ctx, p) for p in waiting])
+                      + ". Roll your own d20 and give what it shows (initiative, roll), or let the world roll (initiative)")
+        ctx.schedule(held_wait(ctx), "fight_next", target=place, payload={"fight": f.id, "round": 1, "turn": 0, "why": "roll"})
+        return ctx.get(f.id)
+    return begin_fight(ctx, f, by)
+
+def begin_fight(ctx, f, starter):
+    # every initiative is in: the order is set and the first turn opens. starter is the body whose deed opened the fight
+    # when it is about to act at once (its caller takes that turn); None when the turns are the fight's own to run
+    order = sort_order(ctx, [e for e in (f.state.order or []) if e.get("init") is not None])
+    ctx.patch(f, {"order": order, "turn": 0, "rolling": None})
+    f = ctx.get(f.id)
+    if not order:
+        end_fight(ctx, f, "nobody left")
+        return None
+    for e in order:
+        ctx.patch(e["id"], {"initiative": e["init"]})
+    ctx.emit("initiative", target=f.parent, reach=1, by=f.state.by,
              order=[{"id": e["id"], "name": e["name"], "init": e["init"], "roll": e["roll"], "surprised": e["surprised"]} for e in order],
              text="Initiative: " + ", ".join([e["name"] + " " + str(e["init"]) for e in order]))
     r = open_turn(ctx, f, 0)
-    if r == "skip" or (r == "npc" and (by is None or order[0]["id"] != by.id)):
+    if r == "skip" or (r == "npc" and (starter is None or order[0]["id"] != starter.id)):
         schedule_next(ctx, f, r)  # the first turn is someone else's: it is taken a moment from now
     return ctx.get(f.id)
+
+def set_initiative(ctx, f, who, face):
+    # a played body's initiative: face is what its player's own d20 showed, or None and the world rolls it
+    e = init_roll(ctx, who) if face is None else init_entry(ctx, who, face)
+    order = [e if x["id"] == who.id else x for x in (f.state.order or [])]
+    ctx.patch(f, {"order": order, "rolling": [i for i in (f.state.rolling or []) if i != who.id]})
+    ctx.patch(who, {"initiative": e["init"]})
+    ctx.emit("rolled_initiative", target=f.parent, reach=1, who=who.id, roll=e["roll"], init=e["init"],
+             by_world=face is None,
+             text=who.name + (" rolls " if face is None else "'s own die shows ") + str(e["roll"]) + " " + signed(init_mod(ctx, who))
+                  + ": initiative " + str(e["init"]))
+    return e
+
+def world_rolls_rest(ctx, f):
+    # the wait ran out: the world rolls for whoever has not, and the fight begins
+    for i in list(f.state.rolling or []):
+        p = ctx.get(i)
+        if p is not None:
+            set_initiative(ctx, ctx.get(f.id), p, None)
+    return begin_fight(ctx, ctx.get(f.id), None)
 
 def ensure_fight(ctx, place, who):
     # a dying body needs its turns for its death saves: it gets a fight if none is on here
@@ -927,8 +1002,20 @@ def join_fight(ctx, f, p):
     for e in order:
         if e["id"] == p.id and not e.get("gone"):
             return
-    e = init_roll(ctx, p)
     order = [x for x in order if x["id"] != p.id]
+    if f.state.rolling:
+        # initiative is still being rolled: a played body that walks in rolls its own too; the order is sorted at the start
+        own = rolls_own(ctx, p)
+        e = to_roll(ctx, p) if own else init_roll(ctx, p)
+        ctx.patch(f, {"order": order + [e], "rolling": list(f.state.rolling) + ([p.id] if own else [])})
+        ctx.patch(p, {"fight": f.id, "initiative": e["init"], "turn": None})
+        if own:
+            ctx.emit("joined_fight", target=f.parent, reach=1, who=p.id, init=None, roll=None,
+                     text="Roll initiative! " + roll_call(ctx, p))
+        else:
+            ctx.emit("joined_fight", target=f.parent, reach=1, who=p.id, init=e["init"], roll=e["roll"])
+        return
+    e = init_roll(ctx, p)
     cur = f.state.turn_of
     k = order_key(ctx, e)
     at = len(order)
@@ -946,6 +1033,14 @@ def join_fight(ctx, f, p):
     ctx.emit("joined_fight", target=f.parent, reach=1, who=p.id, init=e["init"], roll=e["roll"])
 
 def leave_fight(ctx, f, p, why):
+    if f.state.rolling:
+        # gone before the order was set: out of it, and the fight begins if they were the last it waited on
+        rolling = [i for i in f.state.rolling if i != p.id]
+        ctx.patch(f, {"order": [x for x in (f.state.order or []) if x["id"] != p.id], "rolling": rolling})
+        ctx.patch(p, {"fight": None, "initiative": None, "turn": None, "dodging": False, "disengaged": False, "declared": None})
+        if not rolling:
+            begin_fight(ctx, ctx.get(f.id), None)
+        return
     order = list(f.state.order or [])
     for i, e in enumerate(order):
         if e["id"] == p.id:
@@ -1049,6 +1144,10 @@ def open_with(ctx, verb):
     if f is None and t.parent is not None and t.parent.id == me.parent.id:
         f = start_fight(ctx, me.parent, me, t)
         started = True
+        if f.state.rolling:
+            ctx.patch(me, {"declared": {"verb": verb, "target": t.id, "params": p}})
+            ctx.log(rolling_line(ctx, f, me) + ". Your " + verb + " lands when your turn comes")
+            return {"waiting": True, "roll_initiative": waiting_on(ctx, f)}
         if f.state.turn_of != me.id:
             ctx.patch(me, {"declared": {"verb": verb, "target": t.id, "params": p}})
             ctx.log("initiative: " + order_text(ctx, f) + ". You act after " + ", ".join(ahead_of(f, me))
@@ -1062,6 +1161,13 @@ def open_with(ctx, verb):
         if turn_done(ctx, me, verb):
             schedule_next(ctx, f, "done")
     return r
+
+def rolling_line(ctx, f, me):
+    # what the one who opened a fight is told while initiative is rolled
+    if me.id in (f.state.rolling or []):
+        return ("Roll initiative! Your d20 " + signed(init_mod(ctx, me))
+                + ": roll your own and give what it shows (initiative, roll), or let the world roll (initiative)")
+    return "Roll initiative! Waiting on " + ", ".join(waiting_on(ctx, f))
 
 def ahead_of(f, who):
     out = []
@@ -1323,6 +1429,9 @@ def order_text(ctx, f):
     out = []
     for e in f.state.order or []:
         if e.get("gone"):
+            continue
+        if e.get("init") is None:
+            out.append(e["name"] + " (rolling)")
             continue
         out.append(e["name"] + " " + str(e["init"]) + (" (now)" if e["id"] == f.state.turn_of else ""))
     return ", ".join(out)
