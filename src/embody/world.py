@@ -1179,18 +1179,15 @@ class World:
     def refresh(self) -> None:
         """Reread the world row (t, clock, counters, cursors, meta) from the store. Two processes share one
         database (the MCP server and a CLI mind, say); each caches the row, and without this each one keeps
-        its own clock and may hand out an id the other already used. Sessions call it on every tick."""
+        its own clock and may hand out an id the other already used. Sessions call it on every tick. A schema the other
+        process defined since (`schema_gen` in meta moved) drops this one's schema cache, so its new verbs show here."""
         row = self.store.get("world", None, self.id)
         if row is not None:
+            gen = (self._row.get("meta") or {}).get("schema_gen")
             self._row = row
-
-    def refresh(self) -> None:
-        """Reread the world row (t, clock, counters, cursors, meta) from the store. Two processes share one
-        database (the MCP server and a CLI mind, say); each caches the row, and without this each one keeps
-        its own clock and may hand out an id the other already used. Sessions call it on every tick."""
-        row = self.store.get("world", None, self.id)
-        if row is not None:
-            self._row = row
+            if (row.get("meta") or {}).get("schema_gen") != gen:
+                self._schema_cache.clear()
+                self._holder_types = None
 
     @property
     def root_id(self) -> str:
@@ -1253,6 +1250,9 @@ class World:
         self.store.put("schema", row)
         self._schema_cache.clear()
         self._holder_types = None
+        # the generation other processes on this database compare in refresh(): a schema changed under their cache
+        self._row["meta"]["schema_gen"] = int(self._row["meta"].get("schema_gen") or 0) + 1
+        self._save_row()
         self.emit("schema_defined", target=None, reach=0, payload={"schema": id, "version": row["version"]})
         return row
 

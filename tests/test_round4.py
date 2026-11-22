@@ -127,3 +127,22 @@ def test_cli_say_to_and_light_wait(tmp_path, capsys):
     w = World(s, "ferry-at-dusk")
     last = [e for e in w.events(limit=500) if e["kind"] == "say"][-1]
     assert last["target_id"] == w.find(name="Mara")[0]["id"]
+
+
+def test_a_schema_defined_by_one_process_reaches_the_other(tmp_path):
+    """The Refuge took the dnd5e pack live: an upgrade run from the CLI redefined `combatant`, and the narrator's MCP
+    server kept its cached schema, with none of the new verbs, until it restarted."""
+    db = tmp_path / "w.db"
+    eng1, gm = ferry(str(db))
+    eng2 = Engine(str(db))
+    you = eng2.session("you")
+    you.join("ferry-at-dusk", "Traveler")
+    assert "hum" not in {a["verb"] for a in you.perceive()["affordances"]}  # process two caches the schema now
+    gm.define_script("hum", "def apply(ctx):\n    ctx.log('you hum')\n")
+    t = gm.inspect("Traveler")["type"]
+    sch = gm.world.schema(t)
+    gm.define_schema(t, extends=sch["extends"], doc=sch["doc"], state=sch["state"],
+                     actions={**sch["actions"], "hum": {"script": "hum", "doc": "Hum a tune"}},
+                     listeners=sch["listeners"], behaviors=sch["behaviors"])
+    assert "hum" in {a["verb"] for a in you.perceive()["affordances"]}
+    assert you.act("hum")["logs"] == ["you hum"]

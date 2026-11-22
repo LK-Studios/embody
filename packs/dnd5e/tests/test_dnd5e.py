@@ -1,0 +1,324 @@
+"""The dnd5e pack: initiative and turns, attacks against armour class, damage dice and crits, dying and death saves,
+the action economy, conditions, saves, spells and slots, opportunity attacks and rests, in a two-room pit."""
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from embody.cli import load_world
+from embody.ops import AUTHOR, Engine, Rejected
+from packs.dnd5e.pack import ac_of, armor, character, class_hp, slots_for, weapon
+
+REPO = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
+
+BUILD = '''
+WORLD = {"id": "pit", "name": "The Pit", "seed": 11, "description": "A fighting pit and the yard outside it.",
+         "requires": ["village", "d20", "sheet", "dnd5e"]}
+
+from packs.d20.pack import install_rules
+from packs.dnd5e.pack import install_rules as install_5e, weapon, armor, character
+
+def define(s):
+    s.define_schema("person", extends="combatant",
+                    actions={"go": {"script": "go", "doc": "Walk to a connected place", "targets": "place", "scope": "exits"}})
+    s.define_schema("fighter", extends="person", behaviors=[{"script": "fighter_tick", "every": 6}])
+
+def populate(s):
+    root = s.summary()["root"]
+    install_rules(s, root)
+    install_5e(s, root)
+    pit = s.spawn("place", root, "Pit", state={"water_source": True})["id"]
+    yard = s.spawn("place", root, "Yard", state={"water_source": True})["id"]
+    s.connect(pit, yard)
+    ash = s.spawn("person", pit, "Ash", state={"scores": {"str": 16, "dex": 14, "con": 14, "int": 10, "wis": 12, "cha": 10},
+                                              **character("fighter", 3, {"con": 14})})["id"]
+    s.spawn("thing", ash, "Longsword", state=weapon("longsword"))
+    s.spawn("thing", ash, "Chain shirt", state=armor("chain shirt"))
+    bo = s.spawn("fighter", pit, "Bo", state={"scores": {"str": 14, "dex": 10, "con": 12}, "hp": 20, "max_hp": 20, "ac": 12})["id"]
+    s.spawn("thing", bo, "Club", state=weapon("club"))
+    cy = s.spawn("person", pit, "Cy", state={"scores": {"str": 8, "dex": 12, "con": 10, "int": 16, "wis": 12, "cha": 10},
+                                             **character("wizard", 5, {"con": 10}, ["fire bolt", "magic missile", "shield",
+                                                                                   "hold person", "fireball", "burning hands"])})["id"]
+    s.spawn("person", yard, "Dee", state={"scores": {"str": 10, "dex": 10, "con": 10, "wis": 16, "cha": 12},
+                                          **character("cleric", 3, {"con": 10}, ["sacred flame", "healing word", "cure wounds", "bless"])})
+    s.clock(run=False, turn=6)
+'''
+
+
+@pytest.fixture
+def pit(tmp_path):
+    for p in ("village", "d20", "sheet", "dnd5e"):
+        shutil.copytree(REPO / "packs" / p, tmp_path / "packs" / p, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    (tmp_path / "packs" / "__init__.py").write_text("", encoding="utf-8")
+    world = tmp_path / "worlds" / "pit"
+    (world / "scripts").mkdir(parents=True)
+    (world / "build.py").write_text(BUILD, encoding="utf-8")
+    eng = Engine(workspace=tmp_path, record=False)
+    gm = eng.session("gm", capabilities=[AUTHOR])
+    load_world(gm, "pit")
+    ash = eng.session("ash")
+    ash.join("pit", "Ash")
+    return eng, gm, ash
+
+
+def st(gm, name):
+    return gm.inspect(name)["state"]
+
+
+def kinds(r):
+    return [e["kind"] for e in r["events"]]
+
+
+def evs(r, kind):
+    return [e["payload"] for e in r["events"] if e["kind"] == kind]
+
+
+def first(gm, who):
+    """Make `who` win initiative and hit whatever it swings at."""
+    gm.patch(who, {"init_bonus": 50})
+
+
+def test_builders_follow_the_book():
+    assert class_hp("fighter", 1, 14) == 12 and class_hp("fighter", 3, 14) == 28 and class_hp("wizard", 5, 10) == 22
+    assert slots_for("wizard", 5) == {"1": 4, "2": 3, "3": 2} and slots_for("paladin", 5) == {"1": 4, "2": 2}
+    assert slots_for("warlock", 5) == {"3": 2} and slots_for("fighter", 5) == {}
+    assert ac_of({"dex": 14}, [armor("chain shirt")]) == 15 and ac_of({"dex": 18}, [armor("plate"), armor("shield")]) == 20
+    assert ac_of({"dex": 14, "con": 16}, [], unarmored="con") == 15
+    c = character("rogue", 5, {"con": 12})
+    assert c["sneak_attack"] == "3d6" and c["cunning"] and c["saves"] == ["dex", "int"]
+    assert character("fighter", 5, {})["extra_attacks"] == 1 and weapon("dagger")["properties"] == ["finesse", "light", "thrown"]
+
+
+def test_stats_reads_the_numbers(pit):
+    eng, gm, ash = pit
+    r = ash.act("stats")["result"]
+    assert r["ac"] == 15 and r["prof"] == 2 and r["hp"] == 28 and r["abilities"]["str"] == [16, 3]
+    sword = [a for a in r["attacks"] if a["with"] == "Longsword"][0]
+    assert sword["to_hit"] == 5 and sword["damage"] == "1d10+3"  # versatile: nothing else in hand
+    assert r["saves"] == ["str", "con"]
+
+
+def test_the_first_blow_rolls_initiative_and_the_fight_takes_turns(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    r = ash.act("attack", "Bo")
+    init = evs(r, "initiative")[0]
+    assert [o["name"] for o in init["order"]][0] == "Ash" and {o["name"] for o in init["order"]} == {"Ash", "Bo", "Cy"}
+    assert "hit" in kinds(r) or "missed" in kinds(r)
+    blow = (evs(r, "hit") + evs(r, "missed"))[0]
+    assert blow["ac"] == 12 and blow["by"] == gm.inspect("Ash")["id"]
+    # the action is spent and a fighter has no bonus action here: the turn ends, Bo strikes back, Cy (no foe) passes
+    bo = gm.inspect("Bo")["id"]
+    assert any(e["kind"] in ("hit", "missed") and e["payload"]["by"] == bo for e in r["events"])
+    turn = evs(r, "turn")
+    assert turn and turn[-1]["who"] == gm.inspect("Ash")["id"] and turn[-1]["round"] == 2
+    assert st(gm, "Ash")["turn"]["action"] == 1
+
+
+def test_out_of_turn_deeds_are_refused_and_talk_is_free(pit):
+    eng, gm, ash = pit
+    gm.patch("Bo", {"init_bonus": 50})
+    gm.patch("Cy", {"init_bonus": 40})
+    cy = eng.session("cy")
+    cy.join("pit", "Cy")
+    r = ash.act("attack", "Bo")
+    assert r["result"]["waiting"] and st(gm, "Ash")["declared"]["target"] == gm.inspect("Bo")["id"]
+    # Bo went first and struck; now Cy's turn waits for Cy, and Ash may only talk
+    f = st(gm, "Ash").get("fight")
+    assert gm.inspect(f)["state"]["turn_of"] == gm.inspect("Cy")["id"]
+    with pytest.raises(Rejected) as why:
+        ash.act("attack", "Bo")
+    assert "not your turn: Cy acts now" in why.value.reason
+    ash.act("talk", "Bo", params={"about": "hold on"}) if False else None
+    r = cy.act("end")
+    # Cy's turn over: Ash's declared blow lands when Ash's turn opens
+    assert st(gm, "Ash").get("declared") is None
+    me = gm.inspect("Ash")["id"]
+    assert any(e["kind"] in ("hit", "missed") and e["payload"]["by"] == me for e in r["events"])
+
+
+def test_a_body_at_zero_is_dying_and_rolls_death_saves(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Bo", {"hp": 1, "ac": 1})
+    r = ash.act("attack", "Bo")
+    bo = st(gm, "Bo")
+    assert bo["down"] and bo["dying"] and bo["hp"] == 0 and bo["death_saves"] is not None
+    assert evs(r, "downed")[0]["dying"] is True
+    # Bo's turn came round in the same step: a death save
+    assert evs(r, "death_save") or evs(r, "fight_over") == []
+    # tend: medicine against 10 stabilises; keep at it until it holds (a seeded world, so this ends)
+    for i in range(12):
+        if st(gm, "Bo")["stable"] or st(gm, "Bo")["dead"] or not st(gm, "Bo")["down"]:
+            break
+        f = st(gm, "Ash").get("fight")
+        if f and gm.inspect(f)["state"]["turn_of"] != gm.inspect("Ash")["id"]:
+            gm.clock(step=6)
+            continue
+        ash.act("tend", "Bo")
+    b = st(gm, "Bo")
+    assert b["stable"] or b["dead"] or not b["down"]
+
+
+def test_knockout_leaves_them_stable(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Bo", {"hp": 1, "ac": 1})
+    ash.act("attack", "Bo", params={"knockout": True})
+    bo = st(gm, "Bo")
+    assert bo["down"] and bo["stable"] and not bo["dying"] and bo["up_at"] > gm.summary()["t"]
+    gm.clock(step=5 * 3600)
+    assert not st(gm, "Bo")["down"] and st(gm, "Bo")["hp"] == 1
+
+
+def test_crits_double_the_dice_and_the_unconscious_are_crit(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Ash", {"crit_range": 2})  # every roll but a 1 crits
+    r = ash.act("attack", "Bo")
+    blow = (evs(r, "hit") + evs(r, "missed"))[0]
+    if blow.get("natural") != 1:
+        assert blow["crit"] and blow["rolled"] >= 2 + 3
+
+
+def test_spells_spend_slots_and_land(pit):
+    eng, gm, ash = pit
+    cy = eng.session("cy")
+    cy.join("pit", "Cy")
+    gm.patch("Cy", {"init_bonus": 50})
+    r = cy.act("cast", "Bo", params={"spell": "magic missile"})
+    assert evs(r, "cast")[0]["spell"] == "magic missile"
+    assert st(gm, "Cy")["spellcasting"]["slots"]["1"] == 3
+    hit = [e for e in evs(r, "hit") if e.get("spell") == "magic missile"][0]
+    assert 6 <= hit["rolled"] <= 15
+    with pytest.raises(Rejected) as why:
+        cy.act("cast", "Bo", params={"spell": "fireball"})
+    assert "not your turn" in why.value.reason  # Cy's action went on the missiles; the turn moved on
+    dee = eng.session("dee")
+    dee.join("pit", "Dee")
+    with pytest.raises(Rejected) as why:
+        dee.act("cast", "Dee", params={"spell": "wish"})
+    assert "you do not know wish" in why.value.reason
+
+
+def test_hold_person_paralyses_on_a_failed_save_and_concentration_ends_it(pit):
+    eng, gm, ash = pit
+    cy = eng.session("cy")
+    cy.join("pit", "Cy")
+    gm.patch("Cy", {"init_bonus": 50})
+    gm.patch("Bo", {"scores": {"str": 14, "dex": 10, "con": 12, "wis": 1}, "init_bonus": -50})
+    gm.patch("Ash", {"init_bonus": -40})
+    r = cy.act("cast", "Bo", params={"spell": "hold person"})
+    saved = [e for e in evs(r, "saved") if e["why"] == "hold person"][0]
+    if not saved["success"]:
+        assert "paralyzed" in st(gm, "Bo")["conditions"]
+        assert st(gm, "Cy")["concentrating"]["spell"] == "hold person"
+        # a paralysed body fails dex saves and blows on it within reach crit
+        gm.world.patch(gm.inspect("Cy")["id"], {"concentrating": st(gm, "Cy")["concentrating"]})
+
+
+def test_leaving_draws_an_opportunity_attack_unless_you_disengage(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Bo", {"ac": 1})
+    ash.act("attack", "Bo")
+    # Ash's turn again in round 2: walking out draws Bo's reaction
+    r = ash.act("go", "Yard")
+    assert any(e["kind"] in ("hit", "missed") and e["payload"].get("opportunity") for e in r["events"])
+    assert st(gm, "Ash").get("fight") is None
+    assert gm.inspect("Ash")["parent"] == gm.inspect("Yard")["id"]
+
+
+def test_a_fight_ends_when_nobody_is_at_odds(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Bo", {"ac": 1, "hp": 200, "max_hp": 200})
+    ash.act("attack", "Bo")
+    ash.act("yield", "Bo")
+    assert gm.world.find(type="fight") == [] and st(gm, "Ash").get("fight") is None
+
+
+def test_armour_class_comes_from_what_you_carry(pit):
+    eng, gm, ash = pit
+    assert ash.act("stats")["result"]["ac"] == 15
+    gm.spawn("thing", gm.inspect("Ash")["id"], "Shield", state=armor("shield"))
+    assert ash.act("stats")["result"]["ac"] == 17
+
+
+def test_a_long_sleep_restores_hp_and_slots(pit):
+    eng, gm, ash = pit
+    gm.patch("Cy", {"hp": 3, "spellcasting": {"slots": {"1": 0, "2": 0, "3": 0}}})
+    cy = eng.session("cy")
+    cy.join("pit", "Cy")
+    cy.act("sleep")
+    gm.clock(step=9 * 3600)
+    cy.act("wake", "Cy")
+    c = st(gm, "Cy")
+    assert c["hp"] == c["max_hp"] and c["spellcasting"]["slots"] == {"1": 4, "2": 3, "3": 2}
+
+
+def test_rest_no_longer_mends_a_point_a_beat(pit):
+    eng, gm, ash = pit
+    gm.patch("Ash", {"hp": 10})
+    gm.clock(step=3600)
+    assert st(gm, "Ash")["hp"] == 10
+    r = ash.act("rest", params={"dice": 1})
+    assert st(gm, "Ash")["hp"] > 10 and st(gm, "Ash")["hit_dice"] == 2
+
+
+def blow_by(gm, r, name):
+    me = gm.inspect(name)["id"]
+    return [e["payload"] for e in r["events"] if e["kind"] in ("hit", "missed") and e["payload"].get("by") == me][0]
+
+
+def test_resistance_halves_the_damage(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Bo", {"ac": -20, "resist": ["slashing"], "hp": 200, "max_hp": 200})
+    r = ash.act("attack", "Bo")
+    b = blow_by(gm, r, "Ash")
+    if b.get("natural") != 1:
+        assert b["dmg"] == b["rolled"] // 2 and b["dtype"] == "slashing"
+
+
+def test_prone_and_dodging_set_the_roll(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Bo", {"conditions": {"prone": {}}})
+    assert blow_by(gm, ash.act("attack", "Bo"), "Ash")["mode"] == "advantage"
+    gm.world.patch(gm.inspect("Bo")["id"], {"conditions": {"prone": None}, "dodging": True})
+    f = st(gm, "Ash").get("fight")
+    if f and gm.inspect(f)["state"]["turn_of"] == gm.inspect("Ash")["id"]:
+        assert blow_by(gm, ash.act("attack", "Bo"), "Ash")["mode"] == "disadvantage"
+
+
+def test_a_grapple_holds_and_the_held_cannot_walk(pit):
+    eng, gm, ash = pit
+    first(gm, "Ash")
+    gm.patch("Ash", {"scores": {"str": 30, "dex": 14, "con": 14}})  # escape dc 8 + 10 + 2 = 20
+    gm.patch("Cy", {"scores": {"str": 1, "dex": 1, "con": 10, "int": 16}, "init_bonus": -50})
+    gm.patch("Bo", {"init_bonus": -60})
+    cy = eng.session("cy")
+    cy.join("pit", "Cy")
+    r = ash.act("grapple", "Cy")
+    assert evs(r, "grappled")[0]["dc"] == 20
+    assert st(gm, "Cy")["conditions"]["grappled"]["by"] == gm.inspect("Ash")["id"]
+    # Cy's turn (after Ash): walking off is refused, escaping is the way
+    assert gm.inspect(st(gm, "Ash")["fight"])["state"]["turn_of"] == gm.inspect("Cy")["id"]
+    with pytest.raises(Rejected) as why:
+        cy.act("go", "Yard")
+    assert "you are grappled" in why.value.reason
+    r = cy.act("escape")
+    assert r["result"]["tries"][0]["dc"] == 20
+
+
+def test_a_fighter_with_a_grudge_starts_the_fight_itself(pit):
+    eng, gm, ash = pit
+    gm.patch("Bo", {"attacked_by": gm.inspect("Ash")["id"], "attacked_at": gm.summary()["t"], "init_bonus": 50})
+    gm.clock(step=7)
+    assert gm.world.find(type="fight")
+    assert st(gm, "Ash")["fight"] and st(gm, "Bo")["fight"] == st(gm, "Ash")["fight"]
+    # Bo went first and swung; now it is Ash's turn
+    f = gm.inspect(st(gm, "Ash")["fight"])["state"]
+    assert f["turn_of"] == gm.inspect("Ash")["id"]

@@ -4,13 +4,19 @@ SKILLS = {"blade": "body", "brawl": "body", "climb": "body", "stealth": "wits", 
 def stat_for(skill):
     return SKILLS.get(skill, "wits")
 
+def five_rules(ctx):
+    # a world on the dnd5e pack (its settings sit on the root): no wounded penalty at half hp, exhaustion instead
+    return ctx is not None and ctx.root().state.dnd5e is not None
+
 def bonus(who, skill, ctx=None):
     # what a body adds to a d20 roll: its natural bonus (natural), less the conditions everyone can see, plus its grants
     # (with ctx: a grant for one use is spent by this roll; together at most `grant_cap` when the world sets it). A body
 # with no sheet and no grants rolls stat + skill as ever.
     st = who.state
     b = natural(ctx, who, skill)
-    if st.wounded:
+    if five_rules(ctx):
+        b = b - 2 * int(st.exhaustion or 0)  # 5e: exhaustion, not wounds, weighs on every roll
+    elif st.wounded:
         b = b - 2
     if st.thirsty:
         b = b - 2
@@ -450,7 +456,7 @@ def settle(ctx, who, cause):
     if v <= 0 and not st.down:
         ctx.patch(who, {"down": True, "wounded": True, "hp": 0, "braced": False})
         ctx.emit("downed", target=who, reach=1, by=cause)
-    elif v <= mx // 2 and not st.wounded:
+    elif v <= mx // 2 and not st.wounded and not five_rules(ctx):
         ctx.patch(who, {"wounded": True})
         ctx.emit("wounded", target=who, reach=1, by=cause)
 
