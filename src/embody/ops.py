@@ -844,11 +844,16 @@ class Session:
                                                 "join(world, template=..., name=...)")
 
     def _reservations(self, eid: str, now: float) -> list[dict[str, Any]]:
-        """Live grants that name this entity as their seat, other than this principal's own."""
+        """Live grants that name this entity as their seat, hold it, or made it, other than this principal's own."""
         w = self.world
         rows = w.store.query("grants", "world_id=? AND entity_id=? AND revoked=0", (w.id, eid))
         rows += [g for g in w.store.query("grants", "world_id=? AND held IS NOT NULL AND revoked=0", (w.id,))
                  if (g.get("held") or {}).get("body") == eid and g.get("entity_id") != eid]
+        # the character an invite made is that invite's while it lives: a guest who stepped away found another
+        # guest's agent sitting in their character, picked from seats() as an open seat (Klhyts Refuge, 2026-11-22)
+        seen = {g["id"] for g in rows}
+        rows += [g for g in w.store.query("grants", "world_id=? AND made=? AND revoked=0", (w.id, eid))
+                 if g["id"] not in seen]
         return [g for g in rows if active(g, now) and g["principal_id"] != self.pid]
 
     def _seat_hold(self) -> dict[str, Any] | None:
@@ -874,6 +879,9 @@ class Session:
             return
         if self.grant is None:
             return  # a local principal (the owner's own process, a narrator's subagent) sits in any free body
+        g = w.store.get("grants", w.id, self.grant["id"])
+        if g is not None and g.get("made") == eid:
+            return  # the character this invite made is its own, kept as a seat for others or not
         if self.role == MIND:
             if not self.scope:
                 return  # a remote narrator's delegate: any free body

@@ -910,6 +910,33 @@ def test_a_sleeping_body_keeps_its_seat_overnight_and_every_release_names_its_ca
     assert causes[-4:] == ["left", "host", "revoked", "grant_ended"]
 
 
+def test_the_character_an_invite_made_is_kept_for_it():
+    # Klhyts Refuge, 2026-11-22: the owner stepped away from the character their invite made, and another guest's
+    # agent, on an invite to any open seat, picked it from seats() and played it
+    eng, w, i = engine_with_two_rooms()
+    gm = owner(eng)
+    gm.patch(w.root_id, {"templates": {"newcomer": {"type": "person", "place": "Hall"}}})
+    maker = gm.invite("player", label="maker")
+    a = eng.session_for_token(maker["token"])
+    kit = a.join(template="newcomer", name="Kalypso")["you"]["id"]
+    a.leave()
+    b = eng.session_for_token(gm.invite("player", label="passer-by")["token"])
+    row = next(s for s in b.seats()["seats"] if s["id"] == kit)
+    assert row["reserved"] and not row["open"]
+    with pytest.raises(Rejected) as r:
+        b.join(entity="Kalypso")
+    assert "kept for someone else" in r.value.reason
+    gm.patch(kit, {"playable": False})  # closed as a seat for anyone else, still its maker's
+    assert all(s["id"] != kit for s in b.seats()["seats"])
+    assert a.join()["you"]["id"] == kit
+    a.leave()
+    gm.revoke(maker["id"])  # the maker's invite ended: an open seat again only if the host leaves it playable
+    with pytest.raises(Rejected):
+        b.join(entity="Kalypso")
+    gm.patch(kit, {"playable": True})
+    assert b.join(entity="Kalypso")["you"]["id"] == kit
+
+
 def test_one_invite_makes_one_character_while_it_stands():
     # 2026-11-14: a guard-template guest made some 55 bodies, one join at a time; the ones it left ran on the guard
     # behaviors and killed two people
