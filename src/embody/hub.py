@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .grants import token_hash
+from .grants import as_bearer, token_hash
 
 _HOP = {b"connection", b"keep-alive", b"proxy-authenticate", b"proxy-authorization", b"te", b"trailers",
         b"transfer-encoding", b"upgrade", b"host"}
@@ -303,7 +303,8 @@ _OFFLINE = ("<!doctype html><meta charset=utf-8><meta name=viewport content='wid
 class Router:
     """The hub's ASGI app: its own /health and /status, everything else streamed to the world's server unchanged
     (headers, body and the server-sent events of the MCP door), with the client's host passed on so each world's
-    invite links carry the domain the guest came in on."""
+    invite links carry the domain the guest came in on. A connector's /mcp/<token> goes on as /mcp with the token as
+    its bearer, so it reaches the world that minted it and no log here or there holds the token."""
 
     def __init__(self, hub: Hub):
         self.hub = hub
@@ -329,6 +330,11 @@ class Router:
                     await send({"type": "lifespan.shutdown.complete"})
                     return
         if scope["type"] != "http":
+            return
+        if as_bearer(scope) and scope.get("method") in ("GET", "HEAD"):  # a connector's /mcp/<token>, as the door has it
+            await _reply(send, 405, {"ok": False, "reason": "the MCP door answers each POST in full; it has no event "
+                                                            "stream to open", "hint": "POST your calls"},
+                         extra=((b"allow", b"POST"),))
             return
         path, method = scope.get("path") or "", scope.get("method") or "GET"
         headers = dict(scope.get("headers") or [])

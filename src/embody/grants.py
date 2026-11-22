@@ -110,6 +110,35 @@ def link_for(url: str | None, code: str) -> str | None:
     return None
 
 
+# A connector's address: the door's URL with the token as its last part, for a client that takes a URL and no header
+# (a custom connector in Claude, added on claude.ai or in the desktop app). The door turns it back into the plain door.
+CONNECTOR = "/mcp/"
+
+
+def connector_url(url: str | None, token: str) -> str | None:
+    """The door with the token in its path (.../mcp/<token>). None without a door URL that ends in /mcp."""
+    if url and url.endswith("/mcp"):
+        return f"{url}/{token}"
+    return None
+
+
+def as_bearer(scope: dict[str, Any]) -> bool:
+    """A connector's request becomes the plain door's, in place: the token moves from the path (/mcp/<token>) into the
+    Authorization header and the path reads /mcp. The server, the MCP app and the access log (uvicorn reads the scope
+    when the reply starts) see /mcp and never the token. Anything under /mcp/ that is not one token (/mcp/, or more
+    parts after it) reads /mcp too, with no bearer at all, so it is refused and logged without what came after.
+    False, the scope untouched, for any other path."""
+    path = scope.get("path") or ""
+    if not path.startswith(CONNECTOR):
+        return False
+    token, _, rest = path[len(CONNECTOR):].partition("/")
+    scope["path"], scope["raw_path"] = "/mcp", b"/mcp"
+    scope["headers"] = [(k, v) for k, v in scope.get("headers") or [] if k.lower() != b"authorization"]
+    if token and not rest.strip("/"):
+        scope["headers"].append((b"authorization", b"Bearer " + token.encode("utf-8")))
+    return True
+
+
 # User agents that unfurl links in chat apps: they get a stub, never the page, so a pasted link survives its preview.
 PREVIEW_BOTS = ("discordbot", "slackbot", "twitterbot", "facebookexternalhit", "whatsapp", "telegrambot", "linkedinbot",
                 "skypeuripreview", "iframely", "embedly", "applebot", "googlebot", "bingbot", "pinterest", "redditbot",
@@ -181,9 +210,10 @@ def paste(world_name: str, role: str, link: str | None, page_text: str, label: s
         return page_text
     who = f"{label}, here" if label else "Here"
     thing = "a seat" if role in (PLAYER, MIND) else f"the {role}'s keys"
-    return (f"{who} is {thing} in {world_name}. Paste this link into your agent (Claude Code, Codex, anything that speaks "
-            f"MCP) and it takes it from there:\n\n{link}\n\nThe link works once and for a day; the agent reads it, "
-            f"not you.")
+    return (f"{who} is {thing} in {world_name}. Paste this link into your agent (Claude, Claude Code, Codex, anything "
+            f"that speaks MCP) and it takes it from there:\n\n{link}\n\nThe link works once and for a day; the agent "
+            f"reads it, not you. In Claude on the web or in its app, Claude asks you to add a connector; if it cannot "
+            f"open links, open this one in your browser and follow its first line.")
 
 
 def guides_line(guides: Any, role: str) -> str:
@@ -216,6 +246,12 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
             f"there. Your role: {role}: {ROLE_DOC.get(role, '')}. Set up quietly, then play.")
     add = ("1. Add the server, once, without comment. Save the entry (the URL and the token) where your harness keeps "
            "its servers: this link opens once, and from now on the token is the key.\n" + _ADD_LINES.format(url=url, token=token))
+    conn = connector_url(url, token)
+    if conn:
+        add += (f"\n  Claude (claude.ai, the Claude desktop or mobile app): you cannot add a server yourself. Ask your "
+                f"human, in one line, to add a custom connector (on claude.ai or in the desktop app: Settings > "
+                f"Connectors > Add custom connector) named {world_name}, with the URL {conn} (the token is in it: no "
+                f"header), and to turn it on in this chat; then go on from step 2.")
     if url.endswith("/mcp"):
         base = url[:-len("/mcp")]
         add += ("\n   Most harnesses load a new server only when they start. Do not make the human restart or open "
@@ -331,4 +367,9 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                       f"the clock and the event feed of this world; it changes nothing."]
     if briefing:
         parts += ["", briefing]
+    if conn:  # first, for a person who opened the link in a browser because their Claude cannot open links
+        parts = [f"(For a person reading this: in Claude, on claude.ai or in the desktop app, add a custom connector "
+                 f"under Settings > Connectors with the URL {conn}, turn it on in a chat and ask Claude to join "
+                 f"{world_name}. Anywhere else, paste the link into your agent: the rest of this page is for it.)",
+                 ""] + parts
     return "\n".join(parts)

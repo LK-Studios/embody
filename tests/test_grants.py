@@ -385,6 +385,65 @@ def test_http_door_needs_a_bearer_and_serves_the_grants_session():
         t.join(timeout=5)
 
 
+def test_a_connector_reaches_the_door_with_the_token_in_its_path():
+    """Claude's custom connectors take a URL and no header: /mcp/<token> is the plain door with that bearer, a GET
+    there spends no invite link, and the access log shows /mcp, never the token."""
+    uvicorn = pytest.importorskip("uvicorn")
+    import logging
+    from embody.mcp_server import build_server, http_app
+    eng, w, i = engine_with_two_rooms()
+    port = _free_port()
+    eng.public_url = f"http://127.0.0.1:{port}/mcp"
+    gm = owner(eng)
+    gm.patch("Prisoner", {"playable": True})
+    inv = gm.invite("player", entity="Prisoner", label="Ali")
+    conn = f"{eng.public_url}/{inv['token']}"
+    assert inv["page"].startswith("(For a person reading this") and conn in inv["page"].splitlines()[0]
+    assert f"Claude (claude.ai, the Claude desktop or mobile app)" in inv["page"]
+    assert "Claude asks you to add a connector" in inv["paste"] and inv["token"] not in inv["paste"]
+    config = uvicorn.Config(http_app(build_server(gm, None, eng, http_only=True)), host="127.0.0.1", port=port,
+                            log_level="info")
+    lines: list[str] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            lines.append(record.getMessage())
+
+    keep = Keep()
+    logging.getLogger("uvicorn.access").addHandler(keep)
+    server = uvicorn.Server(config)
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    for _ in range(100):
+        if server.started:
+            break
+        time.sleep(0.05)
+    assert server.started
+    try:
+        assert _get(conn)[0] == 405  # a link preview's GET: refused before the token is looked up
+        assert _get(inv["link"])[0] == 200  # so the invite link still serves its page
+        status, body = _post(conn, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        assert status == 200 and "join" in {t["name"] for t in body["result"]["tools"]}
+        status, body = _post(conn, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                    "params": {"name": "join", "arguments": {}}})
+        assert status == 200 and json.loads(body["result"]["content"][0]["text"])["you"]["name"] == "Prisoner"
+        assert w.embodied(i["Prisoner"])["id"] == inv["principal"]
+        assert _get(inv["link"])[0] == 410  # the token's first use spent the link, as over the header
+        assert _post(f"{eng.public_url}/nope", {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})[0] == 401
+        assert _post(f"{conn}/more", {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})[0] == 401
+        status, body = _post(f"{eng.public_url}/{inv['token']}", {"jsonrpc": "2.0", "id": 5, "method": "tools/list"},
+                             token="someone-else")  # the path's token is the one that counts
+        assert status == 200
+        gm.revoke(inv["id"])
+        assert _post(conn, {"jsonrpc": "2.0", "id": 6, "method": "tools/list"})[0] == 401
+    finally:
+        server.should_exit = True
+        t.join(timeout=5)
+        logging.getLogger("uvicorn.access").removeHandler(keep)
+    assert any('"POST /mcp HTTP' in ln for ln in lines) and any('"GET /mcp HTTP' in ln for ln in lines)
+    assert not any(inv["token"] in ln for ln in lines), lines
+
+
 def _get(url: str, token: str | None = None) -> tuple[int, str, bytes]:
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
     try:

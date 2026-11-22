@@ -126,3 +126,33 @@ def test_the_mcp_door_answers_get_with_405():
     finally:
         for s in servers:
             s.should_exit = True
+
+
+def test_a_connector_goes_through_the_hub_as_the_plain_door(tmp_path):
+    """/mcp/<token> reaches the world as /mcp with the token as its bearer, so the world's server never sees it in a
+    path; a GET there is answered by the hub with 405 and never reaches the world."""
+    seen: list[tuple[str, bytes | None]] = []
+
+    async def world(scope, receive, send):
+        while (await receive()).get("more_body"):
+            pass
+        seen.append((scope["path"], dict(scope["headers"]).get(b"authorization")))
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"application/json")]})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    servers: list = []
+    hub = Hub(["w"], tmp_path / "data")
+    hub.worlds["w"].port = _serve(world, servers)
+    hub.worlds["w"].state = "up"
+    base = f"http://127.0.0.1:{_serve(Router(hub), servers)}"
+    try:
+        req = urllib.request.Request(f"{base}/mcp/tok-123", data=b"{}", method="POST",
+                                     headers={"content-type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            assert r.status == 200
+        assert seen == [("/mcp", b"Bearer tok-123")]
+        status, body = _call(f"{base}/mcp/tok-123")
+        assert status[0] == 405 and seen == [("/mcp", b"Bearer tok-123")]
+    finally:
+        for s in servers:
+            s.should_exit = True

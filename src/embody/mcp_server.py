@@ -24,7 +24,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
-from .grants import is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, default_url, origin_of, request_origin, token_hash
+from .grants import (is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, as_bearer, default_url, origin_of,
+                     request_origin, token_hash)
 from .ops import AUTHOR, OBSERVER, Engine, Rejected, Session
 
 # The grant session behind the HTTP request being served, set by the Bearer middleware for the request's
@@ -947,6 +948,8 @@ async def _reply(send: Any, status: int, body: Any, ctype: str = "application/js
 
 _NO_GRANT = {"ok": False, "reason": "no valid grant on this request",
              "hint": "send the bearer token from your invite; expired or revoked tokens stop here"}
+_NO_STREAM = {"ok": False, "reason": "the MCP door answers each POST in full; it has no event stream to open",
+              "hint": "POST your calls; wait() is how a seat listens"}
 
 
 class Bearer:
@@ -955,7 +958,9 @@ class Bearer:
     Three paths stand outside the MCP door: GET /health (the platform's probe, no grant), /watch (the live
     viewer: its page is public, its data needs a grant that may read everything, and shows that grant's world) and
     GET /i/<code> (an invite link's page: the token and the brief for the agent that reads it, while the link is good).
-    GET /openapi.json and GET /docs describe the door's ops and need no grant either: they hold no world data."""
+    GET /openapi.json and GET /docs describe the door's ops and need no grant either: they hold no world data.
+    A client that takes a URL and no header (a Claude custom connector) comes to /mcp/<token>, which becomes /mcp with
+    the token as its bearer before anything else reads the request (grants.as_bearer)."""
 
     def __init__(self, app: Any, hub: Hub, site: Any = None, srv: Any = None):
         self.app = app
@@ -981,6 +986,11 @@ class Bearer:
             request_origin.reset(origin)
 
     async def _route(self, scope: dict[str, Any], receive: Any, send: Any, path: str) -> None:
+        if as_bearer(scope):  # a connector's /mcp/<token>: from here on the plain door with a bearer, logged as /mcp
+            path = "/mcp"
+            if scope.get("method") in ("GET", "HEAD"):  # answered before the token is looked up: a link preview that
+                await _reply(send, 405, _NO_STREAM, extra=((b"allow", b"POST"),))  # fetches it spends no invite link
+                return
         if path == "/health" and scope.get("method") == "GET":
             await _reply(send, 200, {"ok": True, "embody": "up"})  # no world data, no grant
             return
@@ -1004,10 +1014,7 @@ class Bearer:
             await self._op(scope, receive, sess, path[len("/op/"):] if path.startswith("/op/") else "", send)
             return
         if path == "/mcp" and scope.get("method") == "GET":  # stateless: no stream of the server's own to hold open
-            await _reply(send, 405, {"ok": False, "reason": "the MCP door answers each POST in full; it has no event "
-                                                            "stream to open",
-                                     "hint": "POST your calls; wait() is how a seat listens"},
-                         extra=((b"allow", b"POST"),))
+            await _reply(send, 405, _NO_STREAM, extra=((b"allow", b"POST"),))
             return
         tok = _current.set(sess)
         try:
