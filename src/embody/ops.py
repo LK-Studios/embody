@@ -43,6 +43,7 @@ OBSERVER = "observer"
 # What one line of speech may be, and how many lines a principal may say in a minute: a hosted world's floor
 # against a runaway agent. Authors and narrators are not capped.
 _SAY_MAX = 1000
+PRESENT_GRACE = 120.0  # real seconds after a wait(present=true) ends that the seat still counts as in the scene
 _STEP_MAX_S = 2.0  # a step covers at most this many world seconds of walking, however long since the last
 _SAY_BURST = 30
 _NOTE_MAX = 2000  # a guest's remember() note, in characters
@@ -3581,13 +3582,16 @@ class Session:
         ev = self.world.say(me, text, reach=reach, to=whom, low=low, loud=loud)
         self.world._bump_cursor(self.pid, ev["seq"])  # past your own line, not what answered it (an away answer)
         out = {"ok": True, "event": _public_event(ev)}
-        if low:  # who heard the words, so a line nobody stood near enough for is no surprise
-            out["heard_by"] = [self.world.need(x)["name"] for x in ev["payload"]["near"]
-                               if x != me and self.world.is_a(self.world.need(x)["type"], "creature")]
+        body = self.world.get(me)  # a line can end its speaker (a safe word that closes a dream): then nobody to count
+        if body is None:
+            pass
+        elif low:  # who heard the words, so a line nobody stood near enough for is no surprise
+            out["heard_by"] = [c["name"] for x in ev["payload"]["near"] if x != me and (c := self.world.get(x))
+                               and self.world.is_a(c["type"], "creature")]
             if not out["heard_by"]:
                 out["note"] = (f"nobody stood within {self.world.low_radius():g} m to hear the words: step closer, or "
                                "say it to someone with to=")
-        elif reach >= 1 and (here := self.world.need(me)["parent_id"]) and (
+        elif reach >= 1 and (here := body["parent_id"]) and (
                 r := self.world.voice_radius(here, loud or reach > 1)) is not None:
             far = set(ev["payload"].get("far") or ())
             out["heard_by"] = [c["name"] for c in self.world.children(here) if c["id"] != me and c["id"] not in far
@@ -3816,7 +3820,7 @@ class Session:
                 "here": o["parent_id"] == ent["parent_id"]}
 
     def wait(self, timeout: float = 30.0, kinds: list[str] | None = None, poll: float = 0.1, full: bool = False,
-             until: str | None = None, since: int | None = None, positions: bool = False,
+             until: str | None = None, since: int | None = None, positions: bool = False, present: bool = False,
              clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
         """Block until an event touches me (or the timeout). Returns the light bundle: the hour, where I am,
         who is here and the new events, with the cursor moved past them. `full=True` returns perceive()
@@ -3829,7 +3833,12 @@ class Session:
         (with the `since` it gave, for a watcher that is not embodied) and the events so far still count.
 
         A filter (until or kinds) that names a field or event kind the rules retired is refused at once, naming the
-        change; every reply carries `rules_notice` while the seat has not read the rules changes."""
+        change; every reply carries `rules_notice` while the seat has not read the rules changes.
+
+        `present`: you are in the scene, not gone. While this wait runs and for PRESENT_GRACE real seconds after,
+        your body's own lines (away(dialog=...)), its standing answer and the author's lines that give way to a mind
+        stay quiet, so a player hears you and not your stand-in. Its idle behaviors still run. A wait without it (the
+        watcher's) lets them answer again."""
         if self._reader():
             if until is not None or full or positions:
                 raise Rejected("a read-only grant's wait is its part's event feed: it takes since, kinds and timeout",
@@ -3842,6 +3851,8 @@ class Session:
             return self._oracle_feed(timeout, since, poll, clock, sleep)
         with self.engine.lock:
             self._refuse_stale(until, kinds)
+            self.world.mark_present(self.pid, self.world.wall() + min(float(timeout), 3600.0) + PRESENT_GRACE
+                                    if present else None)
             waits = self.engine.__dict__.setdefault("_waits", {})  # principal -> waits running now (one cursor)
             waits[self.pid] = waits.get(self.pid, 0) + 1
             shared = waits[self.pid] > 1

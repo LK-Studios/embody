@@ -3,7 +3,7 @@ its own and what its standing orders give, and answers with its standing line. A
 
 import pytest
 
-from embody.ops import Rejected, call
+from embody.ops import PRESENT_GRACE, Rejected, call
 from tests.test_grants import owner
 from tests.test_ops import engine_with_two_rooms
 
@@ -101,6 +101,25 @@ def test_arrived_with_no_name_wakes_on_others_not_on_your_own_steps():
     assert not g.wait(until="arrived('')", timeout=0, since=since).get("fired")
     assert p.wait(until="arrived('')", timeout=0, since=since).get("fired")  # the prisoner sees someone come in
     assert p.wait(until="arrived('Guard')", timeout=0, since=since).get("fired")
+
+
+def test_a_mind_waiting_in_the_scene_keeps_its_stand_in_quiet():
+    # 2026-11-22, a world build: a seated mind that only waited read as gone, and its away line answered before it did
+    eng, w, i, gm, p, g = two_in_the_cell()
+    g.away(answer="Asleep at the inn.", dialog={"key": "Ask the warden."})
+    gm.clock(step=120)
+    g.wait(timeout=0, present=True)
+    assert w.present(i["Guard"]) and not w.own_lines(i["Guard"])
+    before = len(w.events(kinds=["say"], limit=500))
+    p.say("Guard?", to="Guard")
+    assert [e["payload"].get("away") for e in w.events(kinds=["say"], limit=500)][before:] == [None]
+    t = w.wall() + PRESENT_GRACE + 1
+    eng.wall = lambda: t  # the grace runs out with no wait since: gone again
+    p.say("Guard!", to="Guard")
+    assert w.events(kinds=["say"], limit=500)[-1]["payload"]["text"] == "Asleep at the inn."
+    g.wait(timeout=0, present=True)
+    g.wait(timeout=0)  # the watcher's wait gives the lines back at once
+    assert not w.present(i["Guard"]) and w.own_lines(i["Guard"])
 
 
 def test_a_player_reads_the_public_schedule_in_words():

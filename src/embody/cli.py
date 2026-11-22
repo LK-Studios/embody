@@ -475,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--timeout", type=float, default=30)
     c.add_argument("--kinds", nargs="*")
     c.add_argument("--full", action="store_true", help="return the whole perceive bundle, not the light one")
+    c.add_argument("--present", action="store_true", help="you are in the scene: your away lines stay quiet meanwhile")
     c = sub.add_parser("watch", help="wait for a condition, for hours if need be, then print what happened and exit: "
                                       "embody watch --door .mcp.json --until \"came('Reeve')\" --for 8h")
     c.add_argument("--until", default="", help="the condition, one expression (see wait's until); empty: any event near you")
@@ -651,7 +652,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "say":
             emit(args, s.say(args.text, reach=args.reach, to=args.to, low=args.low, loud=args.loud), "said.")
         elif args.cmd == "wait":
-            b = s.wait(timeout=args.timeout, kinds=args.kinds, full=args.full)
+            b = s.wait(timeout=args.timeout, kinds=args.kinds, full=args.full, present=args.present)
             emit(args, b, render_perceive(b) if args.full else render_wait(b))
         elif args.cmd == "watch":
             try:

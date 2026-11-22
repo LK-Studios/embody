@@ -133,6 +133,24 @@ def test_a_low_line_is_heard_in_full_only_near_the_speaker(tmp_path):
     assert line("Ana")["heard"] is False
 
 
+def test_a_line_that_ends_its_speaker_still_returns():
+    # 2026-11-22, a world build: a safe word that closed a dream destroyed the sim body inside its own say
+    from tests.test_ops import engine_with_two_rooms
+    eng, w, i = engine_with_two_rooms()
+    w.define_script("safe_word", "def on(ctx, ev):\n    if 'red' in str(ev.payload.get('text')):\n"
+                                 "        ctx.destroy(ev.actor)\n")
+    w.define_schema("token", extends="thing", state={"portable": True},
+                    listeners=[{"script": "safe_word", "holder": True, "kinds": ["say"]}])
+    w.set_meta({"voice_radius": 20})
+    for low in (False, True):
+        sim = w.spawn("person", i["Cell"], "Sim")
+        w.spawn("token", sim, "Token")
+        s = eng.session(f"sim{low}")
+        s.join("two-rooms", "Sim")
+        out = s.say("red", low=low)
+        assert out["ok"] and "heard_by" not in out and w.get(sim) is None
+
+
 def test_a_voice_carries_only_so_far_across_a_wide_place_and_a_shout_further(tmp_path):
     # 2026-11-21, a world builder: on a fork a player 600 m across one open place was heard in full
     eng, gm = _laid(tmp_path)

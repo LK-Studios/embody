@@ -558,7 +558,7 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     @tool()
     async def wait(timeout: float = 30.0, kinds: list[str] | None = None, full: bool = False,
                    until: str | None = None, since: int | None = None, positions: bool = False,
-                   principal: str | None = None) -> dict[str, Any]:
+                   present: bool = False, principal: str | None = None) -> dict[str, Any]:
         """Block until an event touches you or your place (or the timeout, max 120 s). Returns the light bundle
         (t, ambient, here, who is present, the new events, cursor); `full=true` returns perceive() instead.
         until="<expression>" waits for a condition instead of any event: to_me() (said to you, or with your name as
@@ -571,13 +571,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         since=N reads every event after N you could perceive, whatever your cursor says (catching up on a
         scene another wait took). `more: true`: a full batch of 50; wait again for the rest. A mind whose grant names
         several bodies hears for each of them nobody else holds: every event carries `for`, the bodies it reached
-        (with full=true, `heard` holds what reached only the others)."""
+        (with full=true, `heard` holds what reached only the others). present=true: you are in the scene (a player
+        near, you answering each beat), so your body's away lines and standing answer stay quiet while you wait and
+        for two minutes after; the watcher leaves it off, so they answer for you while you are gone."""
         import anyio
         sess = S(principal)
         try:
             return await anyio.to_thread.run_sync(
                 lambda: sess.wait(timeout=min(float(timeout), 120.0), kinds=kinds, full=full, until=until, since=since,
-                                  positions=positions))
+                                  positions=positions, present=present))
         except Rejected as r:
             return r.to_dict()
 

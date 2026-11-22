@@ -105,6 +105,33 @@ def test_ways_counts_the_ways_between_two_bodies():
     assert w.ways(i["Prisoner"], lone) is None
 
 
+def test_a_verb_says_who_sees_its_deed():
+    # 2026-11-21, a world build: a hand in the pot behind the cook's back still showed in the whole room's log
+    eng, w, i = engine_with_two_rooms()
+    w.set_meta({"idle_after": 3600})
+    w.move(i["Guard"], i["Cell"])
+    w.spawn("person", i["Cell"], "Wren")
+    w.define_script("dip", "def apply(ctx):\n    ctx.witnesses()\n")
+    w.define_script("pass_dish", f"def apply(ctx):\n    ctx.witnesses('{i['Guard']}')\n")
+    w.define_schema("pot", extends="thing", actions={"dip": {"script": "dip", "doc": "Dip a ladle in"},
+                                                     "pass_dish": {"script": "pass_dish", "doc": "Pass a dish"}})
+    w.spawn("pot", i["Cell"], "Pot")
+    p, g, wren = eng.session("p"), eng.session("g"), eng.session("wren")
+    p.join("two-rooms", "Prisoner")
+    g.join("two-rooms", "Guard")
+    wren.join("two-rooms", "Wren")
+    for s in (g, wren):
+        s.perceive()
+
+    def saw(s):
+        return [e["payload"]["verb"] for e in s.perceive()["events"] if e["kind"] == "act"]
+
+    p.act("dip", "Pot")
+    assert saw(g) == [] and saw(wren) == []  # nobody but the doer
+    p.act("pass_dish", "Pot")  # the one it is passed to sees it
+    assert saw(g) == ["pass_dish"] and saw(wren) == []
+
+
 def test_a_body_it_is_not_shown_to_does_not_hear_its_deeds():
     eng, w, i, gm, aaron, other, wisp = familiar_world()
     w.define_script("notice", "def on(ctx, ev):\n    ctx.patch(ctx.self, {'noticed': ev.kind})\n")

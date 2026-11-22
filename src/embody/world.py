@@ -331,7 +331,7 @@ class Ctx(ScriptObject):
         "actor", "target", "self", "params", "event", "t", "rand", "verb",
         "get", "find", "children", "parent", "peers", "linked", "edges", "relations", "distance", "root",
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
-        "emit", "say", "gesture", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "quiet", "locked", "shut", "remember",
+        "emit", "say", "gesture", "witnesses", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "quiet", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
         "may_write_sheet", "named_entry", "mark", "unmark", "regrow", "step", "leak",
     )
@@ -354,6 +354,7 @@ class Ctx(ScriptObject):
         self._script = ""  # the running script's id, set with the limits
         self._consent = False  # a verb someone chose: its script may touch them and what they carry
         self._trial = False  # a verb on its look-only trial before the owner's review: no writes, its machine's secrets sealed
+        self._witnesses: list[str] | None = None  # who sees this verb's act line, when its script says (witnesses())
 
     def run(self, s: Script, fn: str, args: list[Any], fuel: int) -> Any:
         """Run one of a script's functions with this context. The script's limits ride the context, and the world
@@ -1060,6 +1061,13 @@ class Ctx(ScriptObject):
                            caused_by=self._caused_by, mark={"maker": frame} if frame else None, low=low,
                            loud=loud)["seq"]
 
+    def witnesses(self, *who: Any) -> None:
+        """Who sees this verb's deed: its `act` line reaches the doer and these, no one else in the room (a hand in a
+        pot behind the cook's back). Called again, it narrows. What the verb does still happens, and what its script
+        says or emits reaches whom those events reach."""
+        ids = {_ev(self._w, x) for x in who}
+        self._witnesses = sorted(ids if self._witnesses is None else ids & set(self._witnesses))
+
     def gesture(self, text: str, to: Any = None, reach: int = 1) -> int:
         """A deed in words, seen and not said ("The cat opens one eye, and closes it."): a `gestured` event {text, to}
         by the same body ctx.say speaks for, which the room sees. An empty line makes nothing."""
@@ -1126,6 +1134,7 @@ class World:
         self.id = world_id
         self._running: list[Ctx] = []  # the contexts of the scripts running now, innermost last
         self._answered: dict[tuple[str, str], float] = {}  # (idle body, asker) -> when its standing answer was said
+        self._present: dict[str, float] = {}  # principal -> real time its wait(present=true) keeps it in the scene
         row = store.get("world", None, world_id)
         if row is None:
             raise Rejected(f"no world {world_id!r}", hint="use World.create or list worlds with store.list_worlds()")
@@ -2564,6 +2573,12 @@ class World:
                     # the store counts every row written, so no write call slips past a list of them
                     raise Rejected(f"{verb} waits for the owner's review: until then it may only look, and this run would change the world", hint="it runs in full once the owner approves it (review(thing, verb)); until then use it to look, or ask the owner")
                 logs.extend(ctx.logs)
+                if ctx._witnesses is not None:  # the verb said who sees its deed: the act line is theirs and the doer's
+                    seen = set(ctx._witnesses) | {actor_id}
+                    old = ev["payload"].get("seen_by")
+                    seen = seen if old is None else seen & set(old) | {actor_id}  # a veil already on it narrows it too
+                    ev["payload"] = {**ev["payload"], "seen_by": sorted(seen)}
+                    self.store.put("event", ev)
             if adef.get("strikes") and target_id and target_id != actor_id:
                 # the verb's own cooldown_x, times the one its apply returns (the weapon it struck with: a maul's 2)
                 x = float(adef.get("cooldown_x") or 1)
@@ -3004,7 +3019,7 @@ class World:
         line = None if (st.get("idle_orders") or {}).get("rests") else (st.get("standing_orders") or {}).get("answer")
         own = self._own_line(e, text) if self.own_lines(body) else None
         line = own or line
-        if not line or not self.embodied(body) or not (own or self.idle(body)):
+        if not line or not self.embodied(body) or not (own or self.idle(body)) or self.present(body):
             return
         last = self._answered.get((body, asker))
         if last is not None and self.t - last < 600:
@@ -3202,7 +3217,21 @@ class World:
         whose seat is idle: it answers talk from its tables as an unheld body does, its lines over the author's."""
         e = self.get(entity_id)
         orders = (e or {}).get("state", {}).get("idle_orders") or {}
-        return bool(orders.get("dialog") and (orders.get("fresh") or self.idle(entity_id)))
+        return bool(orders.get("dialog") and (orders.get("fresh") or self.idle(entity_id))
+                    and not self.present(entity_id))
+
+    def mark_present(self, principal_id: str, until: float | None) -> None:
+        """A seat waiting in the scene (wait(present=true)) until real time `until`; None: not, its lines may answer."""
+        if until is None:
+            self._present.pop(principal_id, None)
+        else:
+            self._present[principal_id] = until
+
+    def present(self, entity_id: str) -> bool:
+        """Its seat is waiting in the scene (wait(present=true), PL-04a): its body's own lines and standing answer
+        stay quiet, as do the author's lines that give way to a mind. Its idle behaviors run as before."""
+        p = self.embodied(entity_id)
+        return bool(p and self._present.get(p["id"], 0.0) > self.wall())
 
     @staticmethod
     def _own_line(e: dict[str, Any] | None, text: Any) -> str | None:
