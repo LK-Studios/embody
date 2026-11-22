@@ -220,7 +220,8 @@ COMBATANT_STATE = {"body": 1, "wits": 1, "will": 1, "skills": {}, "hp": 6, "max_
 
 COMBATANT_ACTIONS = {
     "check": {"script": "check", "doc": "Try something against a difficulty: d20 + stat + skill vs dc (default 12)",
-              "params": {"skill": "blade, brawl, climb, stealth, survival, lore, lockpick, aim, parley, resolve", "dc": "difficulty, default 12"}},
+              "params": {"skill": "blade, brawl, climb, stealth, survival, lore, lockpick, aim, parley, resolve", "dc": "difficulty, default 12",
+                         "roll": "in a world on the dnd5e pack: what your own d20 shows (1 to 20); leave it out and the world rolls"}},
     "attack": {"script": "attack", "strikes": True, "doc": "Strike someone here: opposed roll, a ward stops fast blows, slow passes it at -2",
                "targets": "creature", "scope": "here", "duration": 3, "params": {"slow": "true for the slow blade"}},
     "shoot": {"script": "shoot", "strikes": True, "doc": "Shoot someone here or one way over with what you hold that fires: a ward stops it, cover helps them, the shot lands where they stand",

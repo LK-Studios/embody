@@ -381,3 +381,55 @@ def test_a_fight_a_body_nobody_plays_starts_waits_for_the_player_then_rolls_for_
     fs = gm.inspect(f)["state"]
     assert fs.get("rolling") is None and st(gm, "Ash")["initiative"] is not None
     assert fs["order"][0]["name"] == "Bo"
+
+
+def test_a_skill_rolls_5e_ability_and_proficiency_with_expertise(pit):
+    """5e skills (owner of Klhyts Refuge, 2026-11-22): the ability modifier, plus the proficiency bonus by level when
+    proficient (`skill_prof` 1), twice it with expertise (2); d20's parley reads as persuasion."""
+    eng, gm, ash = pit
+    gm.patch("Ash", {"level": 5, "skill_prof": {"athletics": 1, "stealth": 2}})  # 5th level: proficiency +3
+    assert ash.act("check", params={"skill": "athletics", "dc": 1})["result"]["mod"] == 3 + 3  # STR 16, proficient
+    assert ash.act("check", params={"skill": "stealth", "dc": 1})["result"]["mod"] == 2 + 6  # DEX 14, expertise
+    assert ash.act("check", params={"skill": "history", "dc": 1})["result"]["mod"] == 0  # INT 10, untrained
+    assert ash.act("check", params={"skill": "parley", "dc": 1})["result"]["mod"] == 0  # persuasion, CHA 10
+    s = ash.act("stats")["result"]
+    assert s["skills"] == {"athletics": 6, "stealth": 8} and s["passive_perception"] == 11  # 10 + WIS +1
+
+
+def test_a_player_gives_their_own_d20_for_a_check(pit):
+    eng, gm, ash = pit
+    gm.patch(gm.summary()["root"], {"dnd5e": {"player_rolls": True}})
+    gm.patch("Ash", {"skill_prof": {"athletics": 1}})
+    r = ash.act("check", params={"skill": "athletics", "dc": 15, "roll": 13})["result"]
+    assert r["roll"] == 13 and r["total"] == 13 + 5  # STR +3 and fighter 3's proficiency +2
+    with pytest.raises(Rejected) as e:
+        ash.act("check", params={"skill": "stealth", "roll": 21})
+    assert "1 to 20" in e.value.reason
+    with pytest.raises(Rejected) as e:  # a body nobody plays rolls the world's dice
+        gm.act_as("Bo", "check", params={"skill": "athletics", "roll": 20})
+    assert "only a player" in e.value.reason
+    gm.patch(gm.summary()["root"], {"dnd5e": {"player_rolls": False}})
+    with pytest.raises(Rejected) as e:
+        ash.act("check", params={"skill": "survival", "roll": 20})
+    assert "world rolls" in e.value.reason
+
+
+def test_stats_lays_out_the_statblock_the_way_a_book_prints_it(pit):
+    eng, gm, ash = pit
+    gm.patch("Ash", {"skill_prof": {"athletics": 1, "perception": 1},
+                     "statblock": {"size": "Medium", "kind": "humanoid (human)", "alignment": "neutral",
+                                   "languages": ["Common"], "traits": [{"name": "Brave", "text": "Advantage on saves against being frightened."}]}})
+    sb = ash.act("stats")["result"]["statblock"]
+    for line in ["Medium humanoid (human), neutral", "Armor Class 15 (chain shirt)", "Hit Points 28 (3d10 + 6)", "Speed 30 ft.",
+                 "STR 16 (+3)  DEX 14 (+2)  CON 14 (+2)  INT 10 (+0)  WIS 12 (+1)  CHA 10 (+0)", "Saving Throws Str +5, Con +4",
+                 "Skills Athletics +5, Perception +3", "Senses passive Perception 13", "Languages Common", "Level 3 fighter",
+                 "Proficiency Bonus +2", "Brave. Advantage on saves against being frightened.", "ACTIONS",
+                 "Longsword. Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 8 (1d10 + 3) slashing damage."]:
+        assert line in sb, line
+    # a creature from the book: its challenge gives its proficiency, its hit dice are its own; the narrator reads it
+    gm.patch("Bo", {"cr": 0.5, "skill_prof": {"intimidation": 1},
+                    "statblock": {"hit_dice": "3d8 + 3", "multiattack": "Bo makes two melee attacks."}})
+    sb = gm.act_as("Bo", "stats")["result"]["statblock"]
+    for line in ["Hit Points 20 (3d8 + 3)", "Skills Intimidation +3", "Challenge 1/2 (100 XP)", "Proficiency Bonus +2",
+                 "Multiattack. Bo makes two melee attacks.", "Club. Melee Weapon Attack: +4 to hit"]:
+        assert line in sb, line

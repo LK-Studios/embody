@@ -61,9 +61,62 @@ def sheet_rank(sheet, skill, entry, rules):
         best = max(best, int(ranks.get(r) or 0))
     return max(int(ranks.get(skill) or 0), best // int(rules["related_div"]))
 
+# D&D 5e skills (the dnd5e pack, asked by the owner of Klhyts Refuge, 2026-11-22): in a world on that pack, a body that
+# carries `skill_prof` {skill: 1 proficient, 2 expertise} rolls 5e's way: the skill's ability modifier, plus its
+# proficiency bonus (its own `prof`, else by class level, else by challenge rating) when proficient, twice it with
+# expertise. d20's own skills read as their 5e kin (parley is persuasion; resolve is a Wisdom check), and a world's own
+# skill (sailing) takes its skillbook's attributes, averaged. A body without `skill_prof` rolls as before.
+FIVE_ATTR = {"str": "force", "dex": "poise", "con": "endurance", "int": "cognition", "wis": "acuity", "cha": "projection"}
+FIVE_SKILL = {"athletics": "str", "acrobatics": "dex", "sleight": "dex", "stealth": "dex", "arcana": "int",
+              "history": "int", "investigation": "int", "nature": "int", "religion": "int", "animals": "wis",
+              "insight": "wis", "medicine": "wis", "perception": "wis", "survival": "wis", "deception": "cha",
+              "intimidation": "cha", "performance": "cha", "persuasion": "cha", "resolve": "wis", "aim": "dex",
+              "blade": "str", "brawl": "str"}
+FIVE_AS = {"parley": "persuasion", "lore": "history", "climb": "athletics", "lockpick": "sleight"}
+
+FIVE_FROM = {"str": "body", "dex": "body", "con": "body", "int": "wits", "wis": "wits", "cha": "will"}
+
+def five_score(who, ab):
+    # the score as the dnd5e pack reads it (its `score`): 5e scores, else the sheet's, else d20's stat, 10 + 2 a point
+    st = who.state
+    sc = (st.scores or {}).get(ab)
+    if sc is None and st.sheet:
+        sc = ((st.sheet or {}).get("attributes") or {}).get(FIVE_ATTR.get(ab, ab))
+    if sc is None:
+        sc = 10 + 2 * int(st.get(FIVE_FROM.get(ab, "wits")) or 0)
+    return max(1, min(30, int(sc)))
+
+def five_prof(who):
+    # the proficiency bonus: the body's own `prof`, else by level, else by challenge rating (5e's table, 2 to 9)
+    st = who.state
+    if st.prof is not None:
+        return int(st.prof)
+    lv = st.level if st.level is not None else st.cr
+    if lv is None:
+        return 2
+    return 2 + (max(1, int(float(lv))) - 1) // 4
+
+def five_skill(ctx, who, skill):
+    s = FIVE_AS.get(skill, skill)
+    ab = FIVE_SKILL.get(s)
+    if ab is not None:
+        mod = (five_score(who, ab) - 10) // 2
+    else:
+        entry = skillbook(ctx).get(s) or {}
+        sheet = who.state.sheet or {}
+        rules = sheet_rules(ctx)
+        mod = attr_mod(sheet, entry.get("primary") or FIVE_ATTR["wis"], rules)
+        if entry.get("secondary"):
+            mod = (mod + attr_mod(sheet, entry.get("secondary"), rules)) // 2
+    marks = who.state.skill_prof or {}
+    level = max(0, min(2, int(marks.get(s) or marks.get(skill) or 0)))
+    return mod + five_prof(who) * level
+
 def natural(ctx, who, skill):
     # the bonus a body has of its own: no conditions, no grants. This is what progression measures against.
     st = who.state
+    if five_rules(ctx) and st.skill_prof is not None:
+        return five_skill(ctx, who, skill)
     sheet = st.sheet
     if not sheet:
         return int(st.get(stat_for(skill)) or 0) + int((st.skills or {}).get(skill) or 0)

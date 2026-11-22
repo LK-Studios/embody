@@ -5,10 +5,26 @@ def again_after(ctx):
     v = ctx.root().state.check_again_after
     return float(v) if v is not None else ctx.day_seconds() / 24
 
+def own_die(ctx):
+    # the player's own d20 (a dnd5e world that lets players roll, owner of Klhyts Refuge, 2026-11-22): what their die
+    # shows, for a body someone plays; None when the world rolls
+    p = ctx.params or {}
+    if p.get("roll") is None:
+        return None
+    return str(p.get("roll")).strip()
+
 def check(ctx):
     p = ctx.params or {}
     skill = str(p.get("skill") or "")
     here = ctx.actor.parent
+    own = own_die(ctx)
+    if own is not None:
+        if not five_rules(ctx) or (ctx.root().state.dnd5e or {}).get("player_rolls") is False:
+            return "the world rolls the dice here: leave out roll"
+        if not ctx.embodied(ctx.actor):
+            return "only a player rolls their own d20: leave out roll and the world rolls for this body"
+        if not own.isdigit() or int(own) < 1 or int(own) > 20:
+            return "a d20 shows 1 to 20: give what your die shows, or leave out roll and the world rolls"
     if not skill or here is None:
         return True
     last = (ctx.actor.state.tried or {}).get(here.id + "|" + skill)
@@ -23,7 +39,8 @@ def apply(ctx):
     p = ctx.params or {}
     skill = str(p.get("skill") or "")
     dc = int(p.get("dc") or 12)
-    roll = ctx.rand.roll("1d20")
+    own = own_die(ctx)
+    roll = int(own) if own is not None else ctx.rand.roll("1d20")
     mod = bonus(ctx.actor, skill, ctx)  # a dc the caller chose teaches nothing: no learn here
     here = ctx.actor.parent
     aid = take_aid(ctx, ctx.actor, skill, here)
@@ -45,9 +62,10 @@ def apply(ctx):
         if ctx.actor.state.sheet:
             note = "no skill '" + skill + "' in this world's skillbook: an untrained roll on " + sheet_rules(ctx)["untrained"] + " (guide('skills') lists them)"
     ctx.emit("checked", target=ctx.actor, reach=1, by=ctx.actor.id, place=here.id if here is not None else None,
-             skill=skill, roll=roll, mod=mod, total=total, dc=dc, success=ok, margin=total - dc, untrained=untrained, aid=aid)
+             skill=skill, roll=roll, mod=mod, total=total, dc=dc, success=ok, margin=total - dc, untrained=untrained, aid=aid,
+             own_die=own is not None)
     helped = " (+" + str(aid.get("bonus") or 0) + ": " + str(aid.get("why") or "a hand from someone") + ")" if aid is not None else ""
-    ctx.log(skill + ": d20 " + str(roll) + " + " + str(mod) + helped + " = " + str(total) + " vs " + str(dc) + (" pass" if ok else " fail") + (" (" + note + ")" if note else ""))
+    ctx.log(skill + ": " + ("your d20 " if own is not None else "d20 ") + str(roll) + " + " + str(mod) + helped + " = " + str(total) + " vs " + str(dc) + (" pass" if ok else " fail") + (" (" + note + ")" if note else ""))
     out = {"roll": roll, "mod": mod, "total": total, "dc": dc, "success": ok}
     if aid is not None:
         out["aid"] = aid

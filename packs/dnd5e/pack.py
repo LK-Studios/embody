@@ -1,8 +1,8 @@
 """D&D 5e combat on top of d20 and sheet. Opt-in: a world names it after them in its manifest
 (`"requires": ["village", "d20", "sheet", "dnd5e"]`) and calls `install_rules(s, root)` from here after d20's. The fight
 then runs by 5e: initiative and turns, attack rolls against armour class, damage dice, crits, death saves, the action
-economy, conditions, saving throws, resistances and spell slots. Thirst, factions, duels, sleep and the sheet's skills
-stay d20's. Where the 2014 and 2024 rules differ this follows 2024 (SRD 5.2); the mechanics are summarised here in our own
+economy, conditions, saving throws, resistances and spell slots, and skills the 5e way. Thirst, factions, duels and
+sleep stay d20's. Where the 2014 and 2024 rules differ this follows 2024 (SRD 5.2); the mechanics are summarised here in our own
 words, no rulebook text.
 
 The numbers, so a narrator can explain a roll:
@@ -10,7 +10,19 @@ The numbers, so a narrator can explain a roll:
 - Abilities. A body's six scores come from its `scores` ({"str": 16, ...}) when it has one, else its sheet (str force,
   dex poise, con endurance, int cognition, wis acuity, cha projection), else d20's stats (10 + 2 x body, wits or will).
   The modifier is (score - 10) // 2. Proficiency is `prof` on the body, else 2 + (level - 1) // 4 by `level` (or `cr`),
-  else 2. Skill checks stay d20's `check` (d20 + the sheet's modifier and rank, the rank being the 5e proficiency).
+  else 2.
+- Skills. A body that carries `skill_prof` ({"stealth": 2, "perception": 1}: 1 proficient, 2 expertise) rolls a skill
+  5e's way, in d20's `check` and every verb that rolls one: the skill's ability modifier, plus the proficiency bonus when
+  proficient, twice it with expertise. d20's own skills read as their 5e kin (parley is persuasion, lore history, climb
+  athletics, lockpick sleight of hand; resolve is a Wisdom check), and a world's own skill takes its skillbook's
+  attributes. Passive Perception is 10 + the Perception bonus. A body someone plays may give `check` its own d20 (`roll`,
+  1 to 20) where `player_rolls` is not false: the world adds the modifier. A body without `skill_prof` rolls d20's way.
+- The statblock. `stats` returns the body's whole sheet laid out the way a 5e book prints it (`statblock`): armour class
+  and what gives it, hit points and hit dice, speed, the six scores, saves, skills, resistances, senses with passive
+  Perception, languages, challenge (from `cr`, with its XP) or class and level, proficiency bonus, traits, actions with
+  each weapon's attack worked out (to hit, reach or range, average and dice), spellcasting and reactions. The rules give
+  the numbers; what they do not hold comes from the body's `statblock` {size, kind, alignment, speed, senses, languages,
+  armor, hit_dice, multiattack, traits, actions, reactions}. A narrator reads anyone's with `act_as(<them>, "stats")`.
 - A fight. The first hostile deed in a place (an attack, a shot, a grapple, a harmful spell, a fighter turning on a
   foe) starts one: every living body there rolls initiative, d20 + dex modifier + `init_bonus` (a sleeper rolls with
   disadvantage: surprised). Bodies nobody plays roll at once. A body someone plays rolls its own: the
@@ -101,6 +113,16 @@ RULES = [
             "wait), and the deed that started the fight lands on its turn.",
      "retired": [],
      "recheck": ["plans that expect the first blow to land the moment it is struck"],
+     "guide": ["player", "mind", "narrator"]},
+    {"id": "dnd5e-skills-statblock", "date": "2026-11-22",
+     "was": "A skill check added the sheet's rank to the ability modifier, a number set by hand; `stats` gave hit points, "
+            "armour class, attacks and saves on one line.",
+     "now": "Skills roll 5e's way for a body with `skill_prof`: the ability modifier plus the proficiency bonus when "
+            "proficient, twice it with expertise, and passive Perception is 10 + Perception. A played body may give "
+            "`check` its own d20 (`roll`) and the world adds the modifier. `stats` returns the whole statblock as a 5e "
+            "book prints it, skills and passive Perception included.",
+     "retired": [],
+     "recheck": ["notes that carry skill bonuses worked out by rank", "plans that count on a check's old modifier"],
      "guide": ["player", "mind", "narrator"]},
 ]
 
@@ -411,7 +433,8 @@ ACTIONS = {
     "initiative": {"script": "initiative", "duration": 0,
                    "doc": "Roll initiative when a fight starts: give what your own d20 shows, or let the world roll",
                    "params": {"roll": "what your own d20 shows (1 to 20); leave it out and the world rolls for you"}},
-    "stats": {"script": "stats", "doc": "Your own numbers: hp, armour class, proficiency, attacks, saves, spells, slots, conditions"},
+    "stats": {"script": "stats", "duration": 0,
+              "doc": "Your own sheet: hp, armour class, proficiency, attacks, saves, skills, passive Perception, spells, slots, conditions, and the whole statblock as a book prints it"},
     "cast": {"script": "cast", "targets": "creature", "self": True, "scope": "sight", "reach": "sight", "duration": 3,
              "listed": "ok",
              "fuel": 600000, "doc": "Cast a spell you know at someone (or yourself)",

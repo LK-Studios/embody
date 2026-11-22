@@ -25,6 +25,9 @@ def apply(ctx):
            "abilities": abil, "saves": st.saves or [], "attacks": attacks, "attacks_per_action": attacks_per_action(me),
            "conditions": sorted(list(conds(ctx, me).keys())), "exhaustion": st.exhaustion or 0,
            "hit_dice": st.hit_dice, "hit_die": st.hit_die}
+    out["skills"] = skill_mods(ctx, me)
+    out["passive_perception"] = passive_perception(ctx, me)
+    out["statblock"] = statblock(ctx, me)
     sc = st.spellcasting or {}
     if sc:
         out["spells"] = {"known": sc.get("spells") or [], "slots": sc.get("slots") or {}, "dc": save_dc(me),

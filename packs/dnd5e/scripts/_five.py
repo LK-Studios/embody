@@ -1560,3 +1560,163 @@ def opportunity(ctx, me):
         r = strike5(ctx, p, me, melee_weapon(p, None), {"opportunity": True, "knockout": bool(p.state.knockout)})
         out.append({"by": p.id, "hit": r.get("hit")})
     return out
+
+# ---- the statblock (asked by the owner of Klhyts Refuge, 2026-11-22): a body's numbers laid out the way a 5e book
+# prints them. The rules give the numbers (armour class, hit points, abilities, saves, skills, attacks, spells); what
+# they do not hold comes from the body's `statblock` {size, kind, alignment, cr, speed, senses, languages, traits,
+# actions, reactions, multiattack, armor}, each optional. A player reads their own (stats); the narrator reads anyone's.
+
+SKILL_LABEL = {"athletics": "Athletics", "acrobatics": "Acrobatics", "sleight": "Sleight of Hand", "stealth": "Stealth",
+               "arcana": "Arcana", "history": "History", "investigation": "Investigation", "nature": "Nature",
+               "religion": "Religion", "animals": "Animal Handling", "insight": "Insight", "medicine": "Medicine",
+               "perception": "Perception", "survival": "Survival", "deception": "Deception", "intimidation": "Intimidation",
+               "performance": "Performance", "persuasion": "Persuasion"}
+CR_XP = {"0": 10, "1/8": 25, "1/4": 50, "1/2": 100, "1": 200, "2": 450, "3": 700, "4": 1100, "5": 1800, "6": 2300,
+         "7": 2900, "8": 3900, "9": 5000, "10": 5900, "11": 7200, "12": 8400, "13": 10000, "14": 11500, "15": 13000}
+RANGES = {"shortbow": "80/320", "longbow": "150/600", "light crossbow": "80/320", "heavy crossbow": "100/400",
+          "hand crossbow": "30/120", "sling": "30/120", "dart": "20/60", "javelin": "30/120", "dagger": "20/60",
+          "handaxe": "20/60", "spear": "20/60", "trident": "20/60", "light hammer": "20/60", "net": "5/15"}
+
+def cr_text(cr):
+    v = float(cr)
+    if v == 0.125:
+        return "1/8"
+    if v == 0.25:
+        return "1/4"
+    if v == 0.5:
+        return "1/2"
+    return str(int(v))
+
+def skill_mods(ctx, who):
+    out = {}
+    for s, lv in (who.state.skill_prof or {}).items():
+        if int(lv or 0) > 0:
+            out[s] = five_skill(ctx, who, s)
+    return out
+
+def passive_perception(ctx, who):
+    if who.state.skill_prof is not None:
+        return 10 + five_skill(ctx, who, "perception")
+    return 10 + amod(who, "wis")
+
+def avg_dice(dice):
+    s = str(dice).lower().replace(" ", "").split("+")[0]
+    if "d" not in s:
+        return int(s) if s.isdigit() else 0
+    n = s.split("d")[0]
+    d = s.split("d")[1]
+    return ((int(n) if n else 1) * (int(d) + 1)) // 2
+
+def attack_line(ctx, who, w):
+    rng = bool(w.state.ranged) and "thrown" not in props(w)
+    m = amod(who, weapon_ability(who, w, rng)) + int(w.state.bonus or 0)
+    dice = damage_dice(who, w)
+    if dice:
+        dmg = str(max(1, avg_dice(dice) + m)) + " (" + dice + (" + " + str(m) if m > 0 else (" - " + str(-m) if m < 0 else "")) + ")"
+    else:
+        dmg = str(flat_damage(w))
+    if rng:
+        how = "Ranged Weapon Attack: " + signed(attack_bonus(ctx, who, w, True)) + " to hit, range " + RANGES.get(w.state.kind, "80/320") + " ft."
+    elif "thrown" in props(w):
+        how = ("Melee or Ranged Weapon Attack: " + signed(attack_bonus(ctx, who, w, False)) + " to hit, reach 5 ft. or range " +
+               RANGES.get(w.state.kind, "20/60") + " ft.")
+    else:
+        how = "Melee Weapon Attack: " + signed(attack_bonus(ctx, who, w, False)) + " to hit, reach " + ("10" if "reach" in props(w) else "5") + " ft."
+    return w.name + ". " + how + ", one target. Hit: " + dmg + " " + str(w.state.dtype or "bludgeoning") + " damage."
+
+def entries(rows):
+    out = []
+    for r in rows or []:
+        if isinstance(r, dict):
+            out.append(str(r.get("name")) + ". " + str(r.get("text")))
+        else:
+            out.append(str(r))
+    return out
+
+def statblock(ctx, who):
+    st = who.state
+    sb = st.statblock or {}
+    lines = [who.name]
+    head = " ".join([str(x) for x in [sb.get("size"), sb.get("kind")] if x])
+    if sb.get("alignment"):
+        head = (head + ", " if head else "") + str(sb.get("alignment"))
+    if head:
+        lines.append(head)
+    worn = []
+    for it in held_things(who):
+        a = it.state.armor
+        if isinstance(a, dict):
+            worn.append("shield" if a.get("shield") else str(it.name).lower())
+    if sb.get("armor") and (st.ac is not None or not worn):
+        worn = [str(sb.get("armor"))]  # a creature's book armour class names its own armour
+    lines.append("Armor Class " + str(armor_class(ctx, who)) + (" (" + ", ".join(worn) + ")" if worn else ""))
+    n = int(st.hit_dice_max or st.level or 1)
+    die = str(st.hit_die or "1d8")
+    con = amod(who, "con") * n
+    hp = ("Hit Points " + str(st.max_hp) + " (" + str(n) + "d" + die.split("d")[-1] +
+          (" + " + str(con) if con > 0 else (" - " + str(-con) if con < 0 else "")) + ")")
+    if sb.get("hit_dice"):  # a creature's book line ("5d8 + 10"), where its hit dice are not a class's
+        hp = "Hit Points " + str(st.max_hp) + " (" + str(sb.get("hit_dice")) + ")"
+    if st.hp is not None and st.max_hp is not None and int(st.hp) != int(st.max_hp):
+        hp = hp + ", now " + str(st.hp)
+    lines.append(hp)
+    lines.append("Speed " + str(sb.get("speed") or "30 ft."))
+    lines.append("  ".join([ab.upper() + " " + str(score(who, ab)) + " (" + signed(amod(who, ab)) + ")"
+                            for ab in ["str", "dex", "con", "int", "wis", "cha"]]))
+    if st.saves:
+        lines.append("Saving Throws " + ", ".join([ab.capitalize() + " " + signed(amod(who, ab) + prof(who)) for ab in st.saves]))
+    sk = skill_mods(ctx, who)
+    if sk:
+        lines.append("Skills " + ", ".join([SKILL_LABEL.get(k, k.capitalize()) + " " + signed(sk[k]) for k in sorted(sk.keys())]))
+    if st.vulnerable:
+        lines.append("Damage Vulnerabilities " + ", ".join(st.vulnerable))
+    if st.resist:
+        lines.append("Damage Resistances " + ", ".join(st.resist))
+    if st.immune:
+        lines.append("Damage Immunities " + ", ".join(st.immune))
+    if st.immune_conditions:
+        lines.append("Condition Immunities " + ", ".join(st.immune_conditions))
+    lines.append("Senses " + ", ".join([str(x) for x in (sb.get("senses") or [])] +
+                                       ["passive Perception " + str(passive_perception(ctx, who))]))
+    lines.append("Languages " + (", ".join([str(x) for x in sb.get("languages")]) if sb.get("languages") else "none"))
+    cr = st.cr if st.cr is not None else sb.get("cr")  # the body's own `cr`, which its proficiency reads too
+    if cr is not None:
+        c = cr_text(cr)
+        lines.append("Challenge " + c + " (" + str(CR_XP.get(c, 0)) + " XP)")
+    elif st.level is not None and st.cls:
+        lines.append("Level " + str(st.level) + " " + str(st.cls))
+    lines.append("Proficiency Bonus " + signed(prof(who)))
+    traits = entries(sb.get("traits"))
+    if st.sneak_attack:
+        traits.append("Sneak Attack. Once a turn, " + str(st.sneak_attack) + " extra damage to one creature hit with a finesse or "
+                      "ranged weapon, with advantage on the roll or an ally beside the target.")
+    if st.cunning:
+        traits.append("Cunning Action. Dash, Disengage or Hide as a bonus action.")
+    if st.relentless:
+        traits.append("Relentless Endurance. Once between long rests, a blow that drops this body to 0 hit points without "
+                      "killing it leaves it at 1 instead.")
+    if traits:
+        lines.append("")
+        lines = lines + traits
+    lines.append("")
+    lines.append("ACTIONS")
+    if sb.get("multiattack"):
+        lines.append("Multiattack. " + str(sb.get("multiattack")))
+    elif attacks_per_action(who) > 1:
+        lines.append("Multiattack. " + who.name + " makes " + str(attacks_per_action(who)) + " weapon attacks.")
+    for it in held_things(who):
+        if it.state.weapon:
+            lines.append(attack_line(ctx, who, it))
+    sc = st.spellcasting or {}
+    if sc:
+        slots = sc.get("slots") or {}
+        sl = ", ".join([str(k) + ": " + str(slots[k]) for k in sorted(slots.keys())])
+        lines.append("Spellcasting. " + str(sc.get("ability") or "int").upper() + " (spell save DC " + str(save_dc(who)) + ", " +
+                     signed(prof(who) + cast_mod(who)) + " to hit with spell attacks). Spells: " +
+                     ", ".join([str(x) for x in (sc.get("spells") or [])]) + (". Slots by level: " + sl if sl else "") + ".")
+    lines = lines + entries(sb.get("actions"))
+    if sb.get("reactions"):
+        lines.append("")
+        lines.append("REACTIONS")
+        lines = lines + entries(sb.get("reactions"))
+    return "\n".join(lines)
