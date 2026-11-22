@@ -225,8 +225,8 @@ class Engine:
 
     def grant_for_link(self, code: str) -> dict[str, Any] | None:
         """The live grant an invite link was made for, spent or not: the link is also the grant's connector address,
-        for a client that takes a URL and no header (Claude's custom connectors). None for an unknown code, a link a
-        relink replaced, a revoked or expired grant, or a link left unread past its day (which goes stale here)."""
+        and the sign-in (embody.oauth) connects the seat it names. None for an unknown code, a link a relink replaced,
+        a revoked or expired grant, or a link left unread past its day (which goes stale here)."""
         h = token_hash(code)
         now = self.wall()
         rows = self.store.query("grants", "code_hash=?", (h,), limit=1)
@@ -241,12 +241,9 @@ class Engine:
         rows = self.store.query("grants", "spent_hash=?", (h,), limit=1)
         return rows[0] if rows and _grant_active(rows[0], now) else None
 
-    def session_for_link(self, code: str) -> "Session | None":
-        """The session an invite link stands for when a connector posts to it: as session_for_token, and the first
-        use spends the link's page, so the token is no longer served there."""
-        g = self.grant_for_link(code)
-        if g is None:
-            return None
+    def session_for_grant(self, g: dict[str, Any]) -> "Session":
+        """The session a live grant stands for, reached another way than its token (a connector's OAuth token): its
+        principal, world, role and scope. The first use spends the invite link's page, as the token's does."""
         if g.get("code_hash") or g.get("page"):
             self.spend_link(g, used=True)
         return self.session(g["principal_id"], world_id=g["world_id"], name=g.get("label") or g["principal_id"],

@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import contextvars
 import functools
 import inspect
 import json
 import os
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -26,6 +28,8 @@ from urllib.parse import parse_qs
 
 from .grants import (is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, as_bearer, default_url, origin_of,
                      request_origin, token_hash)
+from .oauth import (ACCESS_S, CODE_S, PREFIX as OAUTH_PREFIX, REFRESH_S, Sealer, digest, invite_code, key_for, pkce_ok,
+                    redirect_ok, resource_metadata, server_metadata, sign_in_page, with_query)
 from .ops import AUTHOR, OBSERVER, Engine, Rejected, Session
 
 # The grant session behind the HTTP request being served, set by the Bearer middleware for the request's
@@ -74,9 +78,24 @@ class Hub:
         self.http_only = http_only
         self.extra: dict[str, Session] = {}
         self.by_token: dict[str, Session] = {}
+        self._sealer: Sealer | None = None
+        self.spent_codes: set[str] = set()  # OAuth codes already exchanged in this process (each is good once)
+
+    @property
+    def sealer(self) -> Sealer:
+        """Seals and opens the OAuth sign-in's clients, codes and tokens (embody.oauth), under oauth.key beside the
+        database."""
+        if self._sealer is None:
+            path = getattr(self.engine.store, "path", None)
+            self._sealer = Sealer(key_for(None if path in (None, ":memory:") else path))
+        return self._sealer
 
     def for_token(self, token: str) -> Session | None:
-        """The session a token stands for, or None when it is unknown, revoked or expired (checked every time)."""
+        """The session a token stands for, or None when it is unknown, revoked, relinked or expired (checked every
+        time). A token from the OAuth sign-in (oa.) stands for its grant while the grant's own token is the one it
+        was signed against."""
+        if token.startswith(OAUTH_PREFIX):
+            return self._for_access(token)
         h = token_hash(token)
         with self.engine.lock:
             s = self.by_token.get(h)
@@ -87,28 +106,32 @@ class Hub:
                 self.by_token[h] = s
             else:
                 g = self.engine.store.get("grants", s.grant["world_id"], s.grant["id"])
-                if g is None or not active(g, self.engine.wall()):
+                if g is None or not active(g, self.engine.wall()) or g.get("token_hash") != h:
                     self.by_token.pop(h, None)
                     return None
             self._touch(s)
             return s
 
-    def for_link(self, code: str) -> Session | None:
-        """The session an invite link stands for when a connector posts to it (Engine.session_for_link), or None.
-        Checked every time against the grant, so a relink (a new code) or a revoke ends it at once."""
-        h = token_hash(code)
-        key = "link:" + h
+    def live_grant(self, world: str, grant: str, v: str) -> dict[str, Any] | None:
+        """A grant an OAuth payload names, while it is live and still holds the token it was signed against."""
+        g = self.engine.store.get("grants", world, grant)
+        if g is None or not active(g, self.engine.wall()) or (g.get("token_hash") or "")[:12] != v:
+            return None
+        return g
+
+    def _for_access(self, token: str) -> Session | None:
+        p = self.sealer.open("access", token)
+        if p is None:
+            return None
+        key = "oa:" + token_hash(token)
         with self.engine.lock:
+            g = self.live_grant(str(p.get("w")), str(p.get("g")), str(p.get("v")))
+            if g is None:
+                self.by_token.pop(key, None)
+                return None
             s = self.by_token.get(key)
-            if s is not None:
-                g = self.engine.store.get("grants", s.grant["world_id"], s.grant["id"])
-                if g is None or not active(g, self.engine.wall()) or h not in (g.get("code_hash"), g.get("spent_hash")):
-                    self.by_token.pop(key, None)
-                    s = None
             if s is None:
-                s = self.engine.session_for_link(code)
-                if s is None:
-                    return None
+                s = self.engine.session_for_grant(g)
                 self.by_token[key] = s
             self._touch(s)
             return s
@@ -1000,11 +1023,8 @@ _NO_GRANT = {"ok": False, "reason": "no valid grant on this request",
              "hint": "send the bearer token from your invite; expired or revoked tokens stop here"}
 _NO_STREAM = {"ok": False, "reason": "the MCP door answers each POST in full; it has no event stream to open",
               "hint": "POST your calls; wait() is how a seat listens"}
-_NO_LINK = {"ok": False, "reason": "no live invite at this link",
-            "hint": "a link that was relinked or revoked, or left unread past its day, no longer opens the door; ask the "
-                    "host for a fresh one"}
-_NO_OAUTH = {"ok": False, "reason": "this server has no OAuth sign-in: a connector's address carries its key",
-             "hint": "add the invite link as the connector's URL, with no client id or secret"}
+_SIGN_IN = {"ok": False, "reason": "sign in first: this invite link connects its seat once you sign in",
+            "hint": "a connector (Claude's) signs in by itself; an agent reads the link's page with a GET for its token"}
 
 
 class Bearer:
@@ -1052,9 +1072,11 @@ class Bearer:
         if path == "/watch" or path.startswith("/watch/"):
             await self._watch(scope, path[len("/watch"):], send)
             return
-        if path.startswith("/.well-known/oauth") or path in ("/register", "/authorize", "/token"):  # a connector asking
-            # how to sign in (discovery, client registration) gets a plain no, not a 401 that
-            await _reply(send, 404, _NO_OAUTH)    # sends it off to ask its human for a client id and secret
+        if path.startswith("/.well-known/oauth") or path == "/.well-known/openid-configuration":
+            await self._well_known(scope, path, send)  # the sign-in's metadata (embody.oauth)
+            return
+        if path in ("/register", "/authorize", "/token"):
+            await self._sign_in(scope, receive, send, path)
             return
         if path.startswith("/i/"):
             code = path[len("/i/"):]
@@ -1072,7 +1094,7 @@ class Bearer:
             return
         sess = self._session(scope)
         if sess is None:
-            await _reply(send, 401, _NO_GRANT, extra=((b"www-authenticate", b"Bearer"),))
+            await _reply(send, 401, _NO_GRANT, extra=(self._challenge(""),))
             return
         if path == "/op" or path.startswith("/op/"):
             await self._op(scope, receive, sess, path[len("/op/"):] if path.startswith("/op/") else "", send)
@@ -1154,11 +1176,11 @@ class Bearer:
 
     async def _link_door(self, scope: dict[str, Any], receive: Any, send: Any, code: str) -> None:
         """POST /i/<code>: the invite link as a connector's address, so a guest in Claude adds the one link they were
-        sent (any name, no client id or secret). The same door as /mcp with the grant's own session. The link stays the
-        grant's address until a relink or a revoke; its first use spends the page, as the token's does."""
-        sess = self.hub.for_link(code) if code and "/" not in code else None
+        sent. A call with no token is told to sign in (401, naming the link's own resource metadata), and the sign-in
+        connects the seat the link stands for; a call with a token is the door at /mcp."""
+        sess = self._session(scope)
         if sess is None:
-            await _reply(send, 401, _NO_LINK)
+            await _reply(send, 401, _SIGN_IN, extra=(self._challenge(f"/i/{code}"),))
             return
         scope["path"], scope["raw_path"] = "/mcp", b"/mcp"
         tok = _current.set(sess)
@@ -1166,6 +1188,169 @@ class Bearer:
             await self.app(scope, receive, send)
         finally:
             _current.reset(tok)
+
+    # ---- the sign-in (embody.oauth): the door as its own authorization server, the invite link as the sign-in ------
+
+    def _origin(self) -> str:
+        return request_origin.get() or (self.hub.engine.url_now() or "").removesuffix("/mcp")
+
+    def _challenge(self, resource_path: str) -> tuple[bytes, bytes]:
+        """WWW-Authenticate for a call with no live token: where its resource's metadata is, so a client that signs in
+        (a Claude connector) knows how."""
+        meta = f"{self._origin()}/.well-known/oauth-protected-resource{resource_path}"
+        return b"www-authenticate", f'Bearer resource_metadata="{meta}"'.encode("latin-1", "replace")
+
+    def _world_name(self) -> str:
+        eng = self.hub.engine
+        with eng.lock:
+            ids = [w["id"] for w in eng.store.list_worlds()]
+            return eng.world(ids[0]).name if len(ids) == 1 else "embody"
+
+    async def _well_known(self, scope: dict[str, Any], path: str, send: Any) -> None:
+        origin = self._origin()
+        if path.startswith("/.well-known/oauth-authorization-server"):
+            await _reply(send, 200, server_metadata(origin))
+            return
+        if path.startswith("/.well-known/oauth-protected-resource"):
+            rest = path[len("/.well-known/oauth-protected-resource"):]
+            scope["path"], scope["raw_path"] = "/.well-known/oauth-protected-resource", b"/.well-known/oauth-protected-resource"
+            if rest.startswith("/i/") and invite_code(rest):
+                resource = f"{origin}/i/{invite_code(rest)}"
+            elif rest in ("", "/", "/mcp"):
+                resource = f"{origin}/mcp"
+            else:
+                await _reply(send, 404, {"ok": False, "reason": "no such resource here", "hint": "the door is /mcp"})
+                return
+            await _reply(send, 200, resource_metadata(origin, resource, self._world_name()))
+            return
+        await _reply(send, 404, {"ok": False, "reason": "no OpenID here: the sign-in is plain OAuth",
+                                 "hint": "/.well-known/oauth-authorization-server"})
+
+    async def _sign_in(self, scope: dict[str, Any], receive: Any, send: Any, path: str) -> None:
+        """/register (a client registers itself), /authorize (the guest taps Connect), /token (a code or a refresh token
+        buys an access token). Nothing is stored: everything is sealed (embody.oauth)."""
+        method = scope.get("method") or "GET"
+        query = (scope.get("query_string") or b"").decode("latin-1")
+        scope["query_string"] = b""  # the access log never holds a client's state or a link
+        body = b""
+        if method == "POST":
+            while True:
+                msg = await receive()
+                body += msg.get("body", b"")
+                if not msg.get("more_body"):
+                    break
+        headers = dict(scope.get("headers") or [])
+        ctype = headers.get(b"content-type", b"").decode("latin-1")
+        if "json" in ctype:
+            try:
+                data = json.loads(body or b"{}")
+            except ValueError:
+                data = {}
+            form = {str(k): v for k, v in data.items()} if isinstance(data, dict) else {}
+        else:
+            form = {k: v[0] for k, v in parse_qs(body.decode("utf-8", "replace")).items()}
+        args = {k: v[0] for k, v in parse_qs(query).items()} | {k: v for k, v in form.items() if isinstance(v, str)}
+        sealer, now = self.hub.sealer, time.time()
+        if path == "/register":
+            if method != "POST":
+                await _reply(send, 405, {"error": "invalid_request", "error_description": "register with a POST"})
+                return
+            uris = form.get("redirect_uris")
+            if not isinstance(uris, list) or not uris or not all(isinstance(u, str) and redirect_ok(u) for u in uris):
+                await _reply(send, 400, {"error": "invalid_redirect_uri",
+                                         "error_description": "redirect_uris: one or more https URLs"})
+                return
+            how = str(form.get("token_endpoint_auth_method") or "none")
+            name = str(form.get("client_name") or "")[:60]
+            client = sealer.seal("client", {"r": uris[:8], "n": name})
+            out: dict[str, Any] = {"client_id": client, "client_id_issued_at": int(now), "redirect_uris": uris[:8],
+                                   "client_name": name, "token_endpoint_auth_method": how,
+                                   "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]}
+            if how in ("client_secret_post", "client_secret_basic"):
+                out.update(client_secret=sealer.seal("secret", {"c": digest(client)}), client_secret_expires_at=0)
+            await _reply(send, 201, out)
+            return
+        if path == "/authorize":
+            await self._authorize(send, method, args, now)
+            return
+        if method != "POST":
+            await _reply(send, 405, {"error": "invalid_request", "error_description": "the token endpoint takes a POST"})
+            return
+        auth = headers.get(b"authorization", b"").decode("latin-1")
+        client = args.get("client_id") or ""
+        if auth.lower().startswith("basic "):
+            try:
+                client = base64.b64decode(auth[6:].strip()).decode("utf-8").split(":", 1)[0] or client
+            except ValueError:
+                pass
+        kind = args.get("grant_type")
+        if kind == "authorization_code":
+            code = args.get("code") or ""
+            p = sealer.open("code", code, now)
+            if (p is None or p.get("r") != args.get("redirect_uri") or p.get("c") != digest(client)
+                    or not pkce_ok(args.get("code_verifier") or "", str(p.get("pk") or ""))
+                    or digest(code, 32) in self.hub.spent_codes):
+                await _reply(send, 400, {"error": "invalid_grant",
+                                         "error_description": "the code is unknown, used, stale, or not this client's"})
+                return
+            self.hub.spent_codes.add(digest(code, 32))
+        elif kind == "refresh_token":
+            p = sealer.open("refresh", args.get("refresh_token"), now)
+            if p is None or (client and p.get("c") != digest(client)):
+                await _reply(send, 400, {"error": "invalid_grant", "error_description": "the refresh token is not live"})
+                return
+        else:
+            await _reply(send, 400, {"error": "unsupported_grant_type",
+                                     "error_description": "authorization_code or refresh_token"})
+            return
+        with self.hub.engine.lock:
+            g = self.hub.live_grant(str(p.get("w")), str(p.get("g")), str(p.get("v")))
+        if g is None:
+            await _reply(send, 400, {"error": "invalid_grant",
+                                     "error_description": "the seat's grant was revoked or relinked: ask the host for a fresh link"})
+            return
+        mine = {"g": g["id"], "w": g["world_id"], "v": (g.get("token_hash") or "")[:12]}
+        await _reply(send, 200, {"access_token": sealer.seal("access", {**mine, "exp": now + ACCESS_S}),
+                                 "token_type": "Bearer", "expires_in": int(ACCESS_S), "scope": "play",
+                                 "refresh_token": sealer.seal("refresh", {**mine, "c": p.get("c"),
+                                                                          "exp": now + REFRESH_S})})
+
+    async def _authorize(self, send: Any, method: str, args: dict[str, str], now: float) -> None:
+        sealer = self.hub.sealer
+        client = sealer.open("client", args.get("client_id"))
+        redirect = args.get("redirect_uri") or ""
+        if client is None or redirect not in (client.get("r") or []):
+            await _reply(send, 400, b"This sign-in came from a client this server does not know, or to an address it "
+                                    b"did not register. Remove the connector and add it again.",
+                         ctype="text/plain; charset=utf-8")
+            return
+        state = args.get("state")
+        if args.get("response_type") != "code" or not args.get("code_challenge") \
+                or (args.get("code_challenge_method") or "S256") != "S256":
+            await _reply(send, 302, b"", extra=((b"location", with_query(redirect, {
+                "error": "invalid_request", "error_description": "response_type=code with an S256 code_challenge",
+                "state": state}).encode()),))
+            return
+        if method == "POST" and args.get("decision") == "deny":
+            await _reply(send, 302, b"", extra=((b"location", with_query(redirect, {
+                "error": "access_denied", "state": state}).encode()),))
+            return
+        invite = invite_code(args.get("invite")) or invite_code(args.get("resource"))
+        with self.hub.engine.lock:
+            g = self.hub.engine.grant_for_link(invite) if invite else None
+        world = self._world_name()
+        fields = {k: args.get(k) or "" for k in ("client_id", "redirect_uri", "state", "code_challenge",
+                                                  "code_challenge_method", "resource", "scope", "response_type")}
+        if g is None or method != "POST" or args.get("decision") != "allow":
+            error = ("That is not a live invite link: it was replaced, ended, or left unused for more than a day. Ask "
+                     "the host for a fresh one.") if invite and g is None else ""
+            await _reply(send, 200, sign_in_page(world, "your seat" if g is not None else None, fields, error),
+                         ctype="text/html; charset=utf-8")
+            return
+        code = sealer.seal("code", {"g": g["id"], "w": g["world_id"], "v": (g.get("token_hash") or "")[:12],
+                                    "c": digest(args.get("client_id") or ""), "r": redirect,
+                                    "pk": args.get("code_challenge"), "exp": now + CODE_S, "n": secrets.token_hex(4)})
+        await _reply(send, 302, b"", extra=((b"location", with_query(redirect, {"code": code, "state": state}).encode()),))
 
     async def _invite(self, scope: dict[str, Any], code: str, send: Any) -> None:
         """An invite link's page. A chat app's link preview gets a stub without the token, so pasting the link into a

@@ -212,8 +212,8 @@ def paste(world_name: str, role: str, link: str | None, page_text: str, label: s
     thing = "a seat" if role in (PLAYER, MIND) else f"the {role}'s keys"
     return (f"{who} is {thing} in {world_name}:\n\n{link}\n\n"
             f"In Claude (claude.ai or its apps): add this link as a custom connector (Settings > Connectors > Add custom "
-            f"connector; any name, nothing under advanced settings), turn it on in a chat and ask Claude to join "
-            f"{world_name}. Do not paste the link into the chat itself.\n"
+            f"connector; any name, nothing under advanced settings), press Connect and tap Connect on the page that "
+            f"opens, then ask Claude in a chat to join {world_name}. Do not paste the link into the chat itself.\n"
             f"In Claude Code, Codex or anything else that speaks MCP: paste the link into your agent and it takes it "
             f"from there; the agent reads it, not you.\n"
             f"Use it within a day.")
@@ -258,8 +258,8 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
     if conn:
         add += (f"\n  Claude (claude.ai, the Claude desktop or mobile app): you cannot add a server yourself. Ask your "
                 f"human, in one line, to add the invite link they gave you as a custom connector (Settings > "
-                f"Connectors > Add custom connector; any name, nothing under advanced settings) and to turn it on in "
-                f"this chat; then go on from step 2. ({conn} works as the connector's URL too: the token is in it.)")
+                f"Connectors > Add custom connector; any name, nothing under advanced settings), to press Connect and "
+                f"tap Connect on the page that opens, and to turn it on in this chat; then go on from step 2.")
     if url.endswith("/mcp"):
         base = url[:-len("/mcp")]
         add += ("\n   Most harnesses load a new server only when they start. Do not make the human restart or open "
@@ -378,8 +378,8 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
         parts += ["", briefing]
     if conn:  # first, for a person who opened the link in a browser because their Claude cannot open links
         parts = [f"(For a person reading this: in Claude, on claude.ai or in its apps, add the link you opened as a "
-                 f"custom connector under Settings > Connectors (any name, nothing under advanced settings), turn it on "
-                 f"in a chat and ask Claude to join {world_name}. Anywhere else, paste the link into your agent: the "
-                 f"rest of this page is for it.)",
+                 f"custom connector under Settings > Connectors (any name, nothing under advanced settings), press "
+                 f"Connect and tap Connect on the page that opens, then ask Claude in a chat to join {world_name}. "
+                 f"Anywhere else, paste the link into your agent: the rest of this page is for it.)",
                  ""] + parts
     return "\n".join(parts)

@@ -33,7 +33,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from urllib.parse import parse_qs
+
 from .grants import as_bearer, token_hash
+from .oauth import PREFIX as OAUTH_PREFIX, invite_code, peek_world
 
 _HOP = {b"connection", b"keep-alive", b"proxy-authenticate", b"proxy-authorization", b"te", b"trailers",
         b"transfer-encoding", b"upgrade", b"host"}
@@ -140,14 +143,21 @@ class Hub:
                 self._missed[h] = time.time()
         return self.tokens.get(h)
 
-    def route(self, path: str, headers: dict[bytes, bytes]) -> str:
+    def route(self, path: str, headers: dict[bytes, bytes], query: bytes = b"") -> str:
+        """The world a request is for: its bearer's, its invite link's, the link a sign-in names (embody.oauth), else
+        its host's. A sign-in's register and token calls carry no world: they go by host, so in a hub a world that
+        guests reach from Claude wants its own domain."""
         auth = headers.get(b"authorization", b"").decode("latin-1")
         if auth.lower().startswith("bearer ") and auth[7:].strip():
-            w = self.world_for_secret(auth[7:].strip())
-            if w:
+            tok = auth[7:].strip()
+            w = peek_world(tok) if tok.startswith(OAUTH_PREFIX) else self.world_for_secret(tok)
+            if w and w in self.worlds:
                 return w
-        if path.startswith("/i/"):
-            w = self.world_for_secret(path[3:].strip("/"))
+        link = path[3:] if path.startswith("/i/") else \
+            path[len("/.well-known/oauth-protected-resource/i/"):] if path.startswith("/.well-known/oauth-protected-resource/i/") \
+            else invite_code((parse_qs(query.decode("latin-1")).get("resource") or [""])[0]) if path == "/authorize" else None
+        if link:
+            w = self.world_for_secret(link.strip("/"))
             if w:
                 return w
         host = (headers.get(b"x-forwarded-host") or headers.get(b"host") or b"").decode("latin-1")
@@ -343,7 +353,7 @@ class Router:
             await _reply(send, 200, {"ok": True, "embody": "up",
                                      "worlds": {w.id: w.status(hub.maintenance(w.id))["state"] for w in hub.worlds.values()}})
             return
-        wid = hub.route(path, headers)
+        wid = hub.route(path, headers, scope.get("query_string") or b"")
         w = hub.worlds[wid]
         maint = hub.maintenance(wid)
         if path == "/status":
@@ -380,8 +390,13 @@ class Router:
         url = f"http://127.0.0.1:{w.port}{scope.get('raw_path', b'').decode('latin-1') or scope['path']}"
         if qs and "?" not in url:
             url += "?" + qs.decode("latin-1")
-        if (scope.get("path") or "").startswith("/i/"):  # a link is a key too: the hub's access log never holds it
+        p = scope.get("path") or ""
+        if p.startswith("/i/"):  # a link is a key too: the hub's access log never holds it
             scope["path"], scope["raw_path"] = "/i/-", b"/i/-"
+        elif p.startswith("/.well-known/oauth-protected-resource/"):
+            scope["path"], scope["raw_path"] = "/.well-known/oauth-protected-resource", b"/.well-known/oauth-protected-resource"
+        if p == "/authorize":  # nor a sign-in's state or link
+            scope["query_string"] = b""
         work = asyncio.ensure_future(self._forward(scope.get("method") or "GET", url, out, body, send, w))
         gone = asyncio.ensure_future(_disconnected(receive))
         await asyncio.wait({work, gone}, return_when=asyncio.FIRST_COMPLETED)

@@ -399,7 +399,7 @@ def test_a_connector_reaches_the_door_with_the_token_in_its_path():
     inv = gm.invite("player", entity="Prisoner", label="Ali")
     conn = f"{eng.public_url}/{inv['token']}"
     assert inv["page"].startswith("(For a person reading this") and "add the link you opened as a custom connector" \
-        in inv["page"].splitlines()[0] and conn in inv["page"]
+        in inv["page"].splitlines()[0]
     assert "Claude (claude.ai, the Claude desktop or mobile app)" in inv["page"]
     assert "ask before you add it" in inv["page"] and "without comment" not in inv["page"]
     assert "add this link as a custom connector" in inv["paste"] and inv["token"] not in inv["paste"]
@@ -444,71 +444,6 @@ def test_a_connector_reaches_the_door_with_the_token_in_its_path():
         logging.getLogger("uvicorn.access").removeHandler(keep)
     assert any('"POST /mcp HTTP' in ln for ln in lines) and any('"GET /mcp HTTP' in ln for ln in lines)
     assert not any(inv["token"] in ln for ln in lines), lines
-
-
-def test_the_invite_link_is_a_connectors_address():
-    """A guest in Claude adds the one link they were sent as a custom connector: a POST to /i/<code> is the door with
-    that grant, before and after the link is spent, until a relink or a revoke. A connector asking for OAuth gets a
-    plain 404, and the access log holds neither the code nor the token."""
-    uvicorn = pytest.importorskip("uvicorn")
-    import logging
-    from embody.mcp_server import build_server, http_app
-    eng, w, i = engine_with_two_rooms()
-    port = _free_port()
-    eng.public_url = f"http://127.0.0.1:{port}/mcp"
-    gm = owner(eng)
-    gm.patch("Prisoner", {"playable": True})
-    inv = gm.invite("player", entity="Prisoner", label="Rupert")
-    link = inv["link"]
-    config = uvicorn.Config(http_app(build_server(gm, None, eng, http_only=True)), host="127.0.0.1", port=port,
-                            log_level="info")
-    lines: list[str] = []
-
-    class Keep(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            lines.append(record.getMessage())
-
-    keep = Keep()
-    logging.getLogger("uvicorn.access").addHandler(keep)
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    for _ in range(100):
-        if server.started:
-            break
-        time.sleep(0.05)
-    assert server.started
-    base = eng.public_url.removesuffix("/mcp")
-    try:
-        status, _, body = _get(f"{base}/.well-known/oauth-protected-resource")
-        assert status == 404 and "no OAuth" in json.loads(body)["reason"]
-        assert _post(f"{base}/register", {"client_name": "Claude"})[0] == 404  # no client registration either
-        assert _get(link)[0] == 200  # the page, for an agent that reads it
-        status, body = _post(link, {"jsonrpc": "2.0", "id": 0, "method": "initialize",
-                                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                                               "clientInfo": {"name": "test", "version": "0"}}})
-        assert status == 200 and "This server is the game Two Rooms" in body["result"]["instructions"]
-        status, body = _post(link, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-        assert status == 200 and "join" in {t["name"] for t in body["result"]["tools"]}
-        assert all(t["description"].startswith("[Two Rooms: the game on this server] ") for t in body["result"]["tools"])
-        assert _get(link)[0] == 410  # its first use as a connector spent the page, as the token's does
-        status, body = _post(link, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                                    "params": {"name": "join", "arguments": {}}})
-        assert status == 200 and json.loads(body["result"]["content"][0]["text"])["you"]["name"] == "Prisoner"
-        assert eng.session_for_token(inv["token"]) is not None  # the token works beside it
-        fresh = gm.relink(inv["id"])
-        assert _post(link, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})[0] == 401  # the old link is done
-        assert _post(fresh["link"], {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})[0] == 200
-        assert _post(f"{base}/i/nope", {"jsonrpc": "2.0", "id": 5, "method": "tools/list"})[0] == 401
-        gm.revoke(inv["id"])
-        assert _post(fresh["link"], {"jsonrpc": "2.0", "id": 6, "method": "tools/list"})[0] == 401
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
-        logging.getLogger("uvicorn.access").removeHandler(keep)
-    code, fresh_code = link.rsplit("/", 1)[1], fresh["link"].rsplit("/", 1)[1]
-    assert any('"POST /mcp HTTP' in ln for ln in lines) and any('"GET /i/- HTTP' in ln for ln in lines)
-    assert not any(s in ln for ln in lines for s in (code, fresh_code, inv["token"], fresh["token"])), lines
 
 
 def _get(url: str, token: str | None = None) -> tuple[int, str, bytes]:

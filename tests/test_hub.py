@@ -62,6 +62,15 @@ def test_tokens_and_invites_route_to_their_world_and_the_rest_goes_by_host(tmp_p
     link = gm.invite("player", entity="Traveler", label="new")["link"]
     code = link.rsplit("/i/", 1)[1]
     assert hub.route(f"/i/{code}", {b"host": b"rooms.example"}) == "ferry-at-dusk"  # minted a moment ago: a miss re-reads
+    # the sign-in for Claude's connectors (embody.oauth): its token names its world, a link's metadata and sign-in page
+    # go by the link
+    from embody.oauth import Sealer
+    signed = Sealer(b"any key: the world checks it, the hub only routes").seal("access", {"g": "g1", "w": "ferry-at-dusk"})
+    assert hub.route("/mcp", bearer(signed)) == "ferry-at-dusk"
+    assert hub.route(f"/.well-known/oauth-protected-resource/i/{code}", {b"host": b"rooms.example"}) == "ferry-at-dusk"
+    q = f"client_id=c&resource=https%3A%2F%2Frooms.example%2Fi%2F{code}".encode()
+    assert hub.route("/authorize", {b"host": b"rooms.example"}, q) == "ferry-at-dusk"
+    assert hub.route("/token", {b"host": b"ferry.example"}) == "ferry-at-dusk"  # the rest of the sign-in goes by host
 
 
 def test_the_old_single_database_moves_into_the_first_worlds_file_once(tmp_path):
