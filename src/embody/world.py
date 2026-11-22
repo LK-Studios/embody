@@ -3367,6 +3367,13 @@ class World:
             return {str(k): str(v) for d in decl for k, v in (d.get(key) or {}).items()}
         return {str(x) for d in decl for x in (d.get(key) or [])}
 
+    def set_name(self, name: str) -> str:
+        """The world's own name, as a world's manifest renames it on an upgrade. Returns the old one."""
+        old = self._row["name"]
+        self._row["name"] = name
+        self._save_row()
+        return old
+
     def set_meta(self, changes: dict[str, Any]) -> dict[str, Any]:
         for k, v in changes.items():
             if v is None:

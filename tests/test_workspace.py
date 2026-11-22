@@ -166,6 +166,20 @@ def test_a_pack_declares_its_own_mechanics_and_the_core_names_none(tmp_path):
     assert not any("thirst" in k or "roll" in v for k, v in _WAYS_OUT.items())
 
 
+def test_an_upgrade_takes_the_name_the_manifest_gives_the_world(tmp_path):
+    # 2026-11-22: Klhyts Refuge took a new name; an upgrade kept the one the world was built with
+    eng, gm = author(tmp_path, tmp_path / "embody.db")
+    gm.create_world("The Pit", seed=3, id="the-pit")
+    build = tmp_path / "worlds" / "the-pit" / "build.py"
+    assert load_world(gm, "the-pit", upgrade=True).get("renamed") is None  # the same name: nothing to say
+    build.write_text(build.read_text(encoding="utf-8").replace("\"name\": 'The Pit'", "\"name\": 'Embody - The Pit'"),
+                     encoding="utf-8")
+    r = load_world(gm, "the-pit", upgrade=True)
+    assert r["renamed"] == {"from": "The Pit", "to": "Embody - The Pit"}
+    assert eng.world("the-pit").name == "Embody - The Pit" and gm.summary()["name"] == "Embody - The Pit"
+    assert Engine(tmp_path / "embody.db", workspace=tmp_path).world("the-pit").name == "Embody - The Pit"  # kept
+
+
 def test_save_and_restore_carry_a_game_as_one_file(tmp_path):
     eng = Engine(tmp_path / "embody.db", workspace=REPO, record=False)
     gm = eng.session("gm", capabilities=[AUTHOR])

@@ -400,6 +400,10 @@ def _load_folder(session: "Session", ws: Workspace, target: Path, upgrade: bool,
         if upgrade:
             if not session.world_id:
                 raise Rejected("point the session at the world to upgrade first", hint="use(world_id)")
+            name = str((manifest or {}).get("name") or "")
+            renamed = None
+            if name and name != session.world.name:  # the manifest renamed the world: the live one takes the new name
+                renamed = {"from": session.world.set_name(name), "to": name}
             packs = [install_pack(session, ws, p, known, own) for p in (manifest or {}).get("requires", [])]
             scripts = define_scripts(session, folder, known)
             if hasattr(mod, "define"):
@@ -414,6 +418,8 @@ def _load_folder(session: "Session", ws: Workspace, target: Path, upgrade: bool,
             r.update(upgraded=True, hosted=hosted, folder=str(folder), packs=[p["pack"] for p in packs], scripts=scripts)
             if ticks:
                 r["ticks_added"] = ticks
+            if renamed:
+                r["renamed"] = renamed
             return r
         if manifest is None:
             if not hasattr(mod, "build"):

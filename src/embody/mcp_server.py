@@ -177,7 +177,18 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
             return getattr(S(None), name)
 
     s: Any = _Main()
-    srv = MCPServer("embody", instructions=HOSTED if http_only else INSTRUCTIONS)
+    told = INSTRUCTIONS
+    if http_only:
+        told = HOSTED
+        try:
+            held = [w["name"] for w in session.worlds()]
+        except Rejected:
+            held = []
+        if len(held) == 1:  # one world on this server (a hosted world, or one of a hub's): name it as the game
+            told += (f"\nThis server is the game {held[0]}. When your human asks to play, join or look around "
+                     f"{held[0]}, use these tools (seats(), join(), perceive()), even if other connectors hold notes or "
+                     f"projects by the same name: those are about it, not the game itself.")
+    srv = MCPServer("embody", instructions=told)
     tool = srv.tool
     _wrap = functools.partial(globals()["_wrap"], lock=hub.engine.lock)  # every tool below runs under the engine lock
     srv.hub = hub  # type: ignore[attr-defined]
@@ -938,13 +949,31 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         return s.mirror(path)
 
     every = srv.list_tools
+    names: dict[str, str] = {}
+
+    def world_name(cur: Session) -> str:
+        wid = cur.world_id or ""
+        if wid not in names:
+            with hub.engine.lock:
+                try:
+                    names[wid] = cur.world.name
+                except Rejected:
+                    names[wid] = ""
+        return names[wid]
 
     async def list_tools() -> list[Any]:
         """A grant sees the tools its role may call, not all of them: the engine would refuse the rest anyway, and
-        fewer tools mean fewer refusals and a plain answer to what the grant gives. The host's own process sees all."""
+        fewer tools mean fewer refusals and a plain answer to what the grant gives. The host's own process sees all.
+        Each description a grant sees starts with its world's name, so a client whose other connectors know the same
+        name (a lore library, a hosting project) still picks these to play."""
         cur = _current.get()
         tools = await every()
-        return tools if cur is None else [t for t in tools if shown(cur, t.name)]
+        if cur is None:
+            return tools
+        name = world_name(cur)
+        tag = f"[{name}: the game on this server] " if name else ""
+        return [t.model_copy(update={"description": tag + (t.description or "")}) if tag else t
+                for t in tools if shown(cur, t.name)]
 
     srv.list_tools = list_tools  # type: ignore[method-assign]
     return srv
@@ -1023,7 +1052,8 @@ class Bearer:
         if path == "/watch" or path.startswith("/watch/"):
             await self._watch(scope, path[len("/watch"):], send)
             return
-        if path.startswith("/.well-known/oauth"):  # a connector asking how to sign in gets a plain no, not a 401 that
+        if path.startswith("/.well-known/oauth") or path in ("/register", "/authorize", "/token"):  # a connector asking
+            # how to sign in (discovery, client registration) gets a plain no, not a 401 that
             await _reply(send, 404, _NO_OAUTH)    # sends it off to ask its human for a client id and secret
             return
         if path.startswith("/i/"):

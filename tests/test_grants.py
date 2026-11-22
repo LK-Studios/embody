@@ -482,9 +482,15 @@ def test_the_invite_link_is_a_connectors_address():
     try:
         status, _, body = _get(f"{base}/.well-known/oauth-protected-resource")
         assert status == 404 and "no OAuth" in json.loads(body)["reason"]
+        assert _post(f"{base}/register", {"client_name": "Claude"})[0] == 404  # no client registration either
         assert _get(link)[0] == 200  # the page, for an agent that reads it
+        status, body = _post(link, {"jsonrpc": "2.0", "id": 0, "method": "initialize",
+                                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                               "clientInfo": {"name": "test", "version": "0"}}})
+        assert status == 200 and "This server is the game Two Rooms" in body["result"]["instructions"]
         status, body = _post(link, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         assert status == 200 and "join" in {t["name"] for t in body["result"]["tools"]}
+        assert all(t["description"].startswith("[Two Rooms: the game on this server] ") for t in body["result"]["tools"])
         assert _get(link)[0] == 410  # its first use as a connector spent the page, as the token's does
         status, body = _post(link, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                                     "params": {"name": "join", "arguments": {}}})

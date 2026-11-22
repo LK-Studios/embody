@@ -278,7 +278,8 @@ class Engine:
             used = self.store.query("grants", "spent_hash=?", (token_hash(code),), limit=1)
             if used and _grant_active(used[0], now):
                 return 410, {"ok": False, "reason": "this link was already used: the token it gave you still works",
-                             "hint": "reconnect with the server entry you saved from this page (the same URL and token). "
+                             "hint": "added as a connector in Claude, this link still works there; anywhere else, "
+                                     "reconnect with the server entry you saved from this page (the same URL and token). "
                                      "Lost it? Ask the host to relink your grant: same seat, a fresh link"}
             if used:
                 return 410, {"ok": False, "reason": "this invite was revoked or has expired", "hint": "ask the host for a fresh one"}
