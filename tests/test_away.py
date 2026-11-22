@@ -65,6 +65,44 @@ def test_standing_orders_give_and_answer_while_the_seat_is_idle():
     assert call(p, "away", answer="x", entity="Guard")["ok"] is False  # orders are for your own body
 
 
+def test_a_standing_answer_is_said_to_the_asker_alone_and_rests_once_the_seat_is_back():
+    # 2026-11-21, a playtest: a line set the night before answered for a player who was back and playing, and told
+    # everyone there where the player sleeps
+    eng, w, i, gm, p, g = two_in_the_cell()
+    gm.spawn("person", "Cell", name="Wren")
+    wren = eng.session("wren")
+    wren.join("two-rooms", "Wren")
+    g.away(answer="Asleep at the inn.")
+    g.say("Night, all.")  # a goodbye after the orders is no return: the seat was never idle
+    gm.clock(step=120)
+    wren.perceive()
+    before = len(w.events(kinds=["say"], limit=500))
+    p.say("Guard?", to="Guard")
+    answer = w.events(kinds=["say"], limit=500)[before + 1]
+    assert answer["payload"]["away"] and answer["payload"]["text"] == "Asleep at the inn."
+    assert any(e["payload"].get("away") for e in p.perceive()["events"] if e["kind"] == "say")
+    assert not any(e["payload"].get("away") for e in wren.perceive()["events"] if e["kind"] == "say")
+    g.say("I'm up.")  # back from idle: the answer rests
+    gm.clock(step=120)
+    before = len(w.events(kinds=["say"], limit=500))
+    p.say("Guard, the inn?", to="Guard")
+    assert [e["payload"].get("away") for e in w.events(kinds=["say"], limit=500)][before:] == [None]
+    g.away(answer="Gone to the well.")  # set again, it answers again once the seat is idle
+    gm.clock(step=1200)
+    p.say("Guard!", to="Guard")
+    assert w.events(kinds=["say"], limit=500)[-1]["payload"]["text"] == "Gone to the well."
+
+
+def test_arrived_with_no_name_wakes_on_others_not_on_your_own_steps():
+    # 2026-11-21, a playtest: a mind on patrol woke on each of its own stops, so it gave up hearing anyone come in
+    eng, w, i, gm, p, g = two_in_the_cell()
+    since = w.store.next_seq(w.id) - 1
+    w.emit("arrived", actor=i["Guard"], target=i["Cell"], reach=1, payload={})  # the guard's own body walks in
+    assert not g.wait(until="arrived('')", timeout=0, since=since).get("fired")
+    assert p.wait(until="arrived('')", timeout=0, since=since).get("fired")  # the prisoner sees someone come in
+    assert p.wait(until="arrived('Guard')", timeout=0, since=since).get("fired")
+
+
 def test_a_player_reads_the_public_schedule_in_words():
     eng, w, i = engine_with_two_rooms()
     gm = owner(eng)

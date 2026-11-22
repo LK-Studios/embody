@@ -131,3 +131,39 @@ def test_a_low_line_is_heard_in_full_only_near_the_speaker(tmp_path):
     alone = seats["Cal"].say("Nobody hears this.", low=True)
     assert alone["heard_by"] == [] and "step closer" in alone["note"]
     assert line("Ana")["heard"] is False
+
+
+def test_a_voice_carries_only_so_far_across_a_wide_place_and_a_shout_further(tmp_path):
+    # 2026-11-21, a world builder: on a fork a player 600 m across one open place was heard in full
+    eng, gm = _laid(tmp_path)
+    sq = gm.inspect("Ashford Square")["id"]
+    for name, at in [("Ana", [0, 0, 0]), ("Ben", [15, 0, 0]), ("Cal", [60, 0, 0])]:
+        gm.spawn("person", sq, name)
+        gm.layout(placements=[{"entity": name, "at": at}])
+    gm.layout(placements=[{"entity": "Mara", "at": [100, 0, 0]}, {"entity": "Traveler", "at": [100, 5, 0]}])
+    seats = {}
+    for name in ["Ana", "Ben", "Cal"]:
+        seats[name] = eng.session(name.lower())
+        seats[name].join(gm.world.id, name)
+        seats[name].perceive()
+
+    def line(name):
+        return [e["payload"] for e in seats[name].perceive()["events"] if e["kind"] == "say"][-1]
+    r = seats["Ana"].say("Anyone there?")
+    assert "heard_by" not in r and line("Cal")["text"] == "Anyone there?"  # a world with no voice range hears as before
+    gm.world.set_meta({"voice_radius": 20})
+    assert seats["Ana"].say("Over here.")["heard_by"] == ["Ben"]
+    near = line("Ben")
+    assert near["text"] == "Over here." and "far" not in near
+    far = line("Cal")
+    assert far["too_far"] and far["heard"] is False and "text" not in far and "far" not in far
+    r = seats["Ana"].say("OVER HERE.", loud=True)  # a shout carries four times the voice
+    shout = line("Cal")
+    assert r["heard_by"] == ["Ben", "Cal"] and shout["text"] == "OVER HERE." and shout["tone"] == "shout"
+    seats["Ana"].say("Just you, Cal.", to="Cal")
+    assert line("Cal")["text"] == "Just you, Cal."  # the one it is said to hears it, however far
+    gm.patch(sq, {"voice_radius": 10})  # a place may carry a voice less far than the world
+    alone = seats["Ana"].say("Ben?")
+    assert alone["heard_by"] == [] and "loud=true" in alone["note"] and line("Ben")["too_far"]
+    with pytest.raises(Rejected, match="low or loud"):
+        seats["Ana"].say("Both.", low=True, loud=True)

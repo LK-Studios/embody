@@ -1051,13 +1051,14 @@ class Ctx(ScriptObject):
         eid = _ev(self._w, id)
         self._w.remember(eid, str(text), actor=eid)
 
-    def say(self, text: str, reach: int = 1, to: Any = None, low: bool = False) -> int:
+    def say(self, text: str, reach: int = 1, to: Any = None, low: bool = False, loud: bool = False) -> int:
         who = self._owner or self._actor
         if not str(text or "").strip():
             return 0  # an empty line says nothing and makes no event
         frame = (self._limits or {}).get("frame")
         return self._w.say(who, text, reach=reach, to=_ev(self._w, to) if to is not None else None,
-                           caused_by=self._caused_by, mark={"maker": frame} if frame else None, low=low)["seq"]
+                           caused_by=self._caused_by, mark={"maker": frame} if frame else None, low=low,
+                           loud=loud)["seq"]
 
     def gesture(self, text: str, to: Any = None, reach: int = 1) -> int:
         """A deed in words, seen and not said ("The cat opens one eye, and closes it."): a `gestured` event {text, to}
@@ -2917,11 +2918,14 @@ class World:
                 "pending": self.store.count("scheduled", "world_id=?", (self.id,))}
 
     def say(self, who: str, text: str, reach: int = 1, to: str | None = None,
-            caused_by: int | None = None, mark: dict[str, Any] | None = None, low: bool = False) -> dict[str, Any]:
+            caused_by: int | None = None, mark: dict[str, Any] | None = None, low: bool = False,
+            loud: bool = False) -> dict[str, Any]:
         """Speech. Addressed speech targets the listener so it shows in both their logs; the room still hears it.
         Unaddressed speech targets the room the speaker stands in (reach counts from there), never the speaker.
         A `low` line stays in the place (reach 1 at most): those in `near` (low_near) hear the words, everyone else
-        there hears that something was said low, and to whom."""
+        there hears that something was said low, and to whom. Where the place or world sets a voice_radius, those in
+        `far` (out_of_earshot) hear that something was said, not the words; a `loud` line (or reach past 1) is a shout
+        and carries the shout's radius."""
         e = self.need(who)
         payload: dict[str, Any] = {"text": str(text), "tone": tone(str(text), reach), **(mark or {})}
         if to:
@@ -2929,6 +2933,11 @@ class World:
         if low:
             reach = min(reach, 1)
             payload.update(low=True, tone="low", near=self.low_near(who, to))
+        elif reach >= 1:
+            if loud:
+                payload.update(loud=True, tone="shout")
+            if far := self.out_of_earshot(who, to, loud or reach > 1):
+                payload["far"] = far
         if to:
             payload["to"] = to
             target = to
@@ -2946,6 +2955,31 @@ class World:
         """Metres within which a low line is heard in full (world meta `low_radius`)."""
         return float(self._row["meta"].get("low_radius", 3.0))
 
+    def voice_radius(self, place: str | None, loud: bool = False) -> float | None:
+        """Metres a line carries in a place, by the speaker's and the listener's own spots: the place's
+        `voice_radius` (`shout_radius` for a shout) over the world meta's, and a shout with no radius of its own
+        carries four times the voice. None when neither sets a voice: a line is heard across the whole place."""
+        st = ((self.get(place) or {}).get("state") or {}) if place else {}
+        meta = self._row["meta"]
+        voice = st.get("voice_radius", meta.get("voice_radius"))
+        if voice is None:
+            return None
+        if not loud:
+            return float(voice)
+        shout = st.get("shout_radius", meta.get("shout_radius"))
+        return float(shout) if shout is not None else 4 * float(voice)
+
+    def out_of_earshot(self, who: str, to: str | None = None, loud: bool = False) -> list[str]:
+        """Who in the speaker's place stands too far off to catch the words (voice_radius): those whose own spot is
+        further than the radius from the speaker's. The one it is to and what the speaker holds always hear, and so
+        does anyone with no spot, and everyone where neither the place nor the world sets a voice."""
+        from . import positions as posn
+        e = self.need(who)
+        if not e["parent_id"] or (r := self.voice_radius(e["parent_id"], loud)) is None:
+            return []
+        return sorted(c["id"] for c in self.children(e["parent_id"])
+                      if c["id"] not in (who, to) and (d := posn.apart(self, who, c["id"])) is not None and d > r)
+
     def low_near(self, who: str, to: str | None = None) -> list[str]:
         """Who hears a low line in full: the speaker, the one it is said to, what the speaker holds, and anyone in
         the same place within low_radius of the speaker, both by their own spots. In a place with no spots only the
@@ -2962,9 +2996,12 @@ class World:
 
     def _answer_away(self, body: str, asker: str, caused_by: int, text: str = "") -> None:
         """A body whose seat is idle answers whoever speaks to it with its standing `answer`, once per asker per
-        ten world minutes, so two idle bodies never talk each other round."""
+        ten world minutes, so two idle bodies never talk each other round. The answer is said to the asker alone
+        (reach 0: it may say where the player went), and rests once the seat is back from idle (idle_orders
+        `rests`, until away() sets it again)."""
         e = self.get(body)
-        line = ((e or {}).get("state", {}).get("standing_orders") or {}).get("answer")
+        st = (e or {}).get("state", {})
+        line = None if (st.get("idle_orders") or {}).get("rests") else (st.get("standing_orders") or {}).get("answer")
         own = self._own_line(e, text) if self.own_lines(body) else None
         line = own or line
         if not line or not self.embodied(body) or not (own or self.idle(body)):
@@ -2973,7 +3010,7 @@ class World:
         if last is not None and self.t - last < 600:
             return
         self._answered[(body, asker)] = self.t
-        self.emit("say", actor=body, target=asker, reach=1, caused_by=caused_by,
+        self.emit("say", actor=body, target=asker, reach=0 if line != own else 1, caused_by=caused_by,
                   payload={"text": str(line), "to": asker, "away": True})
 
     # ---- principals -----------------------------------------------------------
@@ -3259,10 +3296,12 @@ class World:
     def principals(self) -> list[dict[str, Any]]:
         return self.store.query("principal", "world_id=?", (self.id,), order="id")
 
-    def _bump_cursor(self, principal_id: str) -> None:
+    def _bump_cursor(self, principal_id: str, seq: int | None = None) -> None:
+        """Past what this seat just did (up to `seq`, else everything so far), so its next read starts after it."""
         p = self.store.get("principal", self.id, principal_id)
         if p:
-            p["cursor_seq"] = self.store.next_seq(self.id) - 1
+            last = self.store.next_seq(self.id) - 1
+            p["cursor_seq"] = last if seq is None else max(int(p.get("cursor_seq") or 0), seq)
             self.store.put("principal", p)
 
     def set_cursor(self, principal_id: str, seq: int) -> None:

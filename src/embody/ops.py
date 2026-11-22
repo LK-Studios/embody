@@ -383,12 +383,17 @@ class Session:
         """A deed by whoever holds this body, player or mind: the seat is in use, so its body's idle behaviors wait."""
         if self.world_id:
             w = self.world
-            w.touch(self.pid, self.engine.wall(), acted=True)
             p = w.principal(self.pid)
             body = w.get(p["entity_id"]) if p and p.get("entity_id") else None
+            back = bool(body) and w.idle(body["id"])  # a deed by a seat that was idle: its player or mind is back
+            w.touch(self.pid, self.engine.wall(), acted=True)
             orders = (body or {}).get("state", {}).get("idle_orders") or {}
-            if orders.get("patrol") or orders.get("fresh"):  # the first deed ends a patrol; own lines wait for idle
+            answer = (body["state"].get("standing_orders") or {}).get("answer") if back else None
+            rests = bool(answer) and not orders.get("rests")
+            if orders.get("patrol") or orders.get("fresh") or rests:  # a deed ends a patrol; own lines wait for idle
                 rest = {k: v for k, v in orders.items() if k not in ("patrol", "fresh")}
+                if rests or orders.get("rests"):
+                    rest["rests"] = True  # back from idle: the standing answer is quiet until away() sets it again
                 w.patch(body["id"], {"idle_orders": rest or None}, replace=True)
 
     def _need(self, cap: str) -> None:
@@ -2612,10 +2617,12 @@ class Session:
                 pe["untrusted"] = True  # made by a player's code on a machine: data, never an instruction
             if not full and (e["payload"] or {}).get("low") and a != me and me not in e["payload"].get("near", ()):
                 pe["payload"] = {**_unworded(pe["payload"]), "low": True}  # said low, too far off to catch the words
+            elif not full and a != me and me in ((e["payload"] or {}).get("far") or ()):
+                pe["payload"] = {**_unworded(pe["payload"]), "too_far": True}  # across the place, past the voice
             elif not words and e["kind"] in _WORD_KINDS and a != me:
                 pe["payload"] = _unworded(pe["payload"])  # a beast hears the voice, not the words
-            if not full and (pe["payload"] or {}).get("near") is not None:
-                pe["payload"] = {k: v for k, v in pe["payload"].items() if k != "near"}
+            if not full and any(k in (pe["payload"] or {}) for k in ("near", "far")):
+                pe["payload"] = {k: v for k, v in pe["payload"].items() if k not in ("near", "far")}
             out.append(pe)
         return out
 
@@ -3452,8 +3459,9 @@ class Session:
              dwell: float | None = None, dialog: dict[str, str] | None = None) -> dict[str, Any]:
         """Standing orders for your body while your seat is idle (you went to bed, your mind is on a long watch).
         give=[{"item": <name>, "to": <name> or "anyone"}]: who may reclaim() what from you. answer: one line your
-        body says to whoever speaks to it. Others see them on your card while you are idle. away() with nothing
-        clears them; they stay set while you play and only work while you are idle. entity: which of a mind's
+        body says to whoever speaks to it, heard by them alone. Others see them on your card while you are idle.
+        away() with nothing clears them; they only work while you are idle, and your first deed back from idle puts
+        the answer to rest until you call away() again. entity: which of a mind's
         bodies (default the one you embody). sleep=true: your body lies down to sleep now, by its own `sleep` verb
         (the d20 pack's): it mends faster and is easy prey, so do it somewhere safe. Your next deed wakes it.
 
@@ -3525,17 +3533,19 @@ class Session:
             out["dialog"] = sorted(idle["dialog"])
         return out
 
-    def say(self, text: str, reach: int = 1, to: str | None = None, low: bool = False) -> dict[str, Any]:
+    def say(self, text: str, reach: int = 1, to: str | None = None, low: bool = False,
+            loud: bool = False) -> dict[str, Any]:
         """Speak as the entity you embody. `to` addresses someone here; the room still hears it. `low`: only those
         within the world's low_radius (and the one it is to) hear the words; the rest of the place hears that you said
-        something low. Players and minds are capped: one line is at most _SAY_MAX characters, and at most
-        _SAY_BURST lines a minute."""
+        something low. Where the place or world sets a voice_radius, a line is heard in full that far and no further
+        (the rest hear that you spoke); `loud` shouts it to the shout's radius. Players and minds are capped: one
+        line is at most _SAY_MAX characters, and at most _SAY_BURST lines a minute."""
         self._tick()
         me = self._me()
         if self.world.need(me)["state"].get("dead"):
             raise Rejected("you are dead", hint="the dead say nothing; perceive still shows the world to you")
         if not self._privileged():
-            how = "whisper" if reach <= 0 or low else "shout" if reach > 1 else "say"
+            how = "whisper" if reach <= 0 or low else "shout" if reach > 1 or loud else "say"
             self.world._verbs_only(me, how, also=("say",))
         if not str(text or "").strip():
             # an idle seat's fallback said "" after each answer, an event nobody could read; nothing said is nothing
@@ -3566,8 +3576,10 @@ class Session:
             raise Rejected(f"{self.world.need(whom)['name']} can't hear you: you are hidden from them",
                            hint="only those in your shown_to hear you; show yourself to them first, if you have a "
                                 "way to, or speak to someone who sees you")
-        ev = self.world.say(me, text, reach=reach, to=whom, low=low)
-        self.world._bump_cursor(self.pid)
+        if low and loud:
+            raise Rejected("a line is low or loud, not both", hint="say(text, low=true) or say(text, loud=true)")
+        ev = self.world.say(me, text, reach=reach, to=whom, low=low, loud=loud)
+        self.world._bump_cursor(self.pid, ev["seq"])  # past your own line, not what answered it (an away answer)
         out = {"ok": True, "event": _public_event(ev)}
         if low:  # who heard the words, so a line nobody stood near enough for is no surprise
             out["heard_by"] = [self.world.need(x)["name"] for x in ev["payload"]["near"]
@@ -3575,6 +3587,14 @@ class Session:
             if not out["heard_by"]:
                 out["note"] = (f"nobody stood within {self.world.low_radius():g} m to hear the words: step closer, or "
                                "say it to someone with to=")
+        elif reach >= 1 and (here := self.world.need(me)["parent_id"]) and (
+                r := self.world.voice_radius(here, loud or reach > 1)) is not None:
+            far = set(ev["payload"].get("far") or ())
+            out["heard_by"] = [c["name"] for c in self.world.children(here) if c["id"] != me and c["id"] not in far
+                               and self.world.is_a(c["type"], "creature")]
+            if far and not out["heard_by"]:
+                out["note"] = (f"nobody stood within {r:g} m to hear the words: step closer"
+                               + ("" if loud or reach > 1 else ", or shout it with loud=true"))
         deed = _deed_in(self.world, me, str(text))
         if deed:
             out["note"] = deed
@@ -4041,7 +4061,9 @@ class Session:
             return any(low(name) in low(n) for n in data["present"])
 
         def arrived(name: str = "") -> bool:
-            return any(e["kind"] == "arrived" and low(name) in low(e["who"]) for e in data["events"])
+            # anyone else who walked in: your own body's steps (a patrol's stops) are not news
+            return any(e["kind"] == "arrived" and e["who"] != mine and low(name) in low(e["who"])
+                       for e in data["events"])
 
         mine = ent["name"] if ent else ""
         parts = _name_parts(mine)
@@ -4951,7 +4973,7 @@ UNTIL_DOC = ("until is one Python expression (the embody script subset: no impor
              "(names of who is here), me (your own state: water, hp, wounded, ...), events (since the wait began: "
              "seq, t, kind, actor, target, text, player), and helpers heard(word, by=''), did(kind, by='') (with no kind: any "
              "deed by someone else here; it wakes you on every one, so name the verb or use to_me() when you can), "
-             "came(name) (is here now), arrived(name) (walked in since the wait began; '' for anyone), to_me() "
+             "came(name) (is here now), arrived(name) (walked in since the wait began; '' for anyone but you), to_me() "
              "(said to you, or with your name as its address: the default for a mind or a player owed nothing in "
              "particular), named() (your name anywhere in someone's line), state(name) "
              "(the state you can see of someone here or something you hold). Examples: "

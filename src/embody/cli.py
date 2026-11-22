@@ -250,8 +250,12 @@ def render_event(e: dict[str, Any]) -> str:
     k = e["kind"]
     if k == "say" and p.get("low") and p.get("heard") is False:
         return f"{e['actor']} says something low" + (f" to {p['to']}" if p.get("to") else "")
+    if k == "say" and p.get("too_far"):
+        return (f"{e['actor']} " + ("shouts" if p.get("tone") == "shout" else "says") + " something"
+                + (f" to {p['to']}" if p.get("to") else "") + ", too far off to catch the words")
     if k == "say":
-        return f"{e['actor']} says" + (" low" if p.get("low") else "") + f": {p.get('text', '')}"
+        return (f"{e['actor']} " + ("shouts" if p.get("loud") else "says") + (" low" if p.get("low") else "")
+                + f": {p.get('text', '')}")
     if k == "act":
         return f"{e['actor']} {p.get('verb')} {p.get('target') or ''}".strip()
     if k == "moved":
@@ -466,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--reach", type=int, default=1)
     c.add_argument("--to", help="who you address (name or id); without it the room hears")
     c.add_argument("--low", action="store_true", help="only those within a few metres hear the words")
+    c.add_argument("--loud", action="store_true", help="shout it: carries further where the world sets a voice range")
     c = sub.add_parser("wait", help="block until something happens near you")
     c.add_argument("--timeout", type=float, default=30)
     c.add_argument("--kinds", nargs="*")
@@ -644,7 +649,7 @@ def main(argv: list[str] | None = None) -> int:
             r = s.act(args.verb, args.target, parse_params(args.param))
             emit(args, r, render_act(r))
         elif args.cmd == "say":
-            emit(args, s.say(args.text, reach=args.reach, to=args.to, low=args.low), "said.")
+            emit(args, s.say(args.text, reach=args.reach, to=args.to, low=args.low, loud=args.loud), "said.")
         elif args.cmd == "wait":
             b = s.wait(timeout=args.timeout, kinds=args.kinds, full=args.full)
             emit(args, b, render_perceive(b) if args.full else render_wait(b))

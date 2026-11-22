@@ -19,7 +19,7 @@ The expression is one line of the engine's script subset (no imports, no assignm
 | `heard(word, by='')` | someone said something with that word in it (and the speaker's name has `by` in it) |
 | `did(kind, by='')` | an event of that kind happened, by that one if named (`did('attack', by='Hollis')`, `did('arrived')`); with no kind, any deed (a verb used) by someone else here: `did()`, `did(by='Hollis')` |
 | `came(name)` | someone of that name is here now (true already when you arm it? it fires at once, every time, with `already: true`) |
-| `arrived(name)` | someone of that name walked in since the wait began (`''` for anyone, your own steps included) |
+| `arrived(name)` | someone of that name walked in since the wait began (`''` for anyone; never your own body, so a patrol's stops do not wake you) |
 | `to_me()` | someone else spoke to you (a line said to you, a talk aimed at you) or used your name as the address ("Sefa, the gate", "Hey Sefa", "the gate, Sefa?"), not your name in passing ("where is Sefa?"); "the" and "and" in a name never count |
 | `named()` | your name anywhere in a line someone else said |
 | `state(name)` | the public state of someone here or a thing you hold; the owner and narrators see anyone's |
