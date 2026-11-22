@@ -203,20 +203,34 @@ def default_url() -> str | None:
     return f"https://{domain}/mcp" if domain else None
 
 
-def paste(world_name: str, role: str, link: str | None, page_text: str, label: str = "") -> str:
-    """What the host sends the friend: the link and one line on what to do with it. Without a public URL there is no
-    link, and the paste is the page itself."""
+def connector_names(root_state: dict[str, Any] | None, world_name: str) -> tuple[str, str]:
+    """What a guest names the world's connector in Claude, and what they say to play: the root's `connector_name` and
+    `play_name`, each the world's name when unset."""
+    st = root_state or {}
+    return (str(st.get("connector_name") or world_name), str(st.get("play_name") or world_name))
+
+
+def paste(world_name: str, role: str, link: str | None, page_text: str, label: str = "", connector: str = "",
+          play: str = "") -> str:
+    """What the host sends the friend: the link, and the steps for Claude (name the connector, keep the defaults,
+    Connect, say the words) or for any other agent (paste the link into it). Without a public URL there is no link,
+    and the paste is the page itself."""
     if not link:
         return page_text
     who = f"{label}, here" if label else "Here"
     thing = "a seat" if role in (PLAYER, MIND) else f"the {role}'s keys"
+    connector, play = connector or world_name, play or world_name
     return (f"{who} is {thing} in {world_name}:\n\n{link}\n\n"
-            f"In Claude (claude.ai or its apps): add this link as a custom connector (Settings > Connectors > Add custom "
-            f"connector; any name, nothing under advanced settings), press Connect and tap Connect on the page that "
-            f"opens, then ask Claude in a chat to join {world_name}. Do not paste the link into the chat itself.\n"
-            f"In Claude Code, Codex or anything else that speaks MCP: paste the link into your agent and it takes it "
-            f"from there; the agent reads it, not you.\n"
-            f"Use it within a day.")
+            f"To play in Claude (claude.ai or the Claude app):\n"
+            f"1. Go to Settings > Connectors > Add custom connector.\n"
+            f"2. Name it: {connector}\n"
+            f"   URL: the link above\n"
+            f"   Leave everything else as it is and press Add.\n"
+            f"3. Press Connect, then tap Connect on the page that opens.\n"
+            f"4. Start a new chat, check {connector} is switched on, and say: Play {play}\n\n"
+            f"Don't paste the link into a chat. Using Claude Code, Codex or another agent instead? Paste the link into "
+            f"it and it does the rest.\n"
+            f"Use the link within a day.")
 
 
 def guides_line(guides: Any, role: str) -> str:
@@ -239,7 +253,8 @@ def guides_line(guides: Any, role: str) -> str:
 
 def page(world_name: str, role: str, url: str, token: str, seat: str | None = None,
          scope_names: list[str] | None = None, rate: float = 1.0, briefing: str = "", waits: bool = False,
-         template: str | None = None, template_doc: str = "", limits_note: str = "", guides: str = "") -> str:
+         template: str | None = None, template_doc: str = "", limits_note: str = "", guides: str = "",
+         connector: str = "", play: str = "") -> str:
     """The text the invite link serves, written for the agent that reads it: add the server, join, and open the
     story. The agent tells its human what this adds and asks before it connects; then it keeps the machinery out of the
     story unless asked, and begins in the world."""
@@ -257,9 +272,10 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
     conn = connector_url(url, token)
     if conn:
         add += (f"\n  Claude (claude.ai, the Claude desktop or mobile app): you cannot add a server yourself. Ask your "
-                f"human, in one line, to add the invite link they gave you as a custom connector (Settings > "
-                f"Connectors > Add custom connector; any name, nothing under advanced settings), to press Connect and "
-                f"tap Connect on the page that opens, and to turn it on in this chat; then go on from step 2.")
+                f"human, in one line, to add the invite link they gave you as a custom connector named "
+                f"{connector or world_name} (Settings > Connectors > Add custom connector, everything else left as it "
+                f"is), to press Connect and tap Connect on the page that opens, and to start a new chat with it "
+                f"switched on and say: Play {play or world_name}.")
     if url.endswith("/mcp"):
         base = url[:-len("/mcp")]
         add += ("\n   Most harnesses load a new server only when they start. Do not make the human restart or open "
@@ -377,9 +393,10 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
     if briefing:
         parts += ["", briefing]
     if conn:  # first, for a person who opened the link in a browser because their Claude cannot open links
-        parts = [f"(For a person reading this: in Claude, on claude.ai or in its apps, add the link you opened as a "
-                 f"custom connector under Settings > Connectors (any name, nothing under advanced settings), press "
-                 f"Connect and tap Connect on the page that opens, then ask Claude in a chat to join {world_name}. "
-                 f"Anywhere else, paste the link into your agent: the rest of this page is for it.)",
+        parts = [f"(For a person reading this: in Claude, on claude.ai or in the Claude app, add the link you opened "
+                 f"as a custom connector named {connector or world_name} under Settings > Connectors, leaving everything "
+                 f"else as it is; press Connect and tap Connect on the page that opens; then start a new chat with it "
+                 f"switched on and say: Play {play or world_name}. Anywhere else, paste the link into your agent: the "
+                 f"rest of this page is for it.)",
                  ""] + parts
     return "\n".join(parts)

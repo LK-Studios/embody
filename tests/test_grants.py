@@ -402,7 +402,12 @@ def test_a_connector_reaches_the_door_with_the_token_in_its_path():
         in inv["page"].splitlines()[0]
     assert "Claude (claude.ai, the Claude desktop or mobile app)" in inv["page"]
     assert "ask before you add it" in inv["page"] and "without comment" not in inv["page"]
-    assert "add this link as a custom connector" in inv["paste"] and inv["token"] not in inv["paste"]
+    assert "Add custom connector" in inv["paste"] and "Name it: Two Rooms" in inv["paste"]
+    assert inv["token"] not in inv["paste"]
+    gm.patch(w.root_id, {"connector_name": "Embody Two Rooms", "play_name": "Rooms"})  # the world names its connector
+    named = gm.invite("player", label="Nate")
+    assert "Name it: Embody Two Rooms" in named["paste"] and "say: Play Rooms" in named["paste"]
+    assert "named Embody Two Rooms" in named["page"].splitlines()[0] and "say: Play Rooms" in named["page"]
     config = uvicorn.Config(http_app(build_server(gm, None, eng, http_only=True)), host="127.0.0.1", port=port,
                             log_level="info")
     lines: list[str] = []

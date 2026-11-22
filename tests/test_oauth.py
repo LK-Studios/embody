@@ -118,7 +118,7 @@ def test_a_connector_signs_in_with_the_invite_link_and_plays_the_seat(door):
     inv = gm.invite("player", entity="Prisoner", label="Rupert")
     link = inv["link"]
     code_in_link = link.rsplit("/", 1)[1]
-    assert "press Connect and tap Connect on the page that opens" in inv["paste"]
+    assert "tap Connect on the page that opens" in inv["paste"] and "say: Play Two Rooms" in inv["paste"]
 
     status, h, _ = _mcp(link, "tools/list")  # the connector's first call: no token, so sign in
     meta_url = f"{base}/.well-known/oauth-protected-resource/i/{code_in_link}"

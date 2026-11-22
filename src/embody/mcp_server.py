@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
-from .grants import (is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, as_bearer, default_url, origin_of,
-                     request_origin, token_hash)
+from .grants import (is_preview_bot, AUTHOR_ROLE, MIND, NARRATOR, OWNER, active, as_bearer, connector_names,
+                     default_url, origin_of, request_origin, token_hash)
 from .oauth import (ACCESS_S, CODE_S, PREFIX as OAUTH_PREFIX, REFRESH_S, Sealer, digest, invite_code, key_for, pkce_ok,
                     redirect_ok, resource_metadata, server_metadata, sign_in_page, with_query)
 from .ops import AUTHOR, OBSERVER, Engine, Rejected, Session
@@ -204,13 +204,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     if http_only:
         told = HOSTED
         try:
-            held = [w["name"] for w in session.worlds()]
+            held = [w["id"] for w in session.worlds()]
         except Rejected:
             held = []
         if len(held) == 1:  # one world on this server (a hosted world, or one of a hub's): name it as the game
-            told += (f"\nThis server is the game {held[0]}. When your human asks to play, join or look around "
-                     f"{held[0]}, use these tools (seats(), join(), perceive()), even if other connectors hold notes or "
-                     f"projects by the same name: those are about it, not the game itself.")
+            one = session.engine.world(held[0])
+            name, play = one.name, connector_names(one.get(one.root_id)["state"], one.name)[1]
+            told += (f"\nThis server is the game {name}. When your human says Play {play}, or asks to play, join or "
+                     f"look around {name}, use these tools (seats(), join(), perceive()), even if other connectors hold "
+                     f"notes or projects by the same name: those are about it, not the game itself.")
     srv = MCPServer("embody", instructions=told)
     tool = srv.tool
     _wrap = functools.partial(globals()["_wrap"], lock=hub.engine.lock)  # every tool below runs under the engine lock

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from .grants import (HOST_MARK, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, ORACLE, OWNER, PLAYER, ROLES, ROLE_DOC,
+from .grants import (HOST_MARK, connector_names, LINK_HOURS, link_for, request_origin, new_code, page, AUTHOR_ROLE, BUILDER, MIND, NARRATOR as NARRATOR_ROLE, OBSERVER_ROLE, ORACLE, OWNER, PLAYER, ROLES, ROLE_DOC,
                      active, active as _grant_active, allowed, caps_for, guides_line, new_token, paste, principal_id_for, role_for, token_hash)
 from .asks import (ASK_PER_HOUR, ANSWER_MAX as ASK_ANSWER_MAX, CREDIT_MAX as ASK_CREDIT_MAX, FIELDS as ASK_FIELDS,
                    KINDS as ASK_KINDS,
@@ -1369,9 +1369,11 @@ class Session:
                "code_hash": token_hash(code) if link else None, "code_expires": code_exp if link else None,
                "page": stored if link else None, "limits": lim, "parent_id": parent, "slots": slots}
         w.store.put("grants", row)
+        cn = connector_names(w.get(w.root_id)["state"], w.name)
         return {"ok": True, "id": row["id"], "principal": pid, "role": role, "entity": eid, "scope": sc, "limits": lim,
                 "template": template, "expires": row["expires"], "token": token, "url": url or None,
-                "link": link, "link_expires": row["code_expires"], "paste": paste(w.name, role, link, text, label=label),
+                "link": link, "link_expires": row["code_expires"],
+                "paste": paste(w.name, role, link, text, label=label, connector=cn[0], play=cn[1]),
                 "page": text,
                 "hint": ("send them the paste: the link works once and for a day" if link else
                          "no public URL, so no link: send them the paste whole") + "; grants() lists grants without the token"}
@@ -1384,11 +1386,13 @@ class Session:
         names = [w.get(x)["name"] for x in sc if w.get(x)]
         waits = bool(w.meta().get("run_when_occupied"))
         tdoc = ((w.get(w.root_id)["state"].get("templates") or {}).get(template) or {}).get("doc", "") if template else ""
+        named = connector_names(w.get(w.root_id)["state"], w.name)
         return page(w.name, role, f"{HOST_MARK}/mcp" if link else url, token,
                     seat=(w.get(eid)["name"] if eid and w.get(eid) and role != MIND else None),
                     scope_names=names, rate=ck["rate"] if ck["running"] or waits else 0.0, waits=waits,
                     briefing=(f"From the host, for you alone: {brief}" if brief else ""), template=template,
-                    template_doc=tdoc, limits_note=note, guides=self._guides_line(role))
+                    template_doc=tdoc, limits_note=note, guides=self._guides_line(role),
+                    connector=named[0], play=named[1])
 
     def relink(self, grant: str) -> dict[str, Any]:
         """(owner) A guest lost their token, or their link went stale: the same grant (principal, seat, scope, brief,
@@ -1416,9 +1420,10 @@ class Session:
                     code_hash=token_hash(code) if link else None, code_expires=code_exp if link else None,
                     page=stored if link else None)
         label = g.get("label") or ""
+        cn = connector_names(w.get(w.root_id)["state"], w.name)
         return {"ok": True, "id": g["id"], "principal": g["principal_id"], "role": g["role"], "entity": g.get("entity_id"),
                 "token": token, "url": url or None, "link": link, "link_expires": code_exp if link else None,
-                "paste": paste(w.name, g["role"], link, text, label=label), "page": text,
+                "paste": paste(w.name, g["role"], link, text, label=label, connector=cn[0], play=cn[1]), "page": text,
                 "hint": "the old token no longer works; send them the paste: the link works once and for a day"}
 
     def _limits_note(self, lim: dict[str, Any], role: str | None = None) -> str:
