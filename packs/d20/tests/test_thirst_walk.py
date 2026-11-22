@@ -56,3 +56,28 @@ def test_a_thirst_walk_goes_around_a_side_that_outlawed_the_body_or_waits():
     gm.patch("Carter", {"down": True})
     gm.clock(step=60)
     assert where(gm, "Walker") == "The Oasis"  # a foe who is down guards nothing: the near way is open
+
+
+def test_a_follower_keeps_to_the_one_it_follows_not_to_its_post():
+    """Following holds (asked by the owner of Klhyts Refuge, 2026-11-22): elves told to follow a player arrived behind
+    them and were walked straight back home by the idle care, a step a tick, so no escort ever reached the pier."""
+    eng, gm, you = outpost()
+    flats = gm.inspect("The Flats")["id"]
+    gm.move("Warden", "The Road")  # the one it follows: a played seat, who stands where it stands
+    gm.spawn("person", "The Road", "Walker", state={"faction": "the Garrison", "water": 60, "max_water": 60, "hp": 40,
+                                                    "max_hp": 40, "post": flats})
+    gm.patch("Walker", {"follows": gm.inspect("Warden")["id"]})
+    for _ in range(5):
+        gm.clock(step=60)
+    assert where(gm, "Walker") == "The Road"  # beside the one it follows, away from its post
+    gm.patch("Walker", {"water": 2, "max_water": 10})  # thirsty, with a short fill at the spring
+    trail = []
+    for _ in range(8):
+        gm.clock(step=60)
+        trail.append(where(gm, "Walker"))
+    went = trail.index("The Oasis")  # off for water, then back beside them, never home
+    assert "The Road" in trail[went:] and "The Flats" not in trail, trail
+    gm.patch("Walker", {"follows": None})
+    for _ in range(3):
+        gm.clock(step=60)
+    assert where(gm, "Walker") == "The Flats"  # following no one, it goes home as before

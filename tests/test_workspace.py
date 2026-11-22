@@ -245,3 +245,22 @@ def test_the_global_flags_may_follow_any_subcommand(tmp_path, capsys):
         except SystemExit as e:
             assert e.code == 0, cmd
     assert "unrecognized" not in capsys.readouterr().err
+
+
+def test_a_database_in_memory_writes_nothing_into_the_folder(tmp_path):
+    """In memory is a test or a scratch run (owner of Klhyts Refuge, 2026-11-22): a world's tests built it with
+    Engine(":memory:", workspace=...) and every author move they made landed in the real changes.jsonl, then replayed
+    into every fresh build. Asked for (record=True), it still records."""
+    eng, gm = author(tmp_path, tmp_path / "embody.db")
+    gm.create_world("The Pit", id="the-pit")
+    changes = tmp_path / "worlds" / "the-pit" / "changes.jsonl"
+    mem = Engine(":memory:", workspace=tmp_path)
+    gm2 = mem.session("gm", capabilities=[AUTHOR])
+    load_world(gm2, "the-pit")
+    gm2.spawn("place", gm2.summary()["root"], "Scratch")
+    assert not changes.exists() or "Scratch" not in changes.read_text()
+    asked = Engine(":memory:", workspace=tmp_path, record=True)
+    gm3 = asked.session("gm", capabilities=[AUTHOR])
+    load_world(gm3, "the-pit")
+    gm3.spawn("place", gm3.summary()["root"], "Kept")
+    assert "Kept" in changes.read_text()

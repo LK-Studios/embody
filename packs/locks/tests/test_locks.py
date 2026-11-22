@@ -175,6 +175,17 @@ def test_a_lockpick_counts_before_stealth_or_craft(guild):
     assert kinds(eng, "lock_picked")[0]["mod"] == 4
 
 
+def test_a_hand_with_a_sheet_picks_by_its_sheet(guild):
+    """A sheet body (packs/sheet) keeps its ranks on its sheet, not in `skills` (owner of Klhyts Refuge, 2026-11-22: a
+    5e rogue's lockpick never counted). With no skillbook to name the lockpick's attributes, Poise stands in."""
+    eng, gm, ada, bel = guild
+    gm.patch("Bel", {"wits": 0, "skills": {}, "sheet": {"attributes": {"poise": 16}, "skills": {"lockpick": 4, "stealth": 1}}})
+    gm.patch("Box lock", {"pick_dc": 2})
+    bel.act("pick", "Box lock")  # d20 + Poise 16 (+3) + lockpick 4
+    gm.clock(step=700)
+    assert kinds(eng, "lock_picked")[0]["mod"] == 7
+
+
 def test_a_lock_no_hand_opens_refuses_every_hand_with_its_own_line(guild):
     eng, gm, ada, bel = guild
     why = "The stone lid will not move for any hand."

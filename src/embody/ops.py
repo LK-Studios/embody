@@ -85,7 +85,8 @@ class Engine:
             self.workspace = Workspace.from_db(path)
         else:
             self.workspace = None
-        self.record = (path is not None) if record is None else bool(record)
+        # in memory (None or ":memory:") is a test or a scratch run: it writes nothing into the folder unless asked
+        self.record = (path is not None and str(path) != ":memory:") if record is None else bool(record)
         if mirror_root:
             self.mirror_root = Path(mirror_root)
         elif self.workspace is not None and path:
@@ -1023,7 +1024,7 @@ class Session:
             raise Rejected("a mind holds the NPCs its grant names; it does not make new people")
         if not name:
             raise Rejected("a new character needs a name", hint="join(world, template=..., name='...')")
-        if w.find(name=name, limit=2) and any(e["name"].lower() == name.lower() for e in w.find(name=name, limit=10)):
+        if w.named(name, limit=1):
             raise Rejected(f"someone is already called {name!r}", hint="pick another name")
         if self.grant and self.grant.get("template") and self.grant["template"] != template:
             raise Rejected(f"your grant is for the {self.grant['template']!r} template", hint="use that one")
@@ -2122,7 +2123,7 @@ class Session:
             if self._reader() and not self._reader_sees(ref):
                 raise Rejected(f"nothing called {ref!r} in what your grant reads", hint="map() lists what it reads")
             return ref
-        hits = [e for e in w.find(name=ref, limit=10) if e["name"].lower() == ref.lower()]
+        hits = w.named(ref, limit=10)
         if self._reader():
             hits = [e for e in hits if self._reader_sees(e["id"])]
             if not hits:
@@ -2145,7 +2146,7 @@ class Session:
         w = self.world
         if w.get(ref):
             return ref
-        hits = [e for e in w.find(name=ref, limit=200) if e["name"].lower() == ref.lower()]
+        hits = w.named(ref, limit=200)
         if len(hits) <= 1:
             return self._resolve(ref)
         near = [h["id"] for h in hits if w.reachable(me, h["id"])[0]]
@@ -3443,7 +3444,7 @@ class Session:
 
     def _names_something(self, ref: str) -> bool:
         w = self.world
-        return bool(w.get(ref)) or any(e["name"].lower() == ref.lower() for e in w.find(name=ref, limit=10))
+        return bool(w.get(ref)) or bool(w.named(ref, limit=1))
 
     def _declares(self, me: str, verb: str, tid: str | None, key: str) -> bool:
         try:

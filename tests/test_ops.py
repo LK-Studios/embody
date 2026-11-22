@@ -278,3 +278,17 @@ def test_an_empty_line_says_nothing():
         assert r["event"] is None and "empty" in r["note"]
     assert w.store.next_seq(w.id) == seq
     assert s.say("Hm.")["event"]["payload"]["text"] == "Hm."
+
+
+def test_a_short_name_is_found_among_the_many_that_contain_it():
+    """A name is looked up whole (owner of Klhyts Refuge, 2026-11-22): a player called "Bo" was "nothing called 'Bo'"
+    beside the Bonded Warehouse, the Bosun and a dozen more, because only the first ten names containing it were read."""
+    eng, w, i = engine_with_two_rooms()
+    for n in range(12):
+        w.spawn("thing", i["Cell"], f"Keyring {n}", state={"portable": True})
+    key = w.spawn("thing", i["Cell"], "Key", state={"portable": True})
+    s = eng.session("nate")
+    s.join("two-rooms", "Prisoner")
+    assert s.inspect("Key")["id"] == key
+    s.act("take", "Key")
+    assert any(c["id"] == key for c in s.perceive()["holding"])

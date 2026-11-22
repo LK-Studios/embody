@@ -24,6 +24,11 @@ def tick(ctx):
     water = int(st.water if st.water is not None else 10)
     mx = int(st.max_water or 10)
     post = ctx.get(st.post) if st.post else None
+    lead = ctx.get(st.follows) if st.follows else None
+    if lead is not None and not lead.state.dead:
+        # it keeps to the one it follows, not its post (a walk home would undo every step behind them), and a walk
+        # for water ends back beside them
+        post = lead.parent if lead.parent is not None and lead.parent.is_a("place") else None
     away = post is not None and here is not None and post.id != here.id
     # away from the post for water, drink your fill at an endless source before the walk back; a store with a
     # count gives one draw, enough to end the thirst, and its keeper's people the rest

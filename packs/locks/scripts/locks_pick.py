@@ -15,6 +15,34 @@ def check(ctx):
         return "this lock cannot be picked" + (": it takes " + " or ".join(ways) if ways else "")
     return True
 
+def best_rank(ranks):
+    # a lockpick is the trade itself; a quiet hand or a craftsman's comes near it
+    best = 0
+    for k in ["lockpick", "stealth", "craft"]:
+        best = max(best, int(ranks.get(k) or 0))
+    return best
+
+def score_mod(attrs, name):
+    s = attrs.get(name)
+    return 0 if s is None else (int(s) - 10) // 2
+
+def hand(ctx, me):
+    # what the picker adds to the d20: wits and the best rank, or, for a body with a sheet (packs/sheet), the sheet's
+    # own numbers, read the way its checks read them: the attributes the world's skillbook names for lockpick (Poise
+    # when there is no skillbook), averaged when there are two, and the best rank on the sheet
+    st = me.state
+    sheet = st.sheet
+    if not sheet:
+        return int(st.wits or 0) + best_rank(st.skills or {})
+    entry = {}
+    for b in ctx.find(type="skillbook", limit=1):
+        entry = (b.state.skills or {}).get("lockpick") or {}
+    attrs = sheet.get("attributes") or {}
+    mod = score_mod(attrs, entry.get("primary") or "poise")
+    if entry.get("secondary"):
+        mod = (mod + score_mod(attrs, entry.get("secondary"))) // 2
+    return mod + best_rank(sheet.get("skills") or {})
+
 def apply(ctx):
     # quiet while it works: the roll comes when the time is out, and only if you are still there
     lk = ctx.target
@@ -34,9 +62,7 @@ def finish(ctx):
         ctx.log("you left " + lk.name + " before it gave")
         return
     held = shut_what(lk)
-    skills = me.state.skills or {}
-    # a lockpick is the trade itself; a quiet hand or a craftsman's comes near it
-    mod = int(me.state.wits or 0) + max(int(skills.get("lockpick") or 0), int(skills.get("stealth") or 0), int(skills.get("craft") or 0))
+    mod = hand(ctx, me)
     roll = ctx.rand.roll("1d20")
     total = roll + mod
     dc = int(lk.state.pick_dc)

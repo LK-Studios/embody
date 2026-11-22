@@ -1565,6 +1565,12 @@ class World:
             rows = [r for r in rows if all(r["state"].get(k) == v for k, v in state.items())]
         return rows[:limit]
 
+    def named(self, name: str, limit: int | None = 10) -> list[dict[str, Any]]:
+        """The entities called exactly `name` (any case), oldest first. `find(name=...)` matches a part of a name, so a
+        short name ("Bo") would be lost among the many that contain it."""
+        return self.store.query("entity", "world_id=? AND lower(name)=?", [self.id, str(name).lower()],
+                                order="created_seq")[:limit]
+
     def edges(self, id: str, relation: str | None = None, direction: str = "both") -> list[dict[str, Any]]:
         clauses = []
         params: list[Any] = []

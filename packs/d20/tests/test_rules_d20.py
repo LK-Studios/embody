@@ -830,3 +830,18 @@ def test_idle_care_takes_one_draw_from_a_store_and_leaves_water_kept_for_others(
     gm.spawn("thing", "Depot", "Flat stone", state={"portable": False})
     with pytest.raises(Rejected, match="empty"):
         gm.act_as("Warder", "drink", "Flat stone")
+
+
+def test_a_crawl_stops_where_a_walk_would_at_a_lock():
+    """Crawling is still going (asked by the owner of Klhyts Refuge, 2026-11-22): crawl checked only that a way ran
+    there, so a body that was down dragged itself through a locked door that refused every walker."""
+    eng, gm, you = outpost()
+    gm.act_as("Warden", "go", "The Yard")
+    gm.patch("The Keep", {"locked": True, "key": "Keep key"})
+    gm.patch("Warden", {"down": True})
+    with pytest.raises(Rejected) as ex:
+        gm.act_as("Warden", "crawl", "The Keep")
+    assert "locked" in ex.value.reason
+    gm.patch("The Keep", {"locked": False})
+    gm.act_as("Warden", "crawl", "The Keep")
+    assert gm.inspect("Warden")["parent"] == gm.inspect("The Keep")["id"]
