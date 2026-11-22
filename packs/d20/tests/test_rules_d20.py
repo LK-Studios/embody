@@ -336,7 +336,7 @@ def test_search_the_downed_and_harvest_the_vein():
     r = you.act("harvest", "Ore vein")
     assert r["duration"] == 20
     gm.clock(step=20)
-    assert "Emberglass" in [c["name"] for c in you.perceive()["holding"]]
+    assert "Ore" in [c["name"] for c in you.perceive()["holding"]]
     assert state(gm, "Ore vein")["ember"] == 2
 
 

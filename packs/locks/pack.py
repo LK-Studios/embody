@@ -34,6 +34,9 @@ and minds can react: guards come running. Scripts ask `ctx.locked(x)` for what k
 
 PACK = {"name": "locks", "description": "Locks on boxes, doors and places: a key, a code, picking or force, and nothing opens without them."}
 
+# What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's news kinds.
+CHRONICLE_NEWS = ["lock_broken", "lock_picked"]
+
 
 def define(s):
     """The lock schema. Idempotent."""

@@ -14,8 +14,8 @@ needs no spot of its own. One that also carries a `frame` ({units, bounds}) star
 placed in that frame, not the root's (a region in metres, a planet in km, a system in AU). A spot is never inherited
 across a frame's edge, and nothing is measured across one. A tier with no frame of its own shares its parent's.
 
-Landmarks are named spots on a place's layout (`landmarks: {"the cistern": {"at": [x, y, z], "radius": 3}}`), so an
-author or a script places by name (`at="the cistern"`) and perceive says where someone stands ("by the cistern").
+Landmarks are named spots on a place's layout (`landmarks: {"the well": {"at": [x, y, z], "radius": 3}}`), so an
+author or a script places by name (`at="the well"`) and perceive says where someone stands ("by the well").
 A thing that changes hands or walks in keeps a true spot: dropped, it lies where the dropper stands; walked in, it
 stands where the way comes in. Nothing here changes play: no reach, range, speed or cover.
 """
@@ -203,7 +203,7 @@ def ground(w: "World", place: str | None, p: list[float]) -> float | None:
 
 
 def solid(lay: dict[str, Any]) -> bool:
-    """A thing with an extent is solid (you stand beside the cistern, not in it) unless its layout says solid: false."""
+    """A thing with an extent is solid (you stand beside the well, not in it) unless its layout says solid: false."""
     return bool(lay.get("at")) and any(lay.get(k) for k in ("radius", "size", "footprint")) and lay.get("solid") is not False
 
 
@@ -273,7 +273,7 @@ def resolve_at(w: "World", parent: str, spec: Any, skip: str | None = None) -> t
             return v + [round(g, 2) if g is not None else 0.0], "coordinates"
         return v, "coordinates"
     if not isinstance(spec, str) or not spec.strip():
-        raise Rejected("at is [x, y, z] or a landmark's name", hint='at=[12, -4, 0] or at="the cistern"')
+        raise Rejected("at is [x, y, z] or a landmark's name", hint='at=[12, -4, 0] or at="the well"')
     lm = find_landmark(w, parent, spec)
     if lm is not None:
         name, v = lm
@@ -374,7 +374,7 @@ def heading_of(a: list[float], b: list[float]) -> float | None:
 
 
 def spot_words(w: "World", place: str | None, at: list[float] | None) -> str | None:
-    """Where in a place a point is, by its landmarks: "at the cistern" inside one's radius, "by the cistern" within
+    """Where in a place a point is, by its landmarks: "at the well" inside one's radius, "by the well" within
     three times it, else nothing."""
     if not place or not at:
         return None

@@ -1,17 +1,22 @@
 """Stage a deploy: the engine's committed tree (git archive HEAD, so nothing uncommitted ships), each world from its own
-repository's committed tree when it has one (worlds/<id> linked to a private repo), each world's site folder (which
-stays out of git: its films are large and are the site's own), and the list of worlds the container hosts. Prints the
-one command that deploys the stage.
+repository's committed tree when it has one (worlds/<id> linked to a private repo), else from its folder under worlds/
+as it is on disk (git ignores worlds/, so a build or upload that follows .gitignore leaves it behind), each world's
+site folder (which stays out of git: its films are large and are the site's own), and the list of worlds the container
+hosts. Prints how to build the stage on any Docker host, and the upload line for each platform in docs/platforms/.
 
-    uv run python tools/stage_deploy.py --world glass-reach=D:/path/to/site
-    uv run python tools/stage_deploy.py --world glass-reach=D:/sites/reach --world gossip-goblin \\
-        --domain theglassreach.quest=glass-reach
-    railway up <stage> --path-as-root --no-gitignore --ci
+    uv run python tools/stage_deploy.py --world my-world
+    uv run python tools/stage_deploy.py --world examples/ferry-at-dusk
+    uv run python tools/stage_deploy.py --world my-world=/path/to/site
+    uv run python tools/stage_deploy.py --world my-world=/path/to/site --world other-world \\
+        --domain world.example.com=my-world
+    docker build -t my-world <stage>
 
-One world ships as before (deploy/start.sh serves it alone); two or more ship with deploy/worlds, and start.sh runs
+One world ships with deploy/world naming it, and deploy/start.sh serves it alone; a path in the engine's tree
+(examples/ferry-at-dusk) ships a sample the same way. Two or more ship with deploy/worlds, and start.sh runs
 `embody hub`: one server per world, each on its own database file. A world's `private/` folder (git-ignored: codes
 and lock words its build reads) ships beside it. The site's own working files stay behind: dot-files, and the names
-in SKIP (notes, sources, local tools). `--world W --site S` (the older form) still works for one world.
+in SKIP (notes, sources, local tools). A world shipped from disk leaves its dot-files, mirror and databases behind.
+`--world W --site S` (the older form) still works for one world.
 """
 
 import argparse
@@ -25,6 +30,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKIP = {"BRIEF.md", "README.md", "dev", "media-src", "node_modules"}
+# what stays behind when a world ships from its folder on disk: the working files a run leaves there
+LOCAL_SKIP = {"mirror", "__pycache__"}
+LOCAL_SKIP_SUFFIXES = (".db", ".db-shm", ".db-wal", ".db-journal", ".pyc")
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -43,9 +51,19 @@ def _untar(tar: bytes, dest: Path) -> None:
         t.extractall(dest, filter="data")
 
 
+def _local(d: str, names: list[str]) -> list[str]:
+    return [n for n in names if n.startswith(".") or n in LOCAL_SKIP or n.endswith(LOCAL_SKIP_SUFFIXES)]
+
+
 def stage_world(out: Path, wid: str, site: Path | None) -> str:
-    """worlds/<wid> into the stage: from its own repository when it has one, else already there from the engine's tree.
+    """worlds/<wid> into the stage: from its own repository when it has one, else from the engine's tree when it is
+    committed there, else from its folder on disk. A path (examples/ferry-at-dusk) must be in the engine's tree.
     Returns a line on what it shipped."""
+    if "/" in wid:
+        if not (out / wid / "build.py").is_file():
+            raise SystemExit(f"no world at {wid}: a path names a folder in the engine's committed tree "
+                             "(examples/ferry-at-dusk); a world of your own goes in worlds/<id>/, staged by its id")
+        return f"{wid}: from the engine's tree"
     src = ROOT / "worlds" / wid
     dest = out / "worlds" / wid
     top = _git(src, "rev-parse", "--show-toplevel") if src.is_dir() else ""
@@ -64,8 +82,12 @@ def stage_world(out: Path, wid: str, site: Path | None) -> str:
         what = f"{wid}: {_git(Path(top), 'rev-parse', '--short', 'HEAD')} from its own repository"
     elif (dest / "build.py").is_file():
         what = f"{wid}: from the engine's tree"
+    elif (src / "build.py").is_file():
+        shutil.copytree(src, dest, dirs_exist_ok=True, ignore=_local)
+        files = [p for p in dest.rglob("*") if p.is_file()]
+        what = f"{wid}: {len(files)} files from worlds/{wid} as it is on disk"
     else:
-        raise SystemExit(f"no world {wid}: worlds/{wid} is neither in the engine's tree nor its own repository")
+        raise SystemExit(f"no world {wid}: worlds/{wid}/build.py is not here (a world folder holds build.py and scripts/)")
     private = src / "private"
     if private.is_dir():
         shutil.copytree(private, dest / "private", dirs_exist_ok=True)
@@ -80,18 +102,22 @@ def stage_world(out: Path, wid: str, site: Path | None) -> str:
     return what
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--world", action="append", required=True,
-                    help="a world to host, as ID or ID=SITE_FOLDER; repeat for more (the first is the default)")
+                    help="a world to host, as ID or ID=SITE_FOLDER, or a sample's path (examples/ferry-at-dusk); "
+                         "repeat for more (the first is the default)")
     ap.add_argument("--site", help="the site folder, for a single --world given without one")
     ap.add_argument("--domain", action="append", default=[], help="HOST=WORLD for the hub's domain map; repeat")
     ap.add_argument("--out", help="where to stage (default: a fresh temporary folder)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     worlds: list[tuple[str, Path | None]] = []
     for w in a.world:
         wid, _, site = w.partition("=")
-        worlds.append((wid.strip(), Path(site).resolve() if site else None))
+        worlds.append((wid.strip().replace("\\", "/").strip("/"), Path(site).resolve() if site else None))
+    if (len(worlds) > 1 or a.domain) and any("/" in w for w, _ in worlds):
+        print("a path (examples/...) ships one world alone; for the hub, put each world in worlds/<id>/", file=sys.stderr)
+        return 2
     if a.site:
         if len(worlds) != 1 or worlds[0][1] is not None:
             print("--site goes with one --world given without a site (or write --world ID=SITE)", file=sys.stderr)
@@ -110,12 +136,15 @@ def main() -> int:
     if len(worlds) > 1 or a.domain:
         (out / "deploy" / "worlds").write_text(",".join(w for w, _ in worlds) + "\n", encoding="utf-8")
         (out / "deploy" / "domains").write_text(",".join(a.domain) + "\n", encoding="utf-8")
+    else:
+        (out / "deploy" / "world").write_text(worlds[0][0] + "\n", encoding="utf-8")
     print(f"staged {out}: the engine's HEAD ({_git(ROOT, 'rev-parse', '--short', 'HEAD')})")
     for line in lines:
         print("  " + line)
     if len(worlds) > 1 or a.domain:
         print(f"  hub: {', '.join(w for w, _ in worlds)}; domains {', '.join(a.domain) or '(none)'}")
-    print(f"deploy: railway up \"{out}\" --path-as-root --no-gitignore --ci")
+    print(f"build: docker build -t <name> \"{out}\"  (any Docker host: docs/HOST_YOUR_WORLD.md)")
+    print(f"railway: railway up \"{out}\" --path-as-root --no-gitignore --ci  (docs/platforms/railway.md)")
     return 0
 
 

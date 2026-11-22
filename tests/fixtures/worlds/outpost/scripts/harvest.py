@@ -15,9 +15,9 @@ def apply(ctx):
 def finish(ctx):
     left = int(ctx.target.state.ember or 0) - 1
     ctx.patch(ctx.target, {"ember": left})
-    # one shard, onto the shards already in hand: Emberglass is a stack
-    shard = ctx.spawn("thing", ctx.actor, name="Emberglass", state={"kind": "ember", "portable": True, "count": 1,
-                      "description": "A shard the length of a hand, dull red, warm through the cloth you wrap it in."})
+    # one lump, onto the ore already in hand: ore is a stack
+    shard = ctx.spawn("thing", ctx.actor, name="Ore", state={"kind": "ore", "portable": True, "count": 1,
+                      "description": "A lump of ore the size of a fist, heavier than it looks."})
     ctx.merge(shard)
     ctx.emit("harvested", target=ctx.target, reach=1, by=ctx.actor.id, left=left)
-    ctx.log("a shard of emberglass, " + str(left) + " more in the vein")
+    ctx.log("a lump of ore, " + str(left) + " more in the vein")

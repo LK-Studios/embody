@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS seat_offer (
 _ADDED_COLS = {"principal": (("role", "TEXT"), ("grant_id", "TEXT"), ("last_seen", "REAL"), ("acted_t", "REAL")),
                "grants": (("brief", "TEXT"), ("code_hash", "TEXT"), ("code_expires", "REAL"), ("page", "TEXT"),
                           ("limits", "TEXT"), ("parent_id", "TEXT"), ("slots", "INTEGER"),
-                          ("made", "TEXT"), ("vouched", "INTEGER"), ("spent_hash", "TEXT"))}
+                          ("made", "TEXT"), ("vouched", "INTEGER"), ("spent_hash", "TEXT"), ("held", "TEXT"))}
 
 JSON_COLS = {
     "world": {"counters", "meta"},
@@ -171,7 +171,7 @@ JSON_COLS = {
     "event": {"payload", "path"},
     "scheduled": {"payload"},
     "principal": {"capabilities"},
-    "grants": {"scope", "limits"},
+    "grants": {"scope", "limits", "held"},
     "rules_change": {"recheck", "guide", "retired"},
     "seat_offer": set(),
 }

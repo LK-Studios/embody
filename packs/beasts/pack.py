@@ -143,6 +143,9 @@ open it fights on. A blow from another beast (a hunt) never makes it break off.
 
 PACK = {"name": "beasts", "description": "Animals that grow up, eat what the land gives, can be tamed and kept, and breed as far as the land carries."}
 
+# What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's routine kinds.
+CHRONICLE_ROUTINE = ["mended"]
+
 # This pack's rules changelog, oldest first (see d20's RULES).
 RULES = [
     {"id": "hp-bar", "date": "2026-11-14",

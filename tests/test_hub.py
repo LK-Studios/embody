@@ -79,6 +79,16 @@ def test_the_old_single_database_moves_into_the_first_worlds_file_once(tmp_path)
     assert hub.migrate(legacy) is None  # once
 
 
+def test_the_old_database_moves_into_the_world_it_holds_not_the_first_listed(tmp_path):
+    db, _ = built(tmp_path, "two-rooms")
+    legacy = tmp_path / "data" / "embody.db"
+    db.rename(legacy)
+    hub = Hub(["ferry-at-dusk", "two-rooms"], tmp_path / "data")
+    assert str(db) in hub.migrate(legacy)
+    assert db.is_file() and not (tmp_path / "data" / "worlds" / "ferry-at-dusk.db").exists()
+    assert Hub(["ferry-at-dusk"], tmp_path / "other").migrate(legacy) is None  # holds none of this hub's worlds
+
+
 def _port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

@@ -38,7 +38,7 @@ def db_path(args: argparse.Namespace) -> Path:
     """--db, then $EMBODY_DB, then embody.db in the current folder (the workspace root). A workspace from before
     the folders, with its database at worlds/embody.db and none at the root, keeps working. On a hub's volume
     (`embody hub`: one file per world at <folder of $EMBODY_DB>/worlds/<world>.db), --world picks that world's own
-    file, so `railway ssh -- embody --world W invite ...` writes where the world lives, not into the old single file."""
+    file, so `embody --world W invite ...` run inside the container writes where the world lives, not into the old single file."""
     given = args.db or os.environ.get("EMBODY_DB")
     world = getattr(args, "world", None)
     if not args.db and given and world and (Path(given).parent / "worlds" / f"{world}.db").is_file():
@@ -477,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--full", action="store_true", help="return the whole perceive bundle, not the light one")
     c.add_argument("--present", action="store_true", help="you are in the scene: your away lines stay quiet meanwhile")
     c = sub.add_parser("watch", help="wait for a condition, for hours if need be, then print what happened and exit: "
-                                      "embody watch --door .mcp.json --until \"came('Reeve')\" --for 8h")
+                                      "embody watch --door .mcp.json --until \"came('Mara')\" --for 8h")
     c.add_argument("--until", default="", help="the condition, one expression (see wait's until); empty: any event near you")
     c.add_argument("--for", dest="for_", default="1h", help="how long to watch in real time: 90s, 20m, 8h (default 1h)")
     c.add_argument("--door", help="a .mcp.json (or a file with the URL and 'Bearer <token>'), or the server's URL with the "
@@ -551,6 +551,11 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--active", choices=["yes", "no"], default=None, help="only active (yes) or ended (no) grants")
     c = sub.add_parser("revoke", help="(owner) end a grant")
     c.add_argument("id")
+    c = sub.add_parser("hold-seat", help="(owner) hold a player's or a mind's grant to one seat, or to none")
+    c.add_argument("grant")
+    c.add_argument("--body", default=None, help="the body it may sit in (omit: nowhere)")
+    c.add_argument("--why", default="", help="the line the holder reads when another seat is refused")
+    c.add_argument("--release", action="store_true", help="give the grant back its own seats")
     c = sub.add_parser("seats", help="the open seats and templates of the world")
     c.add_argument("--limit", type=int, default=None, help="seats: at most this many (default all)")
     c.add_argument("--offset", type=int, default=0, help="seats: skip this many")
@@ -625,6 +630,8 @@ def main(argv: list[str] | None = None) -> int:
                                     for g in r) or "no grants")
         elif args.cmd == "revoke":
             emit(args, s.revoke(args.id))
+        elif args.cmd == "hold-seat":
+            emit(args, s.hold_seat(args.grant, body=args.body, why=args.why, release=args.release))
         elif args.cmd == "seats":
             r = s.seats(limit=args.limit, offset=args.offset,
                         held=None if args.held is None else args.held == "yes",

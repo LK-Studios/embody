@@ -185,7 +185,7 @@ def terrain_summary(t: dict[str, Any]) -> dict[str, Any]:
 
 def check_landmarks(lms: Any) -> dict[str, dict[str, Any]]:
     """A place's named spots: {name: {at, radius?, note?}}, at most 60, in the world frame."""
-    eg = '{"the cistern": {"at": [12, -4, 0], "radius": 3}, "the gate": {"at": [0, 40, 0]}}'
+    eg = '{"the well": {"at": [12, -4, 0], "radius": 3}, "the gate": {"at": [0, 40, 0]}}'
     if not isinstance(lms, dict):
         raise Rejected("landmarks is {name: {at, radius}}", hint=eg)
     if len(lms) > 60:

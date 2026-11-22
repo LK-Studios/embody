@@ -89,7 +89,7 @@ def test_the_feeds_answer_only_for_a_public_world_and_name_nobody(tmp_path):
     eng, w, i = engine_with_two_rooms()
     gm, server, t, base = _serve(eng, w, tmp_path)
     try:
-        assert _call(base + "/reach.json")[0] == 401  # not public: the feeds are nobody's
+        assert _call(base + "/now.json")[0] == 401  # not public: the feeds are nobody's
         assert _call(base + "/chronicle.json")[0] == 401
         w.set_meta({"public_feed": True, "public_timers": ["dawn"], "people_type": "creature",
                     "public_board": [{"label": "The wall", "text": "Nine men.", "have": 9, "want": 20}]})
@@ -100,7 +100,8 @@ def test_the_feeds_answer_only_for_a_public_world_and_name_nobody(tmp_path):
         d = json.loads(body)
         assert status == 200 and [e["text"] for e in d["entries"]] == ["Water drips somewhere you cannot see."]
         assert d["entries"][0]["day"] == 1 and d["now"]["day"] == 1 and "my secret plan" not in body.decode()
-        status, _, body = _call(base + "/reach.json")
+        assert _call(base + "/reach.json")[2] == _call(base + "/now.json")[2]  # the old name, for pages already out
+        status, _, body = _call(base + "/now.json")
         r = json.loads(body)
         assert status == 200 and r["clock"]["phases"] == [{"name": "dawn", "at": round(w.t + 30)}]
         assert r["people"] >= 1 and r["board"][0]["have"] == 9 and "awake" in r and "seats_open" in r

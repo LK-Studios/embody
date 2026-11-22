@@ -145,6 +145,27 @@ def test_the_hosted_world_loads_by_id_the_samples_by_path_and_the_legacy_single_
     assert {"d20", "locks", "village", "works"} <= set(ws.list_packs())  # beside any private pack the owner keeps
 
 
+def test_a_pack_declares_its_own_mechanics_and_the_core_names_none(tmp_path):
+    # 2026-11-22: the core named d20's thirst, factions and chronicle kinds for every world; now each pack declares them
+    for p in ("d20", "village", "vehicles", "beasts"):
+        shutil.copytree(REPO / "packs" / p, tmp_path / "packs" / p, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    (tmp_path / "packs" / "__init__.py").write_text("", encoding="utf-8")
+    shutil.copytree(OUTPOST, tmp_path / "worlds" / "outpost", ignore=shutil.ignore_patterns("__pycache__", ".git"))
+    eng = Engine(workspace=tmp_path)
+    gm = eng.session("gm", capabilities=[AUTHOR])
+    load_world(gm, "outpost")
+    w = eng.world("outpost")
+    assert {"water", "faction"} <= w.declared("BODY_KEYS") and "outlawed" in w.declared("CHRONICLE_NEWS")
+    assert w.declared("WAYS_OUT")["down (thirst)"].startswith("drink")
+    before = w.meta()["pack_declares"]
+    load_world(gm, "outpost", upgrade=True)
+    assert eng.world("outpost").meta()["pack_declares"] == before  # a renew of the same code changes nothing
+    from embody.world import BODY_KEYS
+    from embody.ops import _NEWS_KINDS, _WAYS_OUT
+    assert not {"water", "thirsty", "faction"} & BODY_KEYS and "outlawed" not in _NEWS_KINDS
+    assert not any("thirst" in k or "roll" in v for k, v in _WAYS_OUT.items())
+
+
 def test_save_and_restore_carry_a_game_as_one_file(tmp_path):
     eng = Engine(tmp_path / "embody.db", workspace=REPO, record=False)
     gm = eng.session("gm", capabilities=[AUTHOR])

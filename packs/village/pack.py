@@ -9,7 +9,7 @@ own, so a world may replace any of them with a file of the same name in its scri
 - go: to a connected place; via a door-like entity when the connection has one. A shut door, a locked door and a locked
   place refuse, and say what opens them (`ctx.locked`: the locks pack, or a door's own `locked`).
 - take, drop: portable things here or held; give: something you hold to someone here (`gives` tables can answer).
-- stacks: a thing whose state has a `count` is that many of itself (Emberglass x60). take, drop, give and put take
+- stacks: a thing whose state has a `count` is that many of itself (coins x60). take, drop, give and put take
   `params {"count": n}` and move that many, the rest staying where it was; with no count they move the whole stack.
   What arrives joins a like stack already there (same type, name and state but for count), so sixty shards given one
   at a time make one stack of sixty. Events carry `count`; cards show it. burn takes a stack whole.
@@ -39,3 +39,6 @@ own, so a world may replace any of them with a file of the same name in its scri
 """
 
 PACK = {"name": "village", "description": "go, take, drop, put, give, show, talk, leave_word, read, burn, follow, stay, watch and the dialog-table listener person_on."}
+
+# What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's news kinds.
+CHRONICLE_NEWS = ["burned"]

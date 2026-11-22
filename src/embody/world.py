@@ -183,11 +183,16 @@ BODY_RULES_ONLY = frozenset({"progress", "body", "wits", "will", "hp", "max_hp",
                              # a body's gifts (packs/gifts) and their uses: code that could write them could mint itself one
                              "gift_book", "gift_uses"})
 
-# What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it)
-BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "vigor", "max_vigor",
-                       "water", "max_water", "carry", "grants", "aid", "dead", "down", "wounded", "thirsty", "faction",
-                       "secret", "memory", "brief", "intent", "playable", "programmed", "tried", "asleep", "yielded",
-                       "cowed_by", "standing", "rank", "oath"})
+# What a body is made of, never a frame's code to write on the one who chose its verb (with the keys its schema gives it,
+# and the ones its world's packs declare: d20's water and faction, say)
+BODY_KEYS = frozenset({"sheet", "attributes", "skills", "xp", "body", "wits", "will", "hp", "max_hp", "carry", "grants",
+                       "aid", "dead", "down", "wounded", "secret", "memory", "brief", "intent", "playable", "programmed",
+                       "tried", "asleep", "yielded", "standing", "rank"})
+
+# What a pack's pack.py may declare for the engine to read back, so the core names no pack's mechanics: body keys only
+# the rules write (BODY_KEYS), the chronicle's routine and news kinds, and a condition's way out ({condition: text}).
+# install_pack keeps them in the world's meta under `pack_declares`; World.declared merges them.
+PACK_DECLARES = ("BODY_KEYS", "CHRONICLE_ROUTINE", "CHRONICLE_NEWS", "WAYS_OUT")
 
 
 class EntityView(ScriptObject):
@@ -479,7 +484,8 @@ class Ctx(ScriptObject):
         w = self._w
         e = w.need(i)
         named = set((w.maker_of(self._limits["frame"]) or {}).get("actor_keys") or [])
-        body = BODY_KEYS | (set(w.schema_defaults(e["type"])) if w.is_a(e["type"], "creature") else set())
+        body = BODY_KEYS | w.declared("BODY_KEYS") | (set(w.schema_defaults(e["type"])) if w.is_a(e["type"], "creature")
+                                                      else set())
         bad = sorted(k for k in keys if k not in named or k in body)
         if bad:
             ok = sorted(named - body)
@@ -1785,7 +1791,7 @@ class World:
         self.emit("moved", actor=actor, target=id, reach=1, caused_by=caused_by,
                   payload={"from": old, "to": parent})
 
-    # -- stacks: a thing whose state has a `count` is that many of itself (Emberglass x60). docs/SCRIPTING.md, Stacks.
+    # -- stacks: a thing whose state has a `count` is that many of itself (coins x60). docs/SCRIPTING.md, Stacks.
     def units(self, id: str) -> int:
         """How many of a thing there are: its `count`, else 1."""
         return _units(self.need(id))
@@ -3352,6 +3358,14 @@ class World:
 
     def meta(self) -> dict[str, Any]:
         return dict(self._row["meta"])
+
+    def declared(self, key: str) -> Any:
+        """What this world's packs declare under `key` (PACK_DECLARES), merged: {condition: text} for WAYS_OUT, else
+        a set of names."""
+        decl = [d for d in (self._row["meta"].get("pack_declares") or {}).values() if isinstance(d, dict)]
+        if key == "WAYS_OUT":
+            return {str(k): str(v) for d in decl for k, v in (d.get(key) or {}).items()}
+        return {str(x) for d in decl for x in (d.get(key) or [])}
 
     def set_meta(self, changes: dict[str, Any]) -> dict[str, Any]:
         for k, v in changes.items():
