@@ -2,7 +2,7 @@
 the public port to them. Each world keeps its own process, file, lock, ticker and restarts, so one busy or broken
 world never stalls or downs another.
 
-    EMBODY_WORLDS=glass-reach,gossip-goblin embody hub --port 8900 --data /data
+    EMBODY_WORLDS=my-world,other-world embody hub --port 8900 --data /data
 
 Routing, in order:
 - GET /health is the hub's own (the platform's probe): up while the hub is, whatever its worlds are doing.
@@ -156,10 +156,21 @@ class Hub:
     # ---- the worlds' processes -------------------------------------------------------------------------------
 
     def migrate(self, legacy: Path | None) -> str | None:
-        """The old single database becomes the first world's file once: copied with SQLite's backup, its rows for
-        that world counted on both sides, the old file kept. Returns what it did, or None."""
-        w = self.worlds[self.first]
-        if w.db.exists() or legacy is None or not legacy.is_file():
+        """The old single database becomes the file of the world it holds, once: the first of this hub's worlds with
+        rows in it (not simply the first world listed), copied with SQLite's backup, its rows for that world counted on
+        both sides, the old file kept. A file that holds none of the hub's worlds is left alone. Returns what it did,
+        or None."""
+        if legacy is None or not legacy.is_file():
+            return None
+        src = sqlite3.connect(f"file:{legacy.as_posix()}?mode=ro", uri=True)
+        try:
+            held = {r[0] for r in src.execute("SELECT DISTINCT world_id FROM entity")}
+        except sqlite3.Error:
+            held = set()
+        finally:
+            src.close()
+        w = next((self.worlds[i] for i in self.worlds if i in held), None)
+        if w is None or w.db.exists():
             return None
         src = sqlite3.connect(f"file:{legacy.as_posix()}?mode=ro", uri=True)
         tmp = w.db.with_suffix(".db.part")

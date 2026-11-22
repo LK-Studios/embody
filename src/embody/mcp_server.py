@@ -562,8 +562,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         """Block until an event touches you or your place (or the timeout, max 120 s). Returns the light bundle
         (t, ambient, here, who is present, the new events, cursor); `full=true` returns perceive() instead.
         until="<expression>" waits for a condition instead of any event: to_me() (said to you, or with your name as
-        its address; named() for your name anywhere), arrived('Reeve') (walks in), came('Reeve')
-        (is here now: already true fires at once, with already=true), heard('water', by='Ruhl'),
+        its address; named() for your name anywhere), arrived('Mara') (walks in), came('Mara')
+        (is here now: already true fires at once, with already=true), heard('ferry', by='Mara'),
         me.get('hp', 0) < 3, t >= 43200, ambient.get('time_of_day') == 'dusk'. It returns with fired=true and the
         events since it began, or timed_out with nothing moved: call again (pass back `since` if you are not
         embodied). For hours of waiting, run `embody watch` from a shell instead; it loops this for you.
@@ -630,7 +630,7 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
     def spawn(type: str, parent: str, name: str = "", state: dict[str, Any] | None = None,
               pos: list[float] | None = None, at: Any = None) -> dict[str, Any]:
         """(author) Create an entity inside a parent. Something improvised during play gets state {"improvised": true}.
-        at: its spot in the world frame, [x, y, z] or a landmark's name in the place ("the cistern"); anything put
+        at: its spot in the world frame, [x, y, z] or a landmark's name in the place ("the well"); anything put
         directly in a place needs one, and the reply says so when it has none."""
         return s.spawn(type, parent, name=name, state=state, pos=pos, at=at)
 

@@ -3,7 +3,8 @@ answers built on the server from the world as it is.
 
   GET /chronicle.json    the world's own prose (scene events by default), oldest first, and the days the owner published
                          with publish_chronicle: no player's words unless the owner put them there
-  GET /reach.json        the clock, the day's phases, and counts (bodies held, people, open seats): no names, no places
+  GET /now.json          the clock, the day's phases, and counts (bodies held, people, open seats): no names, no places
+                         (/reach.json is the same feed by its first world's name, kept for pages already out)
   POST /seat-request     someone asking for a seat; kept in a file beside the database for the owner's `requests()`
 
 The two feeds answer only for a world whose meta says `public_feed: true`, so a site folder alone never makes a world's
@@ -71,8 +72,8 @@ class Site:
         if method not in ("GET", "HEAD"):
             return False
         head = method == "HEAD"
-        if path in ("/chronicle.json", "/reach.json"):
-            body = await self._feed(path)
+        if path in ("/chronicle.json", "/now.json", "/reach.json"):
+            body = await self._feed("/now.json" if path == "/reach.json" else path)
             if body is None:
                 return False
             await _send(send, 200, body, "application/json", extra=((b"cache-control", b"no-store"),), head=head)
@@ -148,7 +149,7 @@ class Site:
 
     async def _feed(self, path: str) -> bytes | None:
         """Built under the engine's lock, kept a few seconds, so a crowd on the page costs what one visitor does."""
-        ttl = 5.0 if path == "/reach.json" else 30.0
+        ttl = 5.0 if path == "/now.json" else 30.0
         hit = self._cache.get(path)
         now = time.monotonic()
         if hit and now - hit[0] < ttl:
@@ -156,7 +157,7 @@ class Site:
 
         def build() -> Any:
             with self.engine.lock:
-                return self.reach() if path == "/reach.json" else self.chronicle()
+                return self.reach() if path == "/now.json" else self.chronicle()
 
         out = await asyncio.to_thread(build)
         if out is None:

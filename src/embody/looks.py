@@ -128,7 +128,7 @@ def order(x: tuple[str, dict[str, Any]]) -> tuple[float, int, str]:
 
 def lines(regs: list[str], marks: list[tuple[str, dict[str, Any]]], note_covered: bool = False,
           cover: set[str] | None = None) -> list[str]:
-    """A line a region, in the plan's order: "Arms: a ring of Keth knots inked round the left forearm." A replaced
+    """A line a region, in the plan's order: "Arms: a ring of knots inked round the left forearm." A replaced
     mark takes the region's line (the latest when there are several); the others join it with "; "."""
     by: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for mid, m in marks:

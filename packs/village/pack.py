@@ -39,3 +39,6 @@ own, so a world may replace any of them with a file of the same name in its scri
 """
 
 PACK = {"name": "village", "description": "go, take, drop, put, give, show, talk, leave_word, read, burn, follow, stay, watch and the dialog-table listener person_on."}
+
+# What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's news kinds.
+CHRONICLE_NEWS = ["burned"]

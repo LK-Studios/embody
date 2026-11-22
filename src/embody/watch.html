@@ -253,7 +253,7 @@ table.z tr { cursor:pointer; }
 <header>
   <div class="brand"><span class="led" id="led" title="clock"></span><b id="wname">embody watch</b><select id="wsel" title="which world to watch" hidden></select></div>
   <div class="clock" title="world time"><svg id="dial" viewBox="-12 -12 24 24" aria-hidden="true"></svg><span id="clock"></span></div>
-  <label class="search"><input id="q" type="search" placeholder="search: name, or hp<3, faction:keth, is:dead" autocomplete="off" spellcheck="false" aria-label="search"><select id="qt" aria-label="type"></select></label>
+  <label class="search"><input id="q" type="search" placeholder="search: name, or hp<3, faction:crew, is:dead" autocomplete="off" spellcheck="false" aria-label="search"><select id="qt" aria-label="type"></select></label>
   <div class="seg" role="tablist"><button id="vtree" class="on">tree</button><button id="vmap">map</button></div>
   <div class="depth"><button id="dless" aria-label="less depth">&minus;</button><span>depth <b id="dval">1</b></span><button id="dmore" aria-label="more depth">+</button></div>
   <button id="pastbtn" class="btn" title="drag back through the world's history">history</button>
@@ -279,7 +279,7 @@ table.z tr { cursor:pointer; }
   <div class="grab" id="grab"></div>
   <div class="tabs"><button data-tab="ent" class="on">entity</button><button data-tab="res">results<em id="rn"></em></button><button data-tab="evs">events<em id="an" title="refusals, script errors, deaths since you last looked"></em></button><button data-tab="seats">seats<em id="sn"></em></button></div>
   <div class="pane on" id="p-ent"><div class="empty">Tap something to read it here. Double-tap a place to go inside it.</div></div>
-  <div class="pane" id="p-res"><div class="empty">Search to gather a set: by name, or by state (<b>hp&lt;3</b>, <b>water&lt;=2</b>, <b>faction:keth</b>, <b>is:dead</b>, <b>has:layout</b>), narrowed by type. The set gets its numbers here: mean, spread, and how far each one stands from the rest.</div></div>
+  <div class="pane" id="p-res"><div class="empty">Search to gather a set: by name, or by state (<b>hp&lt;3</b>, <b>water&lt;=2</b>, <b>faction:crew</b>, <b>is:dead</b>, <b>has:layout</b>), narrowed by type. The set gets its numbers here: mean, spread, and how far each one stands from the rest.</div></div>
   <div class="pane" id="p-evs"></div>
   <div class="pane" id="p-seats"></div>
 </aside>
@@ -479,7 +479,7 @@ function condition(e) {
 function statusLine(e) {
   const st = e.state || {}, bits = [];
   if (num(st.hp) !== null) bits.push("hp " + st.hp + (num(st.max_hp) !== null ? "/" + st.max_hp : ""));
-  if (num(st.water) !== null && kindOf(e.type) === "creature") bits.push("w " + st.water + "/" + (st.max_water ?? 10));
+  if (num(st.water) !== null && kindOf(e.type) === "creature") bits.push("w " + st.water + (st.max_water != null ? "/" + st.max_water : ""));
   if (num(st.left) !== null) bits.push("left " + st.left);
   const c = condition(e).map(x => x[0]);
   return { text: c.concat(bits).join(" · "), bad: condition(e).some(x => x[1] === "critical" || x[1] === "serious") };
@@ -1198,7 +1198,7 @@ function paneEntity() {
   h += `<div class="acts"><button class="btn" data-focus="${esc(id)}">go inside</button><button class="btn" data-map="${esc(id)}">on the map</button><button class="btn" id="evmine">its events</button></div></div>`;
   const meters = [];
   if (num(st.hp) !== null) meters.push(meter("hp", num(st.hp), num(st.max_hp) ?? Math.max(num(st.hp), 1)));
-  if (num(st.water) !== null && kd === "creature") meters.push(meter("water", num(st.water), num(st.max_water) ?? 10));
+  if (num(st.water) !== null && kd === "creature") meters.push(meter("water", num(st.water), num(st.max_water) ?? Math.max(num(st.water), 1)));
   if (num(st.carry) !== null) { const load = kidsOf(id).map(ent).reduce((a, c) => { const s = (c && c.state) || {}; return a + (num(s.bulk) ?? (s.capacity !== undefined ? 2 : 1)) * (num(s.count) ?? 1); }, 0); meters.push(meter("load", load, num(st.carry))); }
   if (meters.length) h += `<div class="sec"><h4>body</h4>${meters.join("")}</div>`;
   if (seat) h += `<div class="sec"><h4>seat</h4><div>${esc(seat.label || seat.name || seat.id)} · ${esc(seat.role || "")} · ${seatIdle(seat) ? "away" : "in play"}${seat.last_seen ? " · seen " + ago(W.info.now - seat.last_seen) + " ago" : ""}</div></div>`;
@@ -1241,7 +1241,7 @@ function paneEntity() {
 }
 function paneResults() {
   const el = $("p-res");
-  if (!V.hits) { el.innerHTML = `<div class="empty">Search to gather a set: by name, or by state (<b>hp&lt;3</b>, <b>water&lt;=2</b>, <b>faction:keth</b>, <b>is:dead</b>, <b>has:layout</b>), narrowed by type. The set gets its numbers here: mean, spread, and how far each one stands from the rest.</div>`; return; }
+  if (!V.hits) { el.innerHTML = `<div class="empty">Search to gather a set: by name, or by state (<b>hp&lt;3</b>, <b>water&lt;=2</b>, <b>faction:crew</b>, <b>is:dead</b>, <b>has:layout</b>), narrowed by type. The set gets its numbers here: mean, spread, and how far each one stands from the rest.</div>`; return; }
   const ids = V.hitList;
   let h = `<div class="sec"><h4><span>${ids.length} found</span><span>${esc([V.q, V.qt].filter(Boolean).join(" · "))}</span></h4><div class="acts" style="margin-top:0"><button class="btn" id="rfit">fit them</button><button class="btn" id="rclear">clear</button></div></div>`;
   if (!ids.length) { el.innerHTML = h + `<div class="empty">Nothing matches. Words match names, types and descriptions; <b>key&lt;n</b>, <b>key:text</b>, <b>is:flag</b> read the state.</div>`; wireRes(el); return; }

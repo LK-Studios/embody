@@ -41,6 +41,9 @@ each guard at work). Every refusal says what to do instead.
 
 PACK = {"name": "works", "description": "Blueprints as things in the world, and works that take materials, hands and time to build them, where anyone can help or stop them."}
 
+# What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's news kinds.
+CHRONICLE_NEWS = ["works_done", "stage_done"]
+
 
 def define(s):
     """The two schemas. Idempotent."""

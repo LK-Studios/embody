@@ -319,8 +319,28 @@ def install_pack(session: "Session", ws: Workspace, name: str, known: dict[str, 
     scripts = define_scripts(session, d, known, shadowed)
     if hasattr(mod, "define"):
         mod.define(session)
+    record_declares(session.world, name, mod)
     log_folder_rules(session, mod, name)
     return {"pack": name, "scripts": scripts}
+
+
+def record_declares(world: Any, name: str, mod: Any) -> None:
+    """A pack's declarations (world.PACK_DECLARES) into the world's meta under `pack_declares`, written only when they
+    changed, so a renew of the same code writes nothing."""
+    from .world import PACK_DECLARES
+    decl = {}
+    for k in PACK_DECLARES:
+        v = getattr(mod, k, None)
+        if v:
+            decl[k] = {str(a): str(b) for a, b in v.items()} if isinstance(v, dict) else sorted(str(x) for x in v)
+    have = dict(world.meta().get("pack_declares") or {})
+    if have.get(name, {}) == decl:
+        return
+    if decl:
+        have[name] = decl
+    else:
+        have.pop(name, None)
+    world.set_meta({"pack_declares": have or None})
 
 
 def log_folder_rules(session: "Session", mod: Any, source: str) -> int:

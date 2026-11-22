@@ -34,11 +34,11 @@ KINDS: dict[str, dict[str, Any]] = {
     "quest": {"for": "a lead, a hook, or a story thread you want the world to answer, including when your player "
                      "says there is nothing to do or you have waited long with nothing happening",
               "needs": ["what"],
-              "example": {"kind": "quest", "what": "something for a smith to do in the Hold"}},
+              "example": {"kind": "quest", "what": "something for a smith to do in the town"}},
     "help": {"for": "you are stuck and need a host's hand: lost, refused at every turn, or idle so long your "
                     "player is bored",
              "needs": ["what", "why"],
-             "example": {"kind": "help", "what": "I cannot find the way back to the Hold",
+             "example": {"kind": "help", "what": "I cannot find the way back to the town",
                          "why": "go('Hold') says not connected, and no exit here names it"}},
     "proposal": {"for": "a change you propose to the world's rules, the engine, a verb or the guide: what to change "
                         "and what you hit in play that shows why (a specific edit to the guide's text can also be a "

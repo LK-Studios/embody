@@ -231,7 +231,7 @@ class Engine:
 
     def url_now(self) -> str | None:
         """The MCP URL for an invite minted now: the operator's own, else the host this request came in on, else the
-        default (a Railway domain, or the address the server bound)."""
+        default (a platform's domain, or the address the server bound)."""
         origin = request_origin.get()
         if origin and not self.public_url_fixed:
             return f"{origin}/mcp"
@@ -1141,8 +1141,8 @@ class Session:
         w = self.world
         books = w.find(type="skillbook", limit=1)
         if not books:
-            raise Rejected("this world has no skillbook: its bodies roll d20 + body, wits or will + a skill",
-                           hint="guide('player') has the rolls; a world opts in with the sheet pack")
+            raise Rejected("this world has no skillbook",
+                           hint="guide('player') has how this world's bodies try things; a world opts in with the sheet pack")
         root = w.get(w.root_id)
         rules = (root["state"].get("sheet_rules") or {}) if root else {}
         lines = ["Skills in " + w.name + ". A body with a sheet rolls d20 + attribute modifier ((score - 10) // 2; two "
@@ -2017,7 +2017,7 @@ class Session:
                        hint="use the id")
 
     def _resolve_for(self, me: str, ref: str, verb: str, params: dict[str, Any] | None) -> str:
-        """A target for a deed: an id, a unique name, or, when several share the name (stacks of Emberglass, two
+        """A target for a deed: an id, a unique name, or, when several share the name (stacks of coins, two
         waterskins), the one in your reach that the verb would take, else the first in your reach, so its refusal
         says why. Names alone stay ambiguous only when none of them is near you."""
         w = self.world
@@ -2302,7 +2302,7 @@ class Session:
         checked: dict[str, dict] = {}  # two placements for one entity merge in order, the second over the first
         for p in placements or []:
             if not isinstance(p, dict) or not p.get("entity"):
-                raise Rejected("each placement names its entity", hint='{"entity": "The Hold", "at": [0, 0, 0], "radius": 40}')
+                raise Rejected("each placement names its entity", hint='{"entity": "The Hall", "at": [0, 0, 0], "radius": 40}')
             eid = self._resolve(p["entity"])
             new = {k: v for k, v in p.items() if k not in ("entity", "frame")}
             if "frame" in p:
@@ -2328,7 +2328,7 @@ class Session:
             touched.append(eid)
         for pth in paths or []:
             if not isinstance(pth, dict) or not pth.get("a") or not pth.get("b"):
-                raise Rejected("each path names its two places", hint='{"a": "The Hold", "b": "The Gate Yard", "route": [[0, 0], [0, 60]]}')
+                raise Rejected("each path names its two places", hint='{"a": "The Hall", "b": "The Yard", "route": [[0, 0], [0, 60]]}')
             a, b = self._resolve(pth["a"]), self._resolve(pth["b"])
             if not any(e["target"] == b for e in w.edges(a, "connects_to", "out")):
                 raise Rejected(f"{w.need(a)['name']} and {w.need(b)['name']} are not connected",
@@ -2709,7 +2709,7 @@ class Session:
         w = self.world
         card = {"id": e["id"], "type": e["type"], "name": e["name"], "state": self._visible_state(e, full)}
         if e["state"].get("count") is not None:
-            card["count"] = int(e["state"]["count"])  # a stack: Emberglass, 60 of it
+            card["count"] = int(e["state"]["count"])  # a stack: coins, 60 of them
         if e["pos"] is not None:
             card["pos"] = e["pos"]
         emb = w.embodied(e["id"])
@@ -2740,29 +2740,31 @@ class Session:
         return card
 
     def _condition(self, e: dict[str, Any]) -> dict[str, Any]:
-        """How a body is, in one word anyone can read, with its way out: fine, hurt (half its hp or less: -2 on its
-        rolls), down (wounds), down (thirst), or dead. The root's `condition_notes` ({condition: text}) rewords a way
-        out for a world whose rules differ."""
+        """How a body is, in one word anyone can read, with its way out: fine, hurt (half its hp or less), down
+        (wounds), down (<what downed it>: its `downed_by`, d20's thirst), or dead. The ways out are the core's, then
+        what the world's packs declare (WAYS_OUT), then the root's `condition_notes` ({condition: text}) for a world
+        whose rules differ."""
         w = self.world
         st = {**w.schema_defaults(e["type"]), **e["state"]}
         hp, mx = int(st.get("hp") or 0), int(st.get("max_hp") or 0)
         if st.get("dead"):
             c = "dead"
         elif st.get("down"):
-            c = "down (thirst)" if st.get("downed_by") == "thirst" else "down (wounds)"
+            c = f"down ({st['downed_by']})" if st.get("downed_by") else "down (wounds)"
         elif st.get("wounded") or (mx and hp <= mx // 2):
             c = "hurt"
         else:
             c = "fine"
         root = w.get(w.root_id)
-        way = {**_WAYS_OUT, **((root["state"].get("condition_notes") or {}) if root else {})}.get(c)
+        way = {**_WAYS_OUT, **w.declared("WAYS_OUT"),
+               **((root["state"].get("condition_notes") or {}) if root else {})}.get(c)
         out: dict[str, Any] = {"condition": c}
         if way:
             out["way_out"] = way
         if c == "dead" and st.get("decay"):
             out["decay"] = st["decay"]  # fresh, foul or bones: the burial pack's clock on the dead
-        if c == "down (thirst)" and st.get("fading"):
-            out["fading"] = int(st["fading"])  # world days it has lain dry; thirst kills in a few
+        if c.startswith("down") and st.get("fading"):
+            out["fading"] = int(st["fading"])  # world days it has lain so (d20: dry; thirst kills in a few)
         return out
 
     def _reader_place(self, ref: str | None) -> dict[str, Any]:
@@ -3018,7 +3020,8 @@ class Session:
         rows = w.store.query("event", "world_id=? AND t>=? AND t<?", (w.id, lo, hi), order="seq")
         skip = _INTERNAL_KINDS | _PRIVATE_KINDS | _CHRONICLE_QUIET
         meta = w.meta()
-        routine_kinds = _CHRONICLE_ROUTINE | {str(k) for k in (meta.get("chronicle_routine") or [])}
+        routine_kinds = (_CHRONICLE_ROUTINE | w.declared("CHRONICLE_ROUTINE")
+                         | {str(k) for k in (meta.get("chronicle_routine") or [])})
         # what the day before had: the same scene again, or the same world-driven beat, is routine, not news
         told_before: set[str] = set()
         actorless_before: set[str] = set()
@@ -3151,7 +3154,7 @@ class Session:
         key's first value that day against its last."""
         w = self.world
         meta = w.meta()
-        notable = _NEWS_KINDS | {str(k) for k in (meta.get("chronicle_news") or [])}
+        notable = _NEWS_KINDS | w.declared("CHRONICLE_NEWS") | {str(k) for k in (meta.get("chronicle_news") or [])}
         story_ids = {w.root_id} | {e["id"] for e in w.find(name="Story", limit=5)}
         for ref in meta.get("chronicle_story") or []:
             e = w.get(str(ref)) or next(iter(w.find(name=str(ref), limit=1)), None)
@@ -3513,12 +3516,12 @@ class Session:
             for k, v in dialog.items():
                 if not str(k).strip() or not isinstance(v, str) or not v.strip() or len(v) > _SAY_MAX:
                     raise Rejected(f"each own line is a topic and one line of at most {_SAY_MAX} characters",
-                                   hint='{"water|well": "Ask Sefa, not me."}')
+                                   hint='{"water|well": "Ask Mara at the well."}')
             idle["dialog"] = {str(k).strip().lower(): str(v) for k, v in dialog.items()}
             idle["fresh"] = True  # they answer from now until the seat's next deed, then whenever it is idle
         if sleep and not w.need(eid)["state"].get("asleep"):
             if "sleep" not in w.schema_actions(w.need(eid)["type"]):
-                raise Rejected("this body has no sleep verb", hint="away() without sleep; a world gets sleep from the d20 pack")
+                raise Rejected("this body has no sleep verb", hint="away() without sleep; a world gets sleep from the sleep pack (or d20's)")
             w.act(eid, "sleep", None, {}, principal_id=self.pid)
         w.patch(eid, {"standing_orders": orders or None, "idle_orders": idle or None}, replace=True)
         out = {"ok": True, "entity": eid, "standing_orders": orders, "asleep": bool(w.need(eid)["state"].get("asleep")),
@@ -4030,7 +4033,7 @@ class Session:
         ent = w.get(me) if me else None
         here = w.get(ent["parent_id"]) if ent and ent["parent_id"] else None
         near = [c for c in w.children(here["id"]) if c["id"] != me and w.sees(me, c)
-                and w.is_a(c["type"], "creature")] if here else []  # who is here: people, not the jars by the cistern
+                and w.is_a(c["type"], "creature")] if here else []  # who is here: people, not the jars by the well
         names: dict[str, str] = {}
 
         def nm(i: Any) -> str | None:
@@ -4083,7 +4086,7 @@ class Session:
             return e["kind"] in ("say", "talked") and bool(e["actor"]) and e["actor"] != mine
 
         def to_me() -> bool:
-            # said to you (a line or a talk aimed at you) or with your name as its address ("Sefa, the gate"), not your
+            # said to you (a line or a talk aimed at you) or with your name as its address ("Mara, the gate"), not your
             # name in passing: a question about you put to the room is someone else's business
             return any(spoken(e) and (e["target"] == mine or _addressed(e["text"], parts)) for e in data["events"])
 
@@ -4226,7 +4229,7 @@ class Session:
 
     def spawn(self, type: str, parent: str, name: str = "", state: dict[str, Any] | None = None,
               pos: list[float] | None = None, at: Any = None) -> dict[str, Any]:
-        """at: its spot in the world frame, [x, y, z] or a landmark's name in the place ("the cistern")."""
+        """at: its spot in the world frame, [x, y, z] or a landmark's name in the place ("the well")."""
         self._need(AUTHOR)
         where = self._resolve(parent)
         if at is not None:  # resolved before the write, so a bad name refuses the whole call
@@ -4988,7 +4991,7 @@ UNTIL_DOC = ("until is one Python expression (the embody script subset: no impor
              "(said to you, or with your name as its address: the default for a mind or a player owed nothing in "
              "particular), named() (your name anywhere in someone's line), state(name) "
              "(the state you can see of someone here or something you hold). Examples: "
-             "\"arrived('Reeve')\", \"heard('ruhl', by='Reeve') or me.get('hp', 0) < 3\", \"t >= 43200\", "
+             "\"arrived('Mara')\", \"heard('ferry', by='Mara') or me.get('hp', 0) < 3\", \"t >= 43200\", "
              "\"ambient.get('time_of_day') == 'dusk'\". Names match by part, any case.")
 
 
@@ -5035,8 +5038,8 @@ def _try_until(cond: Script, view: dict[str, Any]) -> None:
 
 
 def _name_parts(name: str) -> list[str]:
-    """The words a body is called by: the capitalised words of its name, not "the" or "of" ("Sefa of the Keth": sefa,
-    keth)."""
+    """The words a body is called by: the capitalised words of its name, not "the" or "of" ("Mara of the Mill": mara,
+    mill)."""
     ws = [w for w in re.findall(r"[A-Za-z]+", str(name)) if len(w) > 2 and w.lower() not in ("the", "and")]
     caps = [w for w in ws if w[0].isupper()]
     return [w.lower() for w in (caps or ws)]
@@ -5091,8 +5094,8 @@ def _deed_in(w: World, me: str, text: str) -> str | None:
 
 
 def _addressed(text: str, parts: list[str]) -> bool:
-    """Whether a line uses one of these names as its address: "Sefa, the gate", "Hey Sefa", "the gate, Sefa?",
-    "Listen, Sefa, ...", or the name alone; not "Sefa went west" or "where is Sefa?"."""
+    """Whether a line uses one of these names as its address: "Mara, the gate", "Hey Mara", "the gate, Mara?",
+    "Listen, Mara, ...", or the name alone; not "Mara went west" or "where is Mara?"."""
     tx = str(text or "").lower().strip()
     for p in parts:
         n = r"\b" + re.escape(p) + r"\b"
@@ -5149,15 +5152,12 @@ LAYER_OF = {op: name for name, (_, ops) in LAYERS.items() for op in ops}
 
 
 # What a chronicle leaves out of its beats: the bookkeeping of building and moving. Travel is told on its own.
-# A day's upkeep: what bodies do every beat. Counted under routine, never news.
-_CHRONICLE_ROUTINE = frozenset({"mended", "sweated", "drank", "filled", "thirsty", "parched", "quenched", "merged",
-                                "opinion", "woke", "slept", "embodied", "released", "reclaimed", "finished",
-                                "passing", "approaching", "repairing", "refuelled"})
-# The kinds that are news wherever they happen (a world adds its own with `chronicle_news` in its meta).
-_NEWS_KINDS = frozenset({"found", "downed", "killed", "outlawed", "yielded", "truce_broken", "dishonor", "lock_broken",
-                         "lock_picked", "lifted", "caught", "renamed", "destroyed", "burned", "works_done", "stage_done",
-                         "challenged", "agreed", "spoiled", "wounded", "rose", "searched", "stopped",
-                         "broke_down", "struck"})
+# A day's upkeep: what bodies do every beat. Counted under routine, never news. A pack adds its own (CHRONICLE_ROUTINE
+# in its pack.py), a world with `chronicle_routine` in its meta.
+_CHRONICLE_ROUTINE = frozenset({"merged", "opinion", "woke", "slept", "embodied", "released", "reclaimed", "finished"})
+# The kinds that are news wherever they happen. A pack adds its own (CHRONICLE_NEWS), a world with `chronicle_news`.
+_NEWS_KINDS = frozenset({"found", "downed", "killed", "yielded", "caught", "renamed", "destroyed", "agreed", "wounded",
+                         "rose", "searched", "stopped", "struck"})
 GUIDE_TOPICS = ("narrator", "author", "player", "mind", "hosting", "helpers", "watch", "scripting", "changes", "skills")
 _CHANGES_ASKS = frozenset({"changes", "change", "changelog", "rules", "rules changes", "rule changes", "what changed",
                            "whats new", "what's new", "news", "updates", "update", "rules_notice"})
@@ -5256,9 +5256,9 @@ _CHRONICLE_QUIET = frozenset({"spawned", "patched", "linked", "unlinked", "relat
                               "stepped"})
 
 
-# A body's way out of its condition (Session._condition); a world rewords them with `condition_notes` on its root.
-_WAYS_OUT = {"hurt": "-2 on every roll until rest mends you past half", "down (wounds)": "rest with water, or someone tends you",
-             "down (thirst)": "drink, before the days run out"}
+# A body's way out of its condition (Session._condition): the core's plain ones. A pack declares its own (WAYS_OUT in
+# its pack.py: d20's rolls and thirst), and a world rewords any with `condition_notes` on its root.
+_WAYS_OUT = {"hurt": "rest mends it", "down (wounds)": "rest, or someone tends you"}
 
 
 _PLAY_OR_WATCH = frozenset({"worlds", "use", "summary", "seats", "join", "leave", "perceive", "inspect", "find", "history",

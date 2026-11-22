@@ -66,6 +66,10 @@ cart's riders can be struck from the road and its load taken. A covered one (no 
 
 PACK = {"name": "vehicles", "description": "Vehicles people ride: they take time on the road, pass through places where they can be seen, stopped, boarded or struck, and run on a timetable with or without a driver."}
 
+# What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's kinds.
+CHRONICLE_ROUTINE = ["passing", "approaching", "repairing", "refuelled"]
+CHRONICLE_NEWS = ["broke_down"]
+
 
 def define(s):
     """The two schemas. Idempotent."""

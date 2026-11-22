@@ -161,12 +161,16 @@ def origin_of(headers: dict[bytes, bytes], scheme: str = "http") -> str | None:
     return f"{proto if proto in ('http', 'https') else scheme}://{host}"
 
 
+# A platform's own variable for the public host name it gave the service, one per platform in docs/platforms/.
+PLATFORM_DOMAINS = ("RAILWAY_PUBLIC_DOMAIN",)
+
+
 def default_url() -> str | None:
-    """The public URL for invites when none is given: $EMBODY_URL, else https://<Railway public domain>/mcp."""
+    """The public URL for invites when none is given: $EMBODY_URL, else https://<the platform's domain>/mcp."""
     url = os.environ.get("EMBODY_URL")
     if url:
         return url
-    domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    domain = next((d for v in PLATFORM_DOMAINS if (d := os.environ.get(v))), None)
     return f"https://{domain}/mcp" if domain else None
 
 
@@ -247,12 +251,12 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                  "3. Open the story. Say nothing of the setup, the server, seats, roles, grants, tokens, tools, or what join "
                  "returned. Begin in the world, present tense, a few short paragraphs: where they stand and the hour's light, "
                  "what they see and hear, who is near and what those people are doing, what they carry, what the body "
-                 "feels (heat, thirst, a sore leg). Then ask what they do, in one line, the way a game master does.\n"
+                 "feels, if the world gives it needs or hurts. Then ask what they do, in one line, the way a game master does.\n"
                  "4. Keep going the same way. Each thing they say is a deed or a word: act(verb, target), say(text, to=...), "
                  "then wait on the answer you are owed (wait(until=\"heard('', by='<name>')\", timeout=120); guide('watch') has "
                  "the grammar) while the world moves, and tell them what happened as it happened: who spoke, what was "
                  "said, what changed. No bullet points, no tables, no stat sheets, no tool names. The world's numbers "
-                 "(water, hp) are yours to read and theirs to feel: a dry mouth, a hand that shakes. When the world "
+                 "on the body's card are yours to read and theirs to feel, in the world's own terms. When the world "
                  "refuses an act, say what stood in the way, not the error text. Anticipate a newcomer: if they seem lost, "
                  "name what is near and a way forward; if they ask how something works, answer briefly in the fiction's "
                  "terms. Only when they ask for the mechanics outright (stats, numbers, the rules) give them plainly, then "
@@ -264,7 +268,7 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
                  "6. When they stop for a while, leave standing orders: away(give=[{'item': ..., 'to': ...}], "
                  "answer='...') says what others may take back from the body and what it answers while nobody plays "
                  "it. perceive() lists under `reclaim` what you may take back from someone who is away; timers() "
-                 "says when dusk and dawn come.")
+                 "says what the world has scheduled that a player may know.")
     elif role == OBSERVER_ROLE:
         begin = "2. Call use(world), then perceive(from_entity=...), history() and find(): you watch, you do not act."
     elif role == ORACLE:

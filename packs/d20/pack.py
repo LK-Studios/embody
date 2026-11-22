@@ -132,6 +132,14 @@ import json
 
 PACK = {"name": "d20", "description": "Table-top rules as verbs: d20 checks, opposed attacks, wards, duels, thirst, factions, the thresher."}
 
+# What the engine reads back from this pack (world.PACK_DECLARES): the body keys only these rules write, the chronicle's
+# kinds, and the ways out of the conditions these rules put a body in.
+BODY_KEYS = ["water", "max_water", "thirsty", "vigor", "max_vigor", "faction", "cowed_by", "oath"]
+CHRONICLE_ROUTINE = ["mended", "sweated", "drank", "filled", "thirsty", "parched"]
+CHRONICLE_NEWS = ["outlawed", "dishonor", "lifted", "challenged"]
+WAYS_OUT = {"hurt": "-2 on every roll until rest mends you past half", "down (wounds)": "rest with water, or someone tends you",
+            "down (thirst)": "drink, before the days run out"}
+
 # This pack's rules changelog, oldest first: what changed for a body in play. A world that requires the pack logs
 # these at its build or upgrade, and seats behind hear of them in perceive (guide('changes')).
 RULES = [
