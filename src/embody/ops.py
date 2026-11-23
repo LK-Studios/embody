@@ -2197,7 +2197,9 @@ class Session:
     # ---- perception --------------------------------------------------------------
 
     def perceive(self, cursor: int | None = None, from_entity: str | None = None, events: int = 30,
-                 layout: bool = False, far: bool = False) -> dict[str, Any]:
+                 layout: bool = False, far: bool = False, brief: bool | None = None) -> dict[str, Any]:
+        """Everything this body senses, or with brief the short of it (_short_bundle). brief left out follows the
+        world's root `perceive_brief` for a body's own perceive; perceiving from another entity is always full."""
         self._tick()
         w = self.world
         if self._reader():
@@ -2263,7 +2265,59 @@ class Session:
             w.set_cursor(self.pid, bundle["cursor"])
         else:
             w.set_entity_cursor(me, bundle["cursor"])
+        if brief is None:
+            root = w.get(w.root_id)
+            brief = from_entity is None and bool(root and root["state"].get("perceive_brief"))
+        if brief and not layout and not far:
+            return self._short_bundle(bundle, me)
         return bundle
+
+    def _short_bundle(self, b: dict[str, Any], me: str) -> dict[str, Any]:
+        """perceive, short enough to say aloud (Klhyts Refuge, 2026-11-23: a player's agent on a voice client could not
+        read the whole scene, 68,000 characters at the docks; the owner: "it needs to be enough that could be spoken to
+        and listened to"). Each person and the place in a glance (`_glance`), things, exits and what you hold by name,
+        and each verb you could use now with whom: "talk: anyone here", "buy: Mother Ines". The events, your goals,
+        what you owe and any rules notice as in the full bundle. perceive(brief=false) has the rest, inspect(name) one
+        thing in full."""
+        you = b["you"]
+        st = you.get("state") or {}
+        me_card: dict[str, Any] = {"id": you["id"], "name": you["name"], "condition": you.get("condition")}
+        if st.get("hp") is not None and st.get("max_hp"):
+            me_card["hp"] = f"{st['hp']}/{st['max_hp']}"
+        people, things = [], []
+        for c in b["present"]:
+            if "condition" in c:  # a creature: its card carries how it is
+                row: dict[str, Any] = {"id": c["id"], "name": c["name"], "looks": _glance(c)}
+                if c.get("condition") not in (None, "fine"):
+                    row["condition"] = c["condition"]
+                if c.get("embodied_by"):
+                    row["played"] = True  # someone plays them: answers come from a person, not a table
+                if c.get("asleep"):
+                    row["asleep"] = True
+                if c.get("bears"):
+                    row["bears"] = [x["name"] for x in c["bears"]]
+                people.append(row)
+            else:
+                things.append({"id": c["id"], "name": c["name"], **({"count": c["count"]} if "count" in c else {})})
+        here = b["here"]
+        out: dict[str, Any] = {
+            "world": b["world"], "t": b["t"], "ambient": b["ambient"], "you": me_card,
+            "here": {"id": here["id"], "name": here["name"], "looks": _glance(here)} if here else None,
+            "people": people, "things": things,
+            "exits": [x["name"] + (" (locked)" if x.get("locked") else "") for x in b["exits"]],
+            "holding": [h["name"] + (f" x{h['count']}" if "count" in h else "") for h in b["holding"]],
+            "verbs": _verb_lines(b["affordances"], me, [p["id"] for p in people], [t["id"] for t in things],
+                                 [x.get("to") for x in b["exits"]]),
+            "events": b["events"], "cursor": b["cursor"],
+            "more": "perceive(brief=false) for everything; inspect(<name>) for one person or thing in full",
+        }
+        for k in ("goals", "reclaim"):
+            if b.get(k):
+                out[k] = b[k]
+        for k in ("owed", "rules_notice", "rules_version", "landmarks"):
+            if k in b:
+                out[k] = b[k]
+        return out
 
     def _in_sight(self, me: str, here_id: str | None) -> dict[str, Any]:
         """What this body sees far off from where it stands (far.py), cached per place and body per world hour (paused:
@@ -4155,7 +4209,7 @@ class Session:
             evs, more, last = self._heard_by(bodies, since, kinds)
         if evs or timed_out:
             if full:
-                b = self.perceive()
+                b = self.perceive(brief=False)  # full asks for the whole card
                 if len(bodies) > 1:  # perceive is the seat's; what reached only the other bodies comes beside it
                     b["heard"] = [e for e in evs if me not in e["for"]]
             else:
@@ -4361,7 +4415,7 @@ class Session:
                      full: bool) -> dict[str, Any]:
         w = self.world
         if full and me:
-            b = self.perceive()
+            b = self.perceive(brief=False)
             b["fired"] = True
             b["until"] = until
             return b
@@ -5630,6 +5684,54 @@ def _seen_relation(r: dict[str, Any], me: str) -> bool:
     if "participants" in r:
         return public or me in r["participants"]
     return public and r.get("with") == me
+
+
+def _glance(card: dict[str, Any]) -> str:
+    """What a glance gives of a person, a thing or a place, said in a breath: its `short` line when the world wrote
+    one, else `seen_as` (how a stranger points someone out), else the first sentence of its description, at most 160
+    characters. inspect gives the whole description."""
+    st = card.get("state") or {}
+    for k in ("short", "seen_as"):
+        v = st.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    d = " ".join(str(st.get("description") or "").split())
+    m = re.search(r"[.!?](?=\s|$)", d[20:])
+    if m:
+        d = d[:20 + m.end()]
+    if len(d) > 160:
+        d = d[:160].rsplit(" ", 1)[0].rstrip(",;:") + "..."
+    return d
+
+
+def _verb_lines(affs: list[dict[str, Any]], me: str, people: list[str], things: list[str],
+                exits: list[Any]) -> list[str]:
+    """The verbs a body could use now, a short line each: "rest", "talk: anyone here", "go: any way out", "take:
+    Rope, Lamp", "buy: Mother Ines". Only what would work; the docs and params are in the full perceive."""
+    by: dict[str, list[dict[str, Any]]] = {}
+    for a in affs:
+        if a.get("ok"):
+            by.setdefault(a["verb"], []).append(a)
+    out = []
+    for verb, rows in by.items():
+        tids = [a["target"] for a in rows if a["target"] not in (None, me)]
+        if not tids:
+            out.append(verb)
+            continue
+        got = set(tids)
+        if len(people) > 1 and set(people) <= got and got <= set(people) | {me}:
+            out.append(verb + ": anyone here")
+        elif len(exits) > 1 and set(e for e in exits if e) <= got and got <= set(exits):
+            out.append(verb + ": any way out")
+        else:
+            names = []
+            for a in rows:
+                n = a.get("target_name")
+                if a["target"] not in (None, me) and n and n not in names:
+                    names.append(n)
+            more = len(names) - 8
+            out.append(verb + ": " + ", ".join(names[:8]) + (f" and {more} more" if more > 0 else ""))
+    return out
 
 
 def _brief(e: dict[str, Any]) -> dict[str, Any]:

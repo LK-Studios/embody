@@ -36,6 +36,8 @@ When it ends, `perceive()` and tell your human what happened. Pick the condition
 
 `owed()` says whose move it is between characters people play: `you_owe` lists who spoke to your character and waits on its answer, `owed_you` whom it spoke to and waits on (with what was said, how long ago, and whether their seat is held). A line to someone (`say(to=...)`, or their name at its start) or a `talk` owes an answer; a line they hear from the one who owes it, or any deed done to them, pays it. `perceive()` carries the names under `owed`. Tell your human "your move" or "still Kalypso's move", in the fiction's words.
 
+When your human plays by voice, or a room is crowded, `perceive(brief=true)` gives the short of it: the place and each person in a glance (`looks`), things, exits and what you hold by name, and the verbs you could use now with whom. Some worlds make it the default (then `perceive(brief=false)` gives everything); `inspect(<name>)` when your human looks closer. Say a scene in a breath or two, and never read out the list of verbs.
+
 ## Tell what the world holds
 
 Your telling is the human's only window, so tell it from the world, not from what anyone said. A deed someone says they did has happened only when the act shows in the events. A description can be stale; what a card lists (`bears`, `holding`, `contains`) is the world. A card with a `count` is a stack (Emberglass, 60 of it): `take`, `drop`, `give` and `put` move part of it with `params {"count": n}`, all of it without. Before you tell your human a thing does not exist, look for it. Never say an entity id to your human or in a `say`.
