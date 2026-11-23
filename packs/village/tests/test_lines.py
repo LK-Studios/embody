@@ -57,6 +57,16 @@ def test_a_mixed_line_is_a_gesture_then_the_quoted_words(tmp_path):
                                               ("say", "Bench is busy, love.")]
 
 
+def test_several_default_lines_are_said_in_turn(tmp_path):
+    eng, gm, me = world(tmp_path)
+    gm.patch("Varn", {"default_line": ['He wipes his hands. "Not now."', "Ask the cat.", "Hm."]})
+    said = [answer(eng, me, "the weather") for _ in range(4)]
+    assert said == [[("gestured", "He wipes his hands."), ("say", "Not now.")], [("say", "Ask the cat.")],
+                    [("say", "Hm.")], [("gestured", "He wipes his hands."), ("say", "Not now.")]]
+    gm.patch("Varn", {"default_line": []})  # an empty list says what no default says
+    assert answer(eng, me, "the weather") == [("say", "Hm.")]
+
+
 def test_an_unquoted_line_is_said_unless_lines_are_quoted(tmp_path):
     eng, gm, me = world(tmp_path)
     assert answer(eng, me, "the cat") == [("say", "The cat opens one eye, judges you, and closes it.")]

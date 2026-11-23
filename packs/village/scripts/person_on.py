@@ -70,6 +70,19 @@ def speak(ctx, line, asker):
                 ctx.gesture(part.strip(), to=asker)
         i = i + 1
 
+def fallback(ctx, me):
+    # nothing in the table fits: the default line, or the next of several in turn, so one asked twice does not
+    # answer twice the same
+    d = me.default_line
+    if isinstance(d, list):
+        if not d:
+            d = None
+        else:
+            n = int(me.default_n or 0)
+            ctx.patch(ctx.self, {"default_n": n + 1})
+            d = d[n % len(d)]
+    return d or (me.standing_orders or {}).get("answer") or "Hm."
+
 def on(ctx, event):
     # Someone talked to me. Answer from my dialog table with the best-matching entry; hand over anything I
     # give for that topic. Skipped while an agent embodies me (unless_embodied): then the agent answers.
@@ -91,7 +104,7 @@ def on(ctx, event):
             best = key
             best_s = s
     if best is None:
-        speak(ctx, me.default_line or (me.standing_orders or {}).get("answer") or "Hm.", asker)
+        speak(ctx, fallback(ctx, me), asker)
         return
     got = given_to(me, best)
     had = asker in got or "*" in got
