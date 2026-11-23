@@ -15,12 +15,14 @@ def tick(ctx):
     # there, a draw a look until full or near it, then a step a look back toward the post. A body that is down drinks what is put in its hand. Not an always
     # behavior: while someone embodies this body they choose when to drink and where to go. A held seat gone idle
     # (a mind on a watcher) looks after itself the same way: every walk goes around a side that outlawed the body.
+    # A body that `stays` (a player's own character, Klhyts Refuge 2026-11-23: "make sure it's not just jolting bodies
+    # around and puppeteering players") is never walked: it drinks what is in hand or where it stands, and waits.
     me = ctx.self
     st = me.state
     if st.dead:
         return
     here = me.parent
-    roams = not st.down
+    roams = not st.down and not st.stays
     water = int(st.water if st.water is not None else 10)
     mx = int(st.max_water or 10)
     post = ctx.get(st.post) if st.post else None

@@ -6,6 +6,11 @@ The version in `pyproject.toml` is 0.1.0 until the first release; until then ent
 
 ## Unreleased
 
+- A player's body keeps still (Klhyts Refuge, 2026-11-23: a player found their character walked back to the pier
+  while they were away, "make sure it's not just jolting bodies around and puppeteering players"). d20: a body with
+  `stays` true is never walked by its idle care (quench), for water or back to its post; it drinks what is in hand
+  or where it stands, and waits. Without it a held seat gone idle (a mind on a watcher) still fetches water and walks
+  back to its post. The pack's doc no longer says both.
 - perceive, short enough to say aloud (Klhyts Refuge, 2026-11-23: a player's agent on a voice client could not read the scene, 68,000 characters at the docks; the owner: "it needs to be enough that could be spoken to and listened to"). `perceive(brief=true)` gives the place and each person in a glance (`looks`: their `short` line, else `seen_as`, else the first sentence of the description, at most 160 characters), things, exits and what you hold by name, each verb you could use now with whom ("talk: anyone here", "buy: Mother Ines"), the events, goals, `owed` and any rules notice. A world's root `perceive_brief` makes it the default for a body's own perceive and join's reply; `brief=false` gives everything, perceiving from another entity is always full, and `wait(full=true)` keeps the whole card. The Refuge's docks went from 68,000 characters to 2,600.
 - Fighting to kill (Klhyts Refuge's owner, 2026-11-23: "We need more peril!", and asked how deadly, "Full 5e, to the
   death"). dnd5e: a body nobody plays with `finishes` true, finding no foe standing on its turn, strikes one down here

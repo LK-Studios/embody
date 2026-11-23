@@ -81,3 +81,25 @@ def test_a_follower_keeps_to_the_one_it_follows_not_to_its_post():
     for _ in range(3):
         gm.clock(step=60)
     assert where(gm, "Walker") == "The Flats"  # following no one, it goes home as before
+
+
+def test_a_body_that_stays_is_never_walked_while_its_seat_is_idle():
+    # Klhyts Refuge, 2026-11-23: a player's character, its human away, was walked back to its post on the pier ("make
+    # sure it's not just jolting bodies around and puppeteering players"). A body with `stays` drinks what is in reach
+    # and waits where its player left it; without it, the same idle seat walks home.
+    for stays, home in ((True, False), (False, True)):
+        eng, gm, you = outpost()
+        gm.spawn("person", "The Road", "Walker", state={"faction": "the Garrison", "playable": True, "water": 10,
+                                                        "max_water": 10, "hp": 40, "max_hp": 40,
+                                                        "post": gm.inspect("The Flats")["id"], "stays": stays})
+        gm.world.set_meta({"idle_after": 50})
+        eng.session("player").join("outpost", "Walker")
+        gm.clock(step=60)
+        assert gm.world.idle(gm.inspect("Walker")["id"])
+        assert (where(gm, "Walker") == "The Flats") == home  # the first idle look: home to its post, or not
+        if not stays:
+            continue
+        gm.patch("Walker", {"water": 2})  # thirsty, nothing in hand: a body that stays does not go for water either
+        for _ in range(4):
+            gm.clock(step=60)
+        assert where(gm, "Walker") == "The Road"

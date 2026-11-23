@@ -80,8 +80,10 @@ The numbers, so a narrator can explain a roll:
   entity id, or a list of them) is not drunk or walked to by anyone else's idle care; held seats and deeds are
   not stopped by it. A body that is down drinks what is
   put in its hand. An embodied seat decides for itself while it is in use; quench is an `idle` behavior, so a
-  seat that has done nothing for the world's `idle_after` (a mind on a watcher, a player asleep) drinks what is
-  in reach, a skin in hand or a source here, and never walks: where a held body stands is its seat's choice. `python packs/d20/soak.py <world> --days N` runs a world that long with nobody playing and says who
+  seat that has done nothing for the world's `idle_after` (a mind on a watcher, a player asleep) looks after itself
+  as above, walks included, unless its body `stays`: a body with `stays` (a player's own character) is never walked,
+  for water or back to its post; it drinks what is in reach, a skin in hand or a source here, and waits, because
+  where a player's body stands is the player's choice. `python packs/d20/soak.py <world> --days N` runs a world that long with nobody playing and says who
   went dry and which sources ran out.
 - Sweat: heavy work costs water on top of the beat. A blow in a fight (`attack`, or a fighter's own), `harvest`,
   `dig`, `dress`, `break` (a lock forced) and a walk (`go`, `crawl`) to or from open ground under more than half
