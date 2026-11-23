@@ -67,6 +67,18 @@ def test_several_default_lines_are_said_in_turn(tmp_path):
     assert answer(eng, me, "the weather") == [("say", "Hm.")]
 
 
+def test_a_line_may_wait_on_news_in_stages(tmp_path):
+    eng, gm, me = world(tmp_path)
+    gm.patch("Varn", {"dialog": {"mayor": {"if_state": {"verdict": "removed"}, "line": "Gone in irons.",
+                                           "else": {"if_state": {"home": True}, "line": "He's back.",
+                                                    "else": "Upriver, they say."}}}})
+    assert answer(eng, me, "the mayor") == [("say", "Upriver, they say.")]
+    gm.patch("Varn", {"home": True})
+    assert answer(eng, me, "the mayor") == [("say", "He's back.")]
+    gm.patch("Varn", {"verdict": "removed"})
+    assert answer(eng, me, "the mayor") == [("say", "Gone in irons.")]
+
+
 def test_an_unquoted_line_is_said_unless_lines_are_quoted(tmp_path):
     eng, gm, me = world(tmp_path)
     assert answer(eng, me, "the cat") == [("say", "The cat opens one eye, judges you, and closes it.")]

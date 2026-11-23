@@ -16,7 +16,8 @@ def score(key, topic):
     return s
 
 def pick(ctx, entry, given):
-    # an entry is a line, or a dict: {"line", "after_gift", "if_state": {k: v}, "else"}
+    # an entry is a line, or a dict: {"line", "after_gift", "if_state": {k: v}, "else"}; the else may be an entry of its
+    # own, so news that comes in stages reads newest first: {"if_state": {"verdict": ...}, "line", "else": {...}}
     if not isinstance(entry, dict):
         return entry
     me = ctx.self.state
@@ -24,7 +25,8 @@ def pick(ctx, entry, given):
     if cond:
         for k in cond:
             if me.get(k) != cond[k]:
-                return entry.get("else", entry.get("line"))
+                other = entry.get("else", entry.get("line"))
+                return pick(ctx, other, given) if isinstance(other, dict) else other
     if given and entry.get("after_gift"):
         return entry["after_gift"]
     return entry.get("line")
