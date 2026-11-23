@@ -433,3 +433,29 @@ def test_stats_lays_out_the_statblock_the_way_a_book_prints_it(pit):
     for line in ["Hit Points 20 (3d8 + 3)", "Skills Intimidation +3", "Challenge 1/2 (100 XP)", "Proficiency Bonus +2",
                  "Multiattack. Bo makes two melee attacks.", "Club. Melee Weapon Attack: +4 to hit"]:
         assert line in sb, line
+
+
+def struck_saves(gm, since):
+    return [e for e in gm.history(since=since, kinds=["death_save"], limit=200)
+            if (e.get("payload") or {}).get("why") == "struck"]
+
+
+@pytest.mark.parametrize("finishes", [True, False])
+def test_a_body_that_fights_to_kill_finishes_the_down(pit, finishes):
+    # the Refuge's owner, 2026-11-23: "Full 5e, to the death": a body with `finishes` strikes a foe who is down until
+    # they are dead; without it, a body nobody plays strikes only foes still standing
+    eng, gm, ash = pit
+    since = gm.history(newest=True, limit=1)[-1]["seq"]
+    gm.patch("Ash", {"hp": 1, "ac": 1})
+    gm.patch("Bo", {"attacked_by": gm.inspect("Ash")["id"], "attacked_at": gm.summary()["t"], "init_bonus": 50,
+                    "finishes": finishes})
+    gm.clock(step=7)
+    assert st(gm, "Ash")["down"]
+    for i in range(10):
+        if st(gm, "Ash").get("dead"):
+            break
+        gm.clock(step=6)
+    if finishes:
+        assert struck_saves(gm, since) and st(gm, "Ash")["dead"]
+    else:
+        assert not struck_saves(gm, since)

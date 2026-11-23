@@ -58,6 +58,8 @@ The numbers, so a narrator can explain a roll:
   dying body is a failure (a crit, two); damage of the body's max hp or more past 0 kills outright. Any healing gets it
   up. `knockout` on an attack (a melee blow) leaves the one it drops stable instead of dying, and blows in a duel always
   knock out. `dies_at_zero` on a body (a beast, a mook) dies at 0 instead. A deliberate `kill` still finishes the down.
+  `finishes` on a body nobody plays makes it fight to kill: on its turn, with no foe left standing, it strikes one down
+  here and at odds with it (dying or stable; the blow is a crit, two failed saves) until they are dead.
 - Saving throws: d20 + the ability modifier + proficiency when the ability is in the body's `saves`. Paralysed,
   stunned, unconscious and petrified bodies fail str and dex saves; a dodging body has advantage on dex saves;
   `save_adv` on a body (a list of tags: "poison", "charmed") gives advantage against those.

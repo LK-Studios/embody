@@ -1505,6 +1505,8 @@ def npc_turn(ctx, f, me):
                 return
     foe = foe_for(ctx, f, me)
     if foe is None:
+        if me.state.finishes:
+            finish_off(ctx, me)
         return
     if in_duel_with(ctx, me, foe) is False and ring_blocks(ctx, me, foe):
         return
@@ -1527,6 +1529,20 @@ def npc_turn(ctx, f, me):
     ws = [it for it in held_things(me) if it.state.weapon and not it.state.ranged]
     if len(ws) >= 2 and "light" in props(ws[0]) and "light" in props(ws[1]) and upright(foe):
         strike5(ctx, me, foe, ws[1], {"offhand": True})
+
+def finish_off(ctx, me):
+    # a body that fights to kill (`finishes`), with no foe left standing: a blow on one down here and at odds with it,
+    # dying or stable (a melee blow on the unconscious is a crit: two failed death saves). Never inside a duel's ring.
+    if in_ring(ctx, me):
+        return
+    for p in ctx.children(me.parent, "creature"):
+        if p.id == me.id or not p.state.down or p.state.dead or p.state.downed_by == "thirst" or not at_odds(ctx, me, p):
+            continue
+        if in_ring(ctx, p):
+            continue
+        strike5(ctx, me, p, melee_weapon(me, None), {})
+        pay(ctx, me, "action", "attack")
+        return
 
 def fire(ctx, me, t, w):
     # a shot from a weapon that fires: the ammo is spent and lands where they stand, a loaded weapon unloads
