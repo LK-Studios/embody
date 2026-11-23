@@ -1115,9 +1115,38 @@ class Session:
         out = {"role": self.role, "role_doc": ROLE_DOC.get(self.role, ""), "world": w.name, "you": ent["name"] if ent else eid,
                "text": (root["state"].get("briefing") if root else None) or w.summary()["description"],
                "pace": pace, "how": how}
+        if self.role in (PLAYER, MIND):
+            out["waiting"] = self._waiting_note()
         if self.grant and self.grant.get("brief"):
             out["from_the_host"] = self.grant["brief"]  # this guest's own orders; nobody else's briefing carries them
         return out
+
+    def _waiting_note(self) -> list[str]:
+        """How to wait in a world that does not wait (a player's agent, 2026-11-23: the player guide said it, the invite
+        page said it, and a guest who came in by a connector saw neither, so friends waited on each other by hand)."""
+        u = self.engine.url_now() or ""
+        loop = []
+        if u.endswith("/mcp"):
+            base = u[:-len("/mcp")]
+            loop = ["no install needed: POST " + base + "/op/wait with your bearer token (from your connector's address or "
+                    "your MCP config) and {\"until\": \"<condition>\", \"timeout\": 120}, again and again, until a reply "
+                    "says \"fired\": true. In bash: for i in $(seq 1 60); do curl -s -X POST " + base + "/op/wait -H "
+                    "\"Authorization: Bearer <token>\" -H \"content-type: application/json\" -d \"{\\\"until\\\": "
+                    "\\\"to_me() or held('<friend>')\\\", \\\"timeout\\\": 120}\" | grep -q '\"fired\": true' && break; "
+                    "done (two hours; guide('player') has PowerShell)"]
+        return ["when your character has spoken and someone owes an answer, wait(until=\"heard('', by='<their name>')\", "
+                "timeout=120) before you tell your human, so the reply lands in the same turn",
+                "owed() says whose move it is: you_owe (someone spoke to your character and waits on its answer) and "
+                "owed_you (you spoke and wait on theirs); tell your human \"your move\" or \"still <name>'s move\"; "
+                "perceive() carries the names under `owed`",
+                "between your human's turns, if your harness can run a command in the background and wake you when it ends "
+                "(Claude Code can), keep one watch going: to_me() for anyone speaking to your character, heard('', "
+                "by='<name>') for one person's answer, held('<name>') for when a friend's character is picked up again "
+                "(arm it while they are away)",
+                *loop,
+                "when your human stops for a while, ask whether to leave a line for while they are away: "
+                "away(answer=\"<what your character says to anyone who speaks to them while you are gone>\"); a quiet seat "
+                "with no line can look like a snub"]
 
     def guide(self, topic: str = "", since: int | None = None) -> dict[str, Any]:
         """The embody skill, served over the door, so an agent in any harness reads the rules the host's agents read.
@@ -2225,6 +2254,10 @@ class Session:
                 card["from_you"] = near
         if here_id and (lms := posn.landmark_names(w, here_id)):  # the named spots here, and the verb that reaches them
             bundle["landmarks"] = {"here": lms[:12], "how": f"step(to=\"{lms[0]}\") walks you to one, without leaving"}
+        owed = {"you_owe": [r["name"] for r in self._owed_rows(me, "out")],
+                "owed_you": [r["name"] for r in self._owed_rows(me, "in")]}
+        if owed["you_owe"] or owed["owed_you"]:  # owed() has what was said and when
+            bundle["owed"] = owed
         self._rules_notice(bundle, me if p is not None else None)
         if p is not None:
             w.set_cursor(self.pid, bundle["cursor"])
@@ -3007,7 +3040,7 @@ class Session:
         w = self.world
         out = []
         for e in w.edges(me, None, "both"):
-            if e["relation"] == "connects_to":
+            if e["relation"] in ("connects_to", OWES_ANSWER):
                 continue
             other = e["target"] if e["source"] == me else e["source"]
             o = w.get(other)
@@ -3443,6 +3476,10 @@ class Session:
             raise
         if read:
             r["read_as"] = {"target": target, "params": params}
+        if tid and tid != me and self.world.get(tid) is not None:
+            self._settle_owed(me, [tid])
+            if verb == "talk" and self._plays_itself(tid):
+                self._owe(tid, me, str((params or {}).get("about") or ""))
         r = self._turn(r)
         w = self.world
         r["events"] = self._events_for(me, w.events(since=since, touching=me, limit=200))
@@ -3736,6 +3773,8 @@ class Session:
         deed = _deed_in(self.world, me, str(text))
         if deed:
             out["note"] = deed
+        if body is not None:
+            self._owed_after_line(me, whom, str(text), out.get("heard_by"))
         return out
 
     def step(self, to: Any = None, heading: float | None = None) -> dict[str, Any]:
@@ -3829,6 +3868,77 @@ class Session:
                 if at:
                     out[c["id"]] = [round(float(x), 2) for x in at]
         return out
+
+    # ---- answers owed (a player's agent, 2026-11-23: "Keep a list of who owes whom an answer ... Then any agent can
+    # just ask 'who's waiting on me?' and 'who am I waiting on?', and tell its human 'it's your move'") -------------------
+
+    def _plays_itself(self, eid: str) -> bool:
+        """A body someone plays: held now, or a character kept for a live grant. Its answers come from a person, so a
+        line to it leaves an answer owed; a body nobody plays answers from its table at once and owes nothing."""
+        if self.world.embodied(eid) is not None:
+            return True
+        return bool(self._reservations(eid, self.engine.wall()))
+
+    def _owe(self, debtor: str, creditor: str, said: str) -> None:
+        """`debtor` owes `creditor` an answer to `said`: one quiet edge (`owes_answer`), no event, the newest line kept."""
+        w = self.world
+        data = {"t": w.t, "said": said[:200]}
+        for ex in w.edges(debtor, OWES_ANSWER, "out"):
+            if ex["target"] == creditor:
+                ex["data"] = data
+                w.store.put("edge", ex)
+                return
+        w.store.put("edge", {"world_id": w.id, "id": w._next_id("g"), "source": debtor, "target": creditor,
+                             "relation": OWES_ANSWER, "data": data})
+
+    def _settle_owed(self, debtor: str, creditors: list[str]) -> None:
+        w = self.world
+        for ex in w.edges(debtor, OWES_ANSWER, "out"):
+            if ex["target"] in creditors or w.get(ex["target"]) is None:
+                w.store.delete("edge", w.id, ex["id"])
+
+    def _owed_after_line(self, me: str, whom: str | None, text: str, heard: list[str] | None) -> None:
+        """A line pays what the speaker owed whoever it reaches (the one it is to, or anyone here who heard it), and
+        owes the speaker an answer from the one it is to, or from anyone here it calls by name, if someone plays them."""
+        w = self.world
+        here = w.need(me)["parent_id"]
+        reached = lambda x: x is not None and x["parent_id"] == here and (heard is None or x["name"] in heard)
+        if whom is not None:
+            self._settle_owed(me, [whom])
+        else:
+            self._settle_owed(me, [ex["target"] for ex in w.edges(me, OWES_ANSWER, "out") if reached(w.get(ex["target"]))])
+        if whom is not None:
+            targets = [whom]
+        elif here:
+            targets = [c["id"] for c in w.children(here) if c["id"] != me and w.is_a(c["type"], "creature")
+                       and reached(c) and _addressed(text, _name_parts(c["name"]))]
+        else:
+            targets = []
+        for t in targets:
+            if t != me and self._plays_itself(t):
+                self._owe(t, me, text)
+
+    def _owed_rows(self, me: str, direction: str) -> list[dict[str, Any]]:
+        w = self.world
+        out = []
+        for ex in w.edges(me, OWES_ANSWER, direction):
+            other = w.get(ex["target"] if direction == "out" else ex["source"])
+            if other is None:
+                continue
+            d = ex.get("data") or {}
+            out.append({"name": other["name"], "said": d.get("said", ""), "ago": round(w.t - float(d.get("t") or w.t)),
+                        "held": w.embodied(other["id"]) is not None})
+        return sorted(out, key=lambda r: r["ago"])
+
+    def owed(self) -> dict[str, Any]:
+        """Answers owed between characters people play. `you_owe`: who spoke to your character and waits on its answer
+        (your move), with what they said. `owed_you`: whom your character spoke to who has not answered (their move),
+        with what you said. Each says how long ago in world seconds and whether that seat is held now. A line to
+        someone (say(to=...), or their name at the start of it) or a talk to them owes an answer; a line they hear from
+        the one who owes it, or any deed done to them, pays it. People nobody plays answer at once and owe nothing."""
+        self._tick()
+        me = self._me()
+        return {"you_owe": self._owed_rows(me, "out"), "owed_you": self._owed_rows(me, "in")}
 
     def _within_earshot(self, me: str, whom: str) -> bool:
         """Someone a line can be addressed to: in this place and seen (World.sees), held by you, or what holds you."""
@@ -4205,6 +4315,11 @@ class Session:
         def came(name: str) -> bool:
             return any(low(name) in low(n) for n in data["present"])
 
+        def held(name: str) -> bool:
+            # someone plays that character now, wherever it stands: a friend sitting down (which seats are held is
+            # what seats() shows anyone)
+            return any(w.embodied(e["id"]) is not None for e in w.named(name, limit=5))
+
         def arrived(name: str = "") -> bool:
             # anyone else who walked in: your own body's steps (a patrol's stops) are not news
             return any(e["kind"] == "arrived" and e["who"] != mine and low(name) in low(e["who"])
@@ -4239,7 +4354,7 @@ class Session:
             return {}
 
         view = {k: v for k, v in data.items() if k != "cards"}
-        view.update(heard=heard, did=did, came=came, arrived=arrived, to_me=to_me, named=named, state=state)
+        view.update(heard=heard, did=did, came=came, arrived=arrived, to_me=to_me, named=named, state=state, held=held)
         return view
 
     def _watch_reply(self, me: str | None, until: str, seen: list[dict[str, Any]], hi: int,
@@ -5118,7 +5233,8 @@ UNTIL_DOC = ("until is one Python expression (the embody script subset: no impor
              "(names of who is here), me (your own state: water, hp, wounded, ...), events (since the wait began: "
              "seq, t, kind, actor, target, text, player), and helpers heard(word, by=''), did(kind, by='') (with no kind: any "
              "deed by someone else here; it wakes you on every one, so name the verb or use to_me() when you can), "
-             "came(name) (is here now), arrived(name) (walked in since the wait began; '' for anyone but you), to_me() "
+             "came(name) (is here now), arrived(name) (walked in since the wait began; '' for anyone but you), "
+             "held(name) (someone plays the character of that exact name now, anywhere: a friend sitting down), to_me() "
              "(said to you, or with your name as its address: the default for a mind or a player owed nothing in "
              "particular), named() (your name anywhere in someone's line), state(name) "
              "(the state you can see of someone here or something you hold). Examples: "
@@ -5126,7 +5242,7 @@ UNTIL_DOC = ("until is one Python expression (the embody script subset: no impor
              "\"ambient.get('time_of_day') == 'dusk'\". Names match by part, any case.")
 
 
-_WATCH_HELPERS = ("heard", "did", "came", "arrived", "to_me", "named")
+_WATCH_HELPERS = ("heard", "did", "came", "arrived", "to_me", "named", "held")
 _WATCH_NAMES = frozenset({"t", "ambient", "here", "present", "me", "events", "state", *_WATCH_HELPERS})
 _WATCH_EVENT = {"seq": 0, "t": 0.0, "kind": "", "actor": "", "target": "", "who": "", "text": "", "player": False}
 
@@ -5249,7 +5365,7 @@ OPS = [
     "worlds", "use", "create_world", "fork_world", "save", "restore", "join", "leave", "seats", "claim_seat",
     "invite", "grants", "revoke", "evict", "hold_seat", "requests", "minds", "chronicle", "publish_chronicle",
     "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
-    "step", "reclaim", "away",
+    "step", "reclaim", "away", "owed",
     "define_schema", "define_script", "schemas", "scripts", "script_source",
     "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "relate", "unrelate", "layout", "map",
     "measure", "set_rule", "clear_rule", "schedule", "unschedule", "clock", "timers", "summary", "mirror", "act_as", "say_as",
@@ -5263,7 +5379,7 @@ OPS = [
 LAYERS: dict[str, tuple[str, list[str]]] = {
     "in the world": ("Your character's eyes, hands, voice and notes, inside the story.", [
         "perceive", "inspect", "find", "history", "map", "measure", "looks", "timers", "clock", "act", "act_many", "say",
-        "wait", "step", "remember", "intend", "recall", "away", "reclaim", "program", "unprogram", "programs"]),
+        "wait", "step", "remember", "intend", "recall", "away", "reclaim", "owed", "program", "unprogram", "programs"]),
     "your seat": ("Which world and which body: coming in, going out, the seats open, the guide.", [
         "worlds", "use", "summary", "guide", "join", "leave", "seats", "claim_seat"]),
     "to the owner": ("Outside the story, to the people who keep the world: an ask, a proposal, a hole in the rules. "
@@ -5390,6 +5506,10 @@ _CHRONICLE_QUIET = frozenset({"spawned", "patched", "linked", "unlinked", "relat
 # A body's way out of its condition (Session._condition): the core's plain ones. A pack declares its own (WAYS_OUT in
 # its pack.py: d20's rolls and thirst), and a world rewords any with `condition_notes` on its root.
 _WAYS_OUT = {"hurt": "rest mends it", "down (wounds)": "rest, or someone tends you"}
+
+
+# The edge a line to someone people play leaves behind until they answer (Session.owed)
+OWES_ANSWER = "owes_answer"
 
 
 _PLAY_OR_WATCH = frozenset({"worlds", "use", "summary", "seats", "join", "leave", "perceive", "inspect", "find", "history",

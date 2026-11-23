@@ -25,7 +25,7 @@ ROLES = (OWNER, AUTHOR_ROLE, BUILDER, NARRATOR, PLAYER, MIND, OBSERVER_ROLE, ORA
 _ANYONE = {"worlds", "use", "summary", "seats", "leave", "clock", "guide", "report_flaw", "ask_owner", "asks_to_owner", "answer_ask"}
 _PLAY = {"join", "perceive", "inspect", "find", "history", "act", "act_many", "say", "remember", "intend", "recall", "wait",
          "step", "timers", "reclaim", "away", "program", "unprogram", "programs", "claim_seat", "looks",
-         "relate", "unrelate"}  # relate for a seat: its own bonds, of the kinds the world's root lists
+         "relate", "unrelate", "owed"}  # relate for a seat: its own bonds, of the kinds the world's root lists
 _WATCH = {"perceive", "inspect", "find", "history", "recall", "timers", "schemas", "scripts", "script_source", "wait",
           "map", "measure", "verify", "looks"}
 _NARRATE = {"act_as", "say_as", "minds", "timers", "spawn", "introduce", "patch", "rename", "move", "destroy", "link", "connect", "unlink", "layout",
@@ -378,8 +378,10 @@ def page(world_name: str, role: str, url: str, token: str, seat: str | None = No
         parts += ["", "Waiting, in a world that does not wait for anyone: after your character speaks or acts and someone "
                       "owes an answer, wait(until=\"heard('', by='<their name>')\", timeout=120) before you tell your "
                       "human, so they hear the reply in the same turn (arrived('<name>') waits for someone to walk in, "
-                      "came('<name>') is true while they are here, did('attack') waits for a deed, to_me() for anyone "
-                      "speaking to your character or calling it by name). Never loop on a bare wait(): it wakes on every footstep. Between your human's turns, "
+                      "came('<name>') is true while they are here, held('<name>') once a friend's character is picked up "
+                      "again, did('attack') waits for a deed, to_me() for anyone "
+                      "speaking to your character or calling it by name). owed() says whose move it is: who waits on your "
+                      "character's answer, and whose answer it waits on. Never loop on a bare wait(): it wakes on every footstep. Between your human's turns, "
                       "if they want the world to come to them and your harness can run a command in the background and "
                       "wake you when it ends, keep one watch going, and perceive() and tell them when it fires:",
                   f"   for i in $(seq 1 60); do curl -s -X POST {base}/op/wait -H \"Authorization: Bearer {token}\" "

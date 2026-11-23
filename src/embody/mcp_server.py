@@ -555,6 +555,15 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
 
     @tool()
     @_wrap
+    def owed(principal: str | None = None) -> dict[str, Any]:
+        """Who owes whom an answer, between characters people play. you_owe: who spoke to your character and waits on
+        its answer (your move); owed_you: whom you spoke to who has not answered (their move); each with what was
+        said, how long ago (world seconds) and whether that seat is held now. Tell your human "your move" or "still
+        <name>'s move". perceive() carries the names under `owed` when there are any."""
+        return S(principal).owed()
+
+    @tool()
+    @_wrap
     def reclaim(thing: str, principal: str | None = None) -> dict[str, Any]:
         """Take back from an idle body where you stand what is yours (taken from you, or you are its owner) or what
         its standing orders give you. perceive() lists what you may reclaim under `reclaim`."""
@@ -630,7 +639,8 @@ def build_server(session: Session, db: Path, engine: Engine | None = None, http_
         (t, ambient, here, who is present, the new events, cursor); `full=true` returns perceive() instead.
         until="<expression>" waits for a condition instead of any event: to_me() (said to you, or with your name as
         its address; named() for your name anywhere), arrived('Mara') (walks in), came('Mara')
-        (is here now: already true fires at once, with already=true), heard('ferry', by='Mara'),
+        (is here now: already true fires at once, with already=true), held('Mara') (someone plays Mara now, anywhere:
+        a friend sitting down), heard('ferry', by='Mara'),
         me.get('hp', 0) < 3, t >= 43200, ambient.get('time_of_day') == 'dusk'. It returns with fired=true and the
         events since it began, or timed_out with nothing moved: call again (pass back `since` if you are not
         embodied). For hours of waiting, run `embody watch` from a shell instead; it loops this for you.

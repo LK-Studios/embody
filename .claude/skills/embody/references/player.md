@@ -32,7 +32,9 @@ Your harness speaks only when your human writes, unless it can run a command in 
       $h = @{Authorization = "Bearer <token>"}; $b = '{"until": "heard('''', by=''Sefa'') or did(''attack'')", "timeout": 120}'
       foreach ($i in 1..60) { $r = Invoke-RestMethod -Method Post -Uri "<base>/op/wait" -Headers $h -ContentType "application/json" -Body $b; if ($r.fired) { break } }
 
-When it ends, `perceive()` and tell your human what happened. Pick the condition from what your character is waiting for: the answer it asked for, the person it is waiting to meet, danger. Keep one watch at a time, and stop it when your human comes back and plays.
+When it ends, `perceive()` and tell your human what happened. Pick the condition from what your character is waiting for: the answer it asked for, the person it is waiting to meet, danger, or `held('<name>')` for a friend's character being picked up again. Keep one watch at a time, and stop it when your human comes back and plays.
+
+`owed()` says whose move it is between characters people play: `you_owe` lists who spoke to your character and waits on its answer, `owed_you` whom it spoke to and waits on (with what was said, how long ago, and whether their seat is held). A line to someone (`say(to=...)`, or their name at its start) or a `talk` owes an answer; a line they hear from the one who owes it, or any deed done to them, pays it. `perceive()` carries the names under `owed`. Tell your human "your move" or "still Kalypso's move", in the fiction's words.
 
 ## Tell what the world holds
 
