@@ -16,7 +16,7 @@ The expression is one line of the engine's script subset (no imports, no assignm
 | `present` | the names of who is here (people and creatures, not things), hidden ones left out unless shown to you |
 | `me` | your own state, the whole of it: `me.get('water', 10)`, `me.get('hp', 0)`, `me.get('wounded')` (read it with `get` and a default: a key the world does not have, or one renamed since you armed it, refuses the whole condition) |
 | `events` | what touched you since the wait began, each with `seq`, `t`, `kind`, `actor`, `target`, `text`, `player` |
-| `heard(word, by='')` | someone said something with that word in it (and the speaker's name has `by` in it) |
+| `heard(word, by='')` | someone said something with that word in it (and the speaker's name has `by` in it), or the world showed you it in a scene; never your own line or your own note |
 | `did(kind, by='')` | an event of that kind happened, by that one if named (`did('attack', by='Hollis')`, `did('arrived')`); with no kind, any deed (a verb used) by someone else here: `did()`, `did(by='Hollis')` |
 | `came(name)` | someone of that name is here now (true already when you arm it? it fires at once, every time, with `already: true`) |
 | `arrived(name)` | someone of that name walked in since the wait began (`''` for anyone; never your own body, so a patrol's stops do not wake you) |

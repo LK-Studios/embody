@@ -6,6 +6,12 @@ The version in `pyproject.toml` is 0.1.0 until the first release; until then ent
 
 ## Unreleased
 
+- A mind reads its brief in the short view, and never hears itself (Klhyts Refuge, 2026-11-24, the first night with
+  nine minds). A mind's own card in `perceive(brief=true)`, and join's reply in a world whose perceive is short by
+  default, now carries `brief` and `memory`: the whole card of an NPC with a dialog table ran to 80,000 characters,
+  past what a harness takes back from one call, and minds played on without their brief. A player's short card is
+  unchanged. `heard(word)` in a watch no longer counts the watcher's own line or its own `remember` note (a mind's
+  watch on `heard('dues')` fired on the note it had just written); scenes the world shows still count.
 - Writing on things, chalk and carving (the owner of Klhyts Refuge, 2026-11-23: "A few time we encounter paper or
   books and no ability to write on things", then "Chalkboards etc messages, scratching into wood"). village gains
   `write`, `params {"text": words}`, on a thing whose state is `writable`, held or here, and `writable` says what it

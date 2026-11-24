@@ -2284,6 +2284,13 @@ class Session:
         me_card: dict[str, Any] = {"id": you["id"], "name": you["name"], "condition": you.get("condition")}
         if st.get("hp") is not None and st.get("max_hp"):
             me_card["hp"] = f"{st['hp']}/{st['max_hp']}"
+        if self.role == MIND:
+            # who the character is plays every beat (Klhyts Refuge, 2026-11-24: an NPC's whole card, dialog table and
+            # all, ran to 80,000 characters, past what a harness takes back from one call, and minds played on
+            # without their brief)
+            for k in ("brief", "memory"):
+                if st.get(k):
+                    me_card[k] = st[k]
         people, things = [], []
         for c in b["present"]:
             if "condition" in c:  # a creature: its card carries how it is
@@ -4361,7 +4368,10 @@ class Session:
             return str(x or "").lower()
 
         def heard(word: str = "", by: str = "") -> bool:
-            return any(e["text"] and low(word) in low(e["text"]) and low(by) in low(e["actor"]) for e in data["events"])
+            # words someone else said, or the world showed you; never your own line or your own note (Klhyts Refuge,
+            # 2026-11-24: a mind's watch on heard('dues') fired on the remember note it had just written)
+            return any(e["text"] and e["actor"] != mine and low(word) in low(e["text"]) and low(by) in low(e["actor"])
+                       for e in data["events"])
 
         def did(kind: str = "", by: str = "") -> bool:
             # no kind: any deed here by someone else (a verb's `act` record), not their steps or the engine's own events

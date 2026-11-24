@@ -45,6 +45,15 @@ def test_until_fires_only_on_its_condition_and_keeps_what_came_before():
     assert you.wait(timeout=0, until="heard('ale')", **NOW)["timed_out"] is True  # and moved when it fired
 
 
+def test_heard_is_never_your_own_line_or_your_own_note():
+    # Klhyts Refuge, 2026-11-24: a mind's watch on heard('dues') fired on the remember note it had just written
+    eng, gm, you, mara = two()
+    mara.remember("The traveler looks like an ale man.")
+    mara.say("No ale tonight.", to="Traveler")
+    assert mara.wait(timeout=0, until="heard('ale')", **NOW)["timed_out"] is True
+    assert you.wait(timeout=0, until="heard('ale', by='mara')", **NOW)["fired"] is True
+
+
 def test_until_reads_time_place_people_and_my_own_state():
     eng, gm, you, mara = two()
     assert you.wait(timeout=0, until="came('mara') and here == 'Ashford Square'", **NOW)["fired"] is True

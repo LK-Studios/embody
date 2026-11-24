@@ -75,6 +75,19 @@ def test_a_world_makes_it_the_default(tmp_path):
     assert "present" in gm.perceive(from_entity="Brask")  # perceiving from another body is the author's full view
 
 
+def test_a_mind_keeps_its_brief_and_notes_in_the_short_view(tmp_path):
+    # Klhyts Refuge, 2026-11-24: an NPC's whole card ran to 80,000 characters and minds played without their brief
+    from embody.grants import MIND
+    eng, gm, kal = pier(tmp_path, brief_default=True)
+    for name in ("Brask", "Kalypso"):
+        gm.patch(gm.find(name=name)[0]["id"], {"brief": f"You are {name}."})
+    gm.remember("Nobody passes the door.", entity="Brask")
+    b = eng.session("brask", role=MIND).join("pier", "Brask")
+    assert b["you"]["brief"] == "You are Brask." and b["you"]["memory"][0]["text"] == "Nobody passes the door."
+    assert "people" in b  # still the short view
+    assert "brief" not in kal.perceive()["you"]  # a player's short card stays short
+
+
 def test_a_long_description_is_cut_at_a_word(tmp_path):
     from embody.ops import _glance
     line = _glance({"state": {"description": "word " * 100}})
