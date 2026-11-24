@@ -338,7 +338,7 @@ class Ctx(ScriptObject):
         "patch", "spawn", "move", "set_pos", "destroy", "link", "unlink", "relate", "unrelate",
         "emit", "say", "gesture", "witnesses", "schedule", "reject", "stop", "log", "set_rule", "clear_rule", "knows_way", "ways", "day_seconds", "offer_seat", "withdraw_seat", "move_seat", "strike_wait", "mark_strike", "embodied", "event_at", "quiet", "locked", "shut", "remember",
         "count", "split", "merge", "transfer", "bulk", "load", "may", "member", "chmod", "chown", "rename",
-        "may_write_sheet", "named_entry", "mark", "unmark", "regrow", "step", "leak",
+        "may_write_sheet", "named_entry", "mark", "unmark", "regrow", "step", "leak", "reaches_out",
     )
 
     def __init__(self, world: "World", *, actor: str | None, target: str | None, owner: str | None,
@@ -557,6 +557,17 @@ class Ctx(ScriptObject):
         named, or None: the filter `say` applies to players and minds, for verbs that keep words (an inscription)."""
         from .ops import _mechanics_in
         return _mechanics_in(self._w, str(text or ""))
+
+    def reaches_out(self, text: Any) -> str | None:
+        """What in a line someone writes into the world is a way to reach someone outside it (a link, an email, a
+        handle, a payment ask), named with the words that are, or None: the guest filter on authoring, for verbs that
+        keep words anyone may later read (a note, a book)."""
+        from .ops import _REACH_OUT
+        for label, rx in _REACH_OUT:
+            m = rx.search(str(text or ""))
+            if m and not (label == "a phone number" and sum(c.isdigit() for c in m.group(0)) < 9):
+                return f"{label} ({m.group(0)!r})"
+        return None
 
     def embodied(self, id: Any) -> bool:
         """Someone (a mind, a player) holds this body: it acts for itself, so a rule should not drive it."""

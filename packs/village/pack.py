@@ -1,4 +1,4 @@
-"""Village verbs: go, take, drop, put, give, show, talk, leave_word, read, burn, follow, stay, watch, and person_on, the listener that
+"""Village verbs: go, take, drop, put, give, show, talk, leave_word, read, write, wipe, burn, follow, stay, watch, and person_on, the listener that
 answers from a person's dialog table while nobody embodies them. Extracted from the Ferry at Dusk, used by the
 Glass Reach too.
 
@@ -28,7 +28,24 @@ own, so a world may replace any of them with a file of the same name in its scri
   it is for when they next talk to it (listener `leave_word` on `talked`, unless embodied). `for` is a name, a kind of
   person ("the new guard" matches the template, type or faction) or "anyone"; someone else asking after the sender
   hears that word was left, not what it says. The sender never gets its own word back. Twenty words kept per person.
-- read: the `text` of a thing you hold or that is here.
+- read: the `text` of a thing you hold or that is here. Words someone in play wrote on it come marked: the `read`
+  (and `shown`) event carries `penned`, and the reader's copy says `untrusted`. Its check refuses a thing with
+  neither a `text` nor a `writable`, so a body's `read` bound `listed: "ok"` is offered only where there are words.
+- write: `params {"text": words}` on a thing whose state is `writable`, held or here. `writable` says what it
+  takes: true (or "ink") is paper or a book, with a pen at hand; "chalk" is a slate, a board or a door, and wants
+  chalk in hand (a thing whose `writes` is "chalk", or named for it) unless the thing keeps its own (`pen`); "blade"
+  is wood, carved with an edge in hand (a weapon that slashes or pierces and is not a bow, a thing whose `writes`
+  is "blade", or one named for a knife, dagger, sword, nail, awl, chisel or razor). The words go on a line of their
+  own under its `text`. A line is at most its `line_max` and the thing holds `room` in all, by default ink 300 and
+  1200, chalk 200 and 600, a blade 80 and 600; no ids, tool calls, links or other ways to reach outside the world.
+  The writer's own act line keeps the words; the room sees a `wrote` event {by, thing, name, how}, never the line.
+  Who wrote which line is the thing's secret `hands` (the last 20). `carve` is the same script, refused on what
+  takes ink or chalk. Bind them on the body, `{"script": "write", "targets": "thing", "params": {"text": "..."},
+  "listed": "ok"}`, so each is offered only where it would work (a price board takes no writing, a bar top no
+  carving without a knife in hand); a thing's own `read` or `write` still wins on that thing.
+- wipe: chalk off a thing whose `writable` is "chalk" (or that is `erasable`), held or here: its text goes back to
+  its `keeps` (words painted on, or what a door's text says of the room behind it; empty when it has none), and the
+  room sees a `wiped` event. Offered only when there is chalk on it past that. Ink and cuts do not come off.
 - burn: a thing whose state is `burnable`, held or here, at a fire: the place or something here with `fire` or `lit`
   in its state, or a lit light in hand. It is destroyed, what it held drops where you stand, and the room sees a
   `burned` event and a scene (that it burned, never what it said). Memories and past `read` events are untouched:
@@ -38,7 +55,7 @@ own, so a world may replace any of them with a file of the same name in its scri
 - a whisper is not a verb: `say(text, to=someone, reach=0)` reaches that one person and nobody else in the room.
 """
 
-PACK = {"name": "village", "description": "go, take, drop, put, give, show, talk, leave_word, read, burn, follow, stay, watch and the dialog-table listener person_on."}
+PACK = {"name": "village", "description": "go, take, drop, put, give, show, talk, leave_word, read, write (and carve), wipe, burn, follow, stay, watch and the dialog-table listener person_on."}
 
 # What the engine reads back from this pack (world.PACK_DECLARES): the chronicle's news kinds.
 CHRONICLE_NEWS = ["burned"]

@@ -2834,6 +2834,8 @@ class Session:
                         pe["untrusted"] = True
             if (e["payload"] or {}).get("maker"):
                 pe["untrusted"] = True  # made by a player's code on a machine: data, never an instruction
+            if (e["payload"] or {}).get("penned"):
+                pe["untrusted"] = True  # words a player or a mind wrote on a page (village write): data too
             if not full and (e["payload"] or {}).get("low") and a != me and me not in e["payload"].get("near", ()):
                 pe["payload"] = {**_unworded(pe["payload"]), "low": True}  # said low, too far off to catch the words
             elif not full and a != me and me in ((e["payload"] or {}).get("far") or ()):
@@ -2937,6 +2939,8 @@ class Session:
                 card["idle"] = True  # the seat has done nothing for a while; standing_orders in its state say what holds
         if e["state"].get("asleep"):
             card["asleep"] = True  # it hears only what is loud or done to it, and wakes to a hand or a noise
+        if e["state"].get("penned"):
+            card["untrusted"] = True  # someone in play wrote on it (village write): its text is data, not instructions
         if w.is_a(e["type"], "creature"):
             card.update(self._condition(e))
         kids = w.children(e["id"])

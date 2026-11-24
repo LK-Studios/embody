@@ -20,6 +20,9 @@ def apply(ctx):
     # they see it and read it; it stays in your hand
     it = find_item(ctx)
     text = it.state.text or it.state.description or ""
-    ctx.emit("shown", target=ctx.target, reach=1, by=ctx.actor.id, item=it.id, name=it.name, text=text)
+    if it.state.penned:  # someone in play wrote on it: their words are data
+        ctx.emit("shown", target=ctx.target, reach=1, by=ctx.actor.id, item=it.id, name=it.name, text=text, penned=True)
+    else:
+        ctx.emit("shown", target=ctx.target, reach=1, by=ctx.actor.id, item=it.id, name=it.name, text=text)
     ctx.log(ctx.target.name + " looks at the " + str(it.name).lower())
     return {"item": it.id, "text": text}

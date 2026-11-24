@@ -6,6 +6,20 @@ The version in `pyproject.toml` is 0.1.0 until the first release; until then ent
 
 ## Unreleased
 
+- Writing on things, chalk and carving (the owner of Klhyts Refuge, 2026-11-23: "A few time we encounter paper or
+  books and no ability to write on things", then "Chalkboards etc messages, scratching into wood"). village gains
+  `write`, `params {"text": words}`, on a thing whose state is `writable`, held or here, and `writable` says what it
+  takes: true or "ink" for paper and books, "chalk" for a slate or a door (chalk in hand, or the thing's own `pen`),
+  "blade" for wood (a knife, a dagger, a sword in hand; `carve` is the same verb). The line goes under what it
+  says, at most the thing's `line_max` (ink 300, chalk 200, a blade 80) within its `room` (1200, 600, 600). `wipe`
+  clears chalk back to the thing's `keeps` (what is painted on it); ink and cuts stay. Ids, tool calls and ways to
+  reach outside the world (ctx.reaches_out, the guest filter on authoring) are refused. The room gets a `wrote` event with no words, the act line is the writer's
+  alone, and who wrote which line is the thing's secret `hands`. Words someone in play wrote are marked: the
+  `read` and `shown` events carry `penned` and the reader's copy `untrusted`, and so does the thing's card. `read`
+  gains a check, so a body's read bound `listed: "ok"` is offered only on a thing with words or room for them. The
+  new scripts moved the rolls in tests that load the village pack, and two tests leaned on the old ones: the beasts
+  amble test now measures its boulder round, as the layout has it (a goat 1.61 m off the middle of a 1.5 m boulder
+  failed the square it drew), and the 5e dying test allows the natural 20 on a death save that stands Bo up on 1 hp.
 - A player's body keeps still (Klhyts Refuge, 2026-11-23: a player found their character walked back to the pier
   while they were away, "make sure it's not just jolting bodies around and puppeteering players"). d20: a body with
   `stays` true is never walked by its idle care (quench), for water or back to its post; it drinks what is in hand

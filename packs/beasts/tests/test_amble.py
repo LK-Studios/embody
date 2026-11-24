@@ -56,7 +56,9 @@ def test_goats_spread_out_then_amble_only_while_someone_is_there(wild):
         mine = steps(gm, seq, g)
         assert all(b["t"] - a["t"] >= 30 for a, b in zip(mine, mine[1:]))  # never more often than its tick
         assert all(inside(e["payload"]["at"]) and "heading" in e["payload"] for e in mine)
-    assert all(not (4.5 < at(gm, g)[0] < 7.5 and -1.5 < at(gm, g)[1] < 1.5) for g in goats)  # out of the boulder
+    # out of the boulder: a round one, radius 1.5 at (6, 0), so a goat may stand at its shoulder (a square box round it
+    # failed a goat 1.61 m off its middle when the village pack's new scripts moved the rolls)
+    assert all(((at(gm, g)[0] - 6) ** 2 + at(gm, g)[1] ** 2) ** 0.5 >= 1.5 for g in goats)
     xs = [at(gm, g) for g in goats]
     cx, cy = sum(p[0] for p in xs) / 3, sum(p[1] for p in xs) / 3
     assert all(((p[0] - cx) ** 2 + (p[1] - cy) ** 2) ** 0.5 < 14 for p in xs)  # the herd keeps together

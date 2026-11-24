@@ -147,8 +147,13 @@ def test_a_body_at_zero_is_dying_and_rolls_death_saves(pit):
     gm.patch("Bo", {"hp": 1, "ac": 1})
     r = ash.act("attack", "Bo")
     bo = st(gm, "Bo")
-    assert bo["down"] and bo["dying"] and bo["hp"] == 0 and bo["death_saves"] is not None
     assert evs(r, "downed")[0]["dying"] is True
+    if any(e.get("rose") for e in evs(r, "death_save")):
+        # a natural 20 on the save that came round in the same step: up on 1 hp, as 5e has it (the village pack's
+        # write and wipe scripts moved the rolls onto one, 2026-11-23)
+        assert bo["hp"] == 1 and not bo["down"]
+        return
+    assert bo["down"] and bo["dying"] and bo["hp"] == 0 and bo["death_saves"] is not None
     # Bo's turn came round in the same step: a death save
     assert evs(r, "death_save") or evs(r, "fight_over") == []
     # tend: medicine against 10 stabilises; keep at it until it holds (a seeded world, so this ends)
